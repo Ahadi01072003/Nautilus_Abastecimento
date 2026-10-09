@@ -58,6 +58,14 @@ npm run typecheck && npm run lint && npm run build
 TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres npm test   # cria bancos descartáveis
 ```
 
+## Publicação
+
+A conta da Vercel ainda **não está conectada ao GitHub**, então os deploys atuais usam um “inicializador”: a Vercel recebe só um `package.json` e um `vercel.json` cujo `installCommand` baixa este repositório (público) em um **commit fixo** e roda `npm ci` + `next build`. Para publicar uma nova versão nesse modo, gere um deploy com o novo SHA do commit.
+
+Recomendado (deploy automático a cada push): na Vercel, *Project › Settings › Git › Connect Git Repository*, autorize o GitHub e escolha `Ahadi01072003/Nautilus_Abastecimento`; defina como branch de produção o branch que for usado (ex.: `main`). As variáveis de ambiente já estão no projeto.
+
+Mudanças de banco: aplique os arquivos novos de `db/migrations/` com `npm run db:migrate` usando a `DATABASE_URL` de produção (o usuário `nautilus_app` já usa o schema `nautilus`).
+
 ## Variáveis de ambiente
 
 Veja `.env.example`. Em produção ficam na Vercel (as sensíveis como *Sensitive*).

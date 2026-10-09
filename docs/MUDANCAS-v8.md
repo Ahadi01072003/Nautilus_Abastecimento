@@ -53,7 +53,14 @@ Importados da v7: 5 usuários (como `nome.sobrenome`, todos com primeiro acesso 
 * Teste ponta a ponta em navegador (Chromium) com os dados reais importados, conectado como o usuário restrito do banco: login → primeiro acesso → solicitar → agendar → registrar → estoque baixou e reconciliou; sem erros no console.
 * Linter de segurança do Supabase sem alertas pendentes (apenas o aviso informativo de RLS sem políticas, intencional).
 
-## 7. Pendências
+## 7. Verificação em produção
+
+* `GET /api/health` → `{"ok":true}` (site na Vercel conectado ao banco no Supabase).
+* Login com usuário de teste e senha padrão → `200`, cookie de sessão e exigência de troca de senha; senha errada → `401`; requisição de outra origem → `403`.
+* O usuário de teste (`teste.verificacao`) ficou **desativado** e sem senha válida; pode ser excluído no Supabase (SQL Editor: `delete from nautilus.sessions where member_id='teste-verificacao'; delete from nautilus.members where id='teste-verificacao';`).
+* A extensão `pg_net`, usada para esse teste externo, ficou instalada no banco (inofensiva); pode ser removida com `drop extension pg_net;`.
+
+## 8. Pendências
 
 * **E-mails:** configurar `RESEND_API_KEY` e `EMAIL_FROM` na Vercel e definir `EMAIL_ENABLED=true` (a chave antiga ficou no Sites e não é exportável).
 * **Domínio próprio** (opcional): adicionar na Vercel e atualizar `APP_URL`.
