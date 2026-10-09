@@ -3,7 +3,7 @@
 import {readdirSync,readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import postgres from 'postgres';
-import {connect,useDatabase,type Database} from '../lib/db';
+import {connect,setTestDatabase,type Database} from '../lib/db';
 import {hashPassword} from '../lib/auth';
 import type {Member} from '../lib/permissions';
 
@@ -21,8 +21,8 @@ export async function freshDatabase(){
  for(const file of readdirSync(dir).filter(f=>f.endsWith('.sql')).sort())await setup.unsafe(readFileSync(join(dir,file),'utf8'));
  await setup.end();
  const database=connect(url.toString(),{max:4});
- useDatabase(database);
- return {database,async drop(){useDatabase(null);await database.end();await admin.unsafe(`DROP DATABASE ${name} WITH (FORCE)`);await admin.end();}};
+ setTestDatabase(database);
+ return {database,async drop(){setTestDatabase(null);await database.end();await admin.unsafe(`DROP DATABASE ${name} WITH (FORCE)`);await admin.end();}};
 }
 
 let counter=0;

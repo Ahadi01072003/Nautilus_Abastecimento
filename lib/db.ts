@@ -79,4 +79,4 @@ export function db():Database{
  return instance;
 }
 /** Usado somente pelos testes automatizados. */
-export function useDatabase(database:Database|null){override=database;}
+export function setTestDatabase(database:Database|null){override=database;}
