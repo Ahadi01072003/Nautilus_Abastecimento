@@ -1,0 +1,15 @@
+/node_modules
+/.next/
+/out/
+/coverage
+.DS_Store
+*.pem
+npm-debug.log*
+.env*
+!.env.example
+.vercel
+next-env.d.ts
+*.tsbuildinfo
+# Dados reais exportados nunca entram no Git.
+/dados/
+*.sqlite
