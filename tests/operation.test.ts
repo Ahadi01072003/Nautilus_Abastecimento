@@ -184,3 +184,17 @@ test('exportação CSV neutraliza fórmulas e respeita filtros',async()=>{
  const movements=await (await exportCSV(new URL('http://x/api/export?kind=movements'),manager)).text();
  assert.ok(movements.split('\r\n').length>5);
 });
+
+test('histórico importado (sem baixa) aparece no gráfico e o cancelamento não estorna estoque',async()=>{
+ const before=(await fuel('diesel'))!.stock_milli;
+ await db.run('ALTER TABLE supplies DISABLE TRIGGER supply_after_insert');
+ try{
+  await db.run("INSERT INTO supplies(id,operation_key,fuel_id,equipment_id,operator_id,quantity_milli,occurred_at,created_at,author_id,author_name,equipment_tag,equipment_name,operator_name,fuel_name,unit,notes) VALUES('hist1','planilha:teste','diesel','eq1','op1',100000,'2026-03-25T15:00:00.000Z',?,?,?,'EMP-01','Empilhadeira','Operador Um','Diesel','L','Histórico importado')",new Date().toISOString(),manager.id,manager.name);
+ }finally{await db.run('ALTER TABLE supplies ENABLE TRIGGER supply_after_insert');}
+ assert.equal((await fuel('diesel'))!.stock_milli,before,'importação não mexe no estoque');
+ const view=await state(manager);
+ assert.ok(view.daily.some(d=>d.day==='2026-03-25'&&d.fuel_id==='diesel'&&d.quantity_milli===100000&&d.count===1),'histórico completo no gráfico');
+ await mutate('supplies/cancel',{id:'hist1',reason:'Lançado em duplicidade na planilha'},manager);
+ assert.equal((await fuel('diesel'))!.stock_milli,before,'sem estorno de algo que não saiu do estoque');
+ assert.equal((await db.all("SELECT id FROM movements WHERE supply_id='hist1'")).length,0);
+});

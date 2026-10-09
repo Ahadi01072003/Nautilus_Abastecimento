@@ -44,7 +44,8 @@ export async function state(a:Member,page=0){
   manager?all('SELECT id,username,email,name,profile AS role,notify_requests,notify_schedule,active,created_at,must_change_password,password_changed_at,locked_until,last_login_at FROM members ORDER BY name'):none,
   manager?all('SELECT * FROM audits ORDER BY created_at DESC LIMIT 100'):none,
   manager?all(`SELECT fuel_id,COUNT(*) count,SUM(quantity_milli)::bigint quantity_milli FROM supplies WHERE status='confirmed' AND substr(${LOCAL_DAY},1,7)=? GROUP BY fuel_id`,localMonth()):none,
-  manager?all(`SELECT ${LOCAL_DAY} AS day,fuel_id,SUM(quantity_milli)::bigint quantity_milli FROM supplies WHERE status='confirmed' AND occurred_at>=? GROUP BY 1,2 ORDER BY 1`,new Date(Date.now()-28*86400000).toISOString()):none,
+  // Histórico diário completo (por dia e combustível) para o gráfico com zoom ano › mês › dia.
+  manager?all(`SELECT ${LOCAL_DAY} AS day,fuel_id,SUM(quantity_milli)::bigint quantity_milli,COUNT(*) count FROM supplies WHERE status='confirmed' GROUP BY 1,2 ORDER BY 1`):none,
   all(`SELECT a.id,a.equipment_id,a.equipment_tag,a.equipment_name,a.fuel_id,a.fuel_name,a.hourmeter_milli,a.requester_id,a.requester_name,a.created_at,a.status,a.scheduled_at,a.assigned_member_id,a.assigned_name,a.updated_at,a.completed_at,a.cancel_reason,a.version,s.id supply_id FROM appointments a LEFT JOIN supplies s ON s.appointment_id=a.id AND s.status='confirmed'${appointmentWhere} ORDER BY CASE WHEN a.status='scheduled' THEN 0 WHEN a.status='requested' THEN 1 ELSE 2 END,a.created_at DESC LIMIT ? OFFSET ?`,...appointmentArgs,limit,offset),
   canPlan(a)?all("SELECT id,name FROM members WHERE active=1 AND profile IN ('fueler','manager') ORDER BY name"):none,
   manager?all('SELECT n.id,n.status,n.attempts,n.sent_at,n.last_error,n.created_at,e.kind,m.name recipient_name FROM notifications n JOIN notification_events e ON e.id=n.event_id JOIN members m ON m.id=n.member_id ORDER BY n.created_at DESC LIMIT 100'):none,
@@ -144,8 +145,10 @@ export async function mutate(path:string,b:Row,a:Member){
   await db().tx(async tx=>{
    const changed=await tx.run("UPDATE supplies SET status='cancelled',cancel_reason=? WHERE id=? AND status='confirmed'",reason,s.id);
    if(!changed)throw new AppError('Registro já cancelado.',409);
-   await tx.run("INSERT INTO movements(id,operation_key,fuel_id,delta_milli,kind,supply_id,occurred_at,author_id,author_name,reason) VALUES(?,?,?,?,'reversal',?,?,?,?,?)",id(),'cancel:'+s.id,s.fuel_id,s.quantity_milli,s.id,t,a.id,a.name,reason);
-   await audit(tx,a,'Abastecimento cancelado',s.id,{reason});
+   // Só estorna o que de fato saiu do estoque: registros históricos importados não têm baixa.
+   const debited=await tx.first("SELECT id FROM movements WHERE supply_id=? AND kind='debit'",s.id);
+   if(debited)await tx.run("INSERT INTO movements(id,operation_key,fuel_id,delta_milli,kind,supply_id,occurred_at,author_id,author_name,reason) VALUES(?,?,?,?,'reversal',?,?,?,?,?)",id(),'cancel:'+s.id,s.fuel_id,s.quantity_milli,s.id,t,a.id,a.name,reason);
+   await audit(tx,a,'Abastecimento cancelado',s.id,{reason,reversal:!!debited});
    await enqueue(tx,'cancelled',s.id,t,0,'supplies');
   });
   return {ok:true};
