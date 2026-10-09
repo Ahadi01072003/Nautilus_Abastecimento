@@ -27,8 +27,20 @@ export function placeholders(query:string){
 
 type Sql=postgres.Sql<Record<string,never>>;
 type Unsafe=Pick<Sql,'unsafe'>;
-function executor(sql:Unsafe):Executor{
- const exec=(query:string,values:unknown[])=>sql.unsafe(placeholders(query),values as postgres.ParameterOrJSON<never>[]);
+/** Limita operações simultâneas ao tamanho do pool. Sem isso o driver enfileira várias
+ *  consultas na mesma conexão (pipelining), o que trava o pooler do Supabase em modo transação. */
+function limiter(size:number){
+ let active=0;const waiting:(()=>void)[]=[];
+ return async<T,>(fn:()=>Promise<T>)=>{
+  if(active>=size)await new Promise<void>(resolve=>waiting.push(resolve));else active++;
+  try{return await fn();}
+  finally{const next=waiting.shift();if(next)next();else active--;}
+ };
+}
+type Limit=ReturnType<typeof limiter>;
+function executor(sql:Unsafe,limit?:Limit):Executor{
+ const run=(query:string,values:unknown[])=>sql.unsafe(placeholders(query),values as postgres.ParameterOrJSON<never>[]);
+ const exec=(query:string,values:unknown[])=>limit?limit(async()=>await run(query,values)):run(query,values);
  return {
   async all<T>(query:string,...values:unknown[]){return [...await exec(query,values)] as T[];},
   async first<T>(query:string,...values:unknown[]){const rows=await exec(query,values);return (rows[0]??null) as T|null;},
@@ -40,17 +52,19 @@ let instance:Database|null=null;
 let override:Database|null=null;
 
 export function connect(url:string,options:postgres.Options<Record<string,never>>={}):Database&{end():Promise<void>}{
+ const max=Number(options.max||process.env.DATABASE_POOL_MAX||5),limit=limiter(max);
  const sql=postgres(url,{
   // Pooler do Supabase em modo transação não suporta prepared statements nomeados.
-  prepare:false,max:Number(process.env.DATABASE_POOL_MAX||5),idle_timeout:20,connect_timeout:10,
+  prepare:false,max,idle_timeout:20,connect_timeout:10,
   // int8 (COUNT, quantidades em milésimos) volta como number; valores < 2^53.
   types:{bigint:{to:20,from:[20],serialize:(x:number)=>String(x),parse:(x:string)=>Number(x)}},
   onnotice:()=>{},
   ...options,
  }) as unknown as Sql;
  return {
-  ...executor(sql),
-  tx:<T,>(fn:(tx:Executor)=>Promise<T>)=>sql.begin(tx=>fn(executor(tx as unknown as Unsafe))) as Promise<T>,
+  ...executor(sql,limit),
+  // A transação ocupa uma vaga do limitador inteira; dentro dela as consultas são sequenciais.
+  tx:<T,>(fn:(tx:Executor)=>Promise<T>)=>limit(()=>sql.begin(tx=>fn(executor(tx as unknown as Unsafe))) as Promise<T>),
   end:()=>sql.end({timeout:5}),
  };
 }
