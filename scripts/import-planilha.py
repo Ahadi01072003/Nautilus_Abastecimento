@@ -13,7 +13,10 @@ Regras:
 import sys, hashlib
 import openpyxl
 
-TAGS = {'EG - 4,5-01': 'EMPG-001', 'ED - 16-02': 'EMPD-001', 'PTA-001': 'PTAG-001'}
+# Equipamento da planilha → ID do cadastro (estável mesmo se a TAG for renomeada).
+TAGS = {'EG - 4,5-01': '7d7bf959-19ad-49bc-ac2f-d39f0ce15ff9',   # EG-4,5-01 · Empilhadeira a Gás
+        'ED - 16-02': '465639f8-61f9-4852-b30c-476d967445cc',    # ED-16-02 · Empilhadeira a Diesel
+        'PTA-001': '19db88e8-1389-447f-b538-a6c0d6964f21'}       # PTA-001 · Ponte Elevatória
 FUELS = {'Gás': 'gas', 'Diesel': 'diesel'}
 OPERATOR_ID = 'f728b302-2fe8-465b-bbbc-7188fce4a30b'   # Italo Souza
 AUTHOR_ID = '45cd90b9-0326-4740-bb46-1ccc485b7e66'     # Thiago Almeida (gestor)
@@ -41,8 +44,8 @@ INSERT INTO supplies(id,appointment_id,operation_key,fuel_id,equipment_id,operat
 SELECT gen_random_uuid()::text,NULL,v.key,f.id,e.id,o.id,v.qty,v.occurred,to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),m.id,m.name,e.tag,e.description,o.name,f.name,f.unit,v.h0,v.h1,{lit(NOTE)},'confirmed',''
 FROM (VALUES
 {(','+chr(10)).join(rows)}
-) AS v(key,tag,fuel,qty,occurred,h0,h1)
-JOIN equipment e ON e.tag=v.tag JOIN fuels f ON f.id=v.fuel
+) AS v(key,equipment,fuel,qty,occurred,h0,h1)
+JOIN equipment e ON e.id=v.equipment JOIN fuels f ON f.id=v.fuel
 JOIN operators o ON o.id={lit(OPERATOR_ID)} JOIN members m ON m.id={lit(AUTHOR_ID)}
 ON CONFLICT (operation_key) DO NOTHING;
 ALTER TABLE supplies ENABLE TRIGGER supply_after_insert;
