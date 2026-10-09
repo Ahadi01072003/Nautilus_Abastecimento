@@ -44,7 +44,11 @@ const route=(req:Request)=>new URL(req.url).pathname.replace(/^\/api\//,'');
 
 export async function GET(req:Request){try{
  const url=new URL(req.url),path=route(req);
- if(path==='health'){await db().first('SELECT 1 ok');return json({ok:true});}
+ if(path==='health'){
+  // Diagnóstico público mínimo: só a categoria da falha, nunca a mensagem ou credenciais.
+  try{await db().first('SELECT 1 ok');return json({ok:true});}
+  catch(e){const x=e as {code?:string;message?:string};const reason=/tenant or user not found/i.test(x.message||'')?'pooler_tenant':/password authentication/i.test(x.message||'')?'auth':String(x.code||'unknown').slice(0,40);return json({ok:false,reason},503);}
+ }
  if(path==='cron/notifications'){
   if(!await bearerMatches(req.headers.get('Authorization'),env().CRON_SECRET))return json({error:'Acesso negado.'},401);
   await rateLimit('cron','cron');
