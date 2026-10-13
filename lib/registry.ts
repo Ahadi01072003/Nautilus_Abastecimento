@@ -63,7 +63,7 @@ export async function registryState(member:Member){
   all('SELECT q.* FROM checklist_questions q JOIN checklist_versions v ON v.id=q.version_id JOIN checklist_templates t ON t.id=v.template_id AND t.current_version=v.version ORDER BY q.position'),
   all('SELECT l.* FROM checklist_links l JOIN checklist_versions v ON v.id=l.version_id JOIN checklist_templates t ON t.id=v.template_id AND t.current_version=v.version'),
   all('SELECT id,code,name,active FROM activity_types ORDER BY name'),
-  manager?all('SELECT id,username,email,name,profile AS role,capabilities,notify_requests,notify_schedule,active,created_at,must_change_password,password_changed_at,locked_until,last_login_at FROM members ORDER BY name'):none,
+  manager?all('SELECT id,username,email,name,profile AS role,capabilities,org_scope,notify_requests,notify_schedule,active,created_at,must_change_password,password_changed_at,locked_until,last_login_at FROM members ORDER BY name'):none,
   manager?all('SELECT * FROM audits ORDER BY created_at DESC LIMIT 150'):none,
  ]);
  const checklists:Row[]=templates.map(t=>{

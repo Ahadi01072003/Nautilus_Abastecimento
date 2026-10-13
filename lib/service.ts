@@ -29,7 +29,8 @@ const flag=(value:unknown)=>value===false?0:1;
 export async function state(a:Member,page=0){
  if(!Number.isSafeInteger(page)||page<0||page>10000)throw new AppError('Página inválida.');
  const manager=isManager(a),requester=a.profile==='requester',fueler=a.profile==='fueler',limit=100,offset=page*limit;
- const appointmentWhere=requester?' WHERE a.requester_id=?':fueler?" WHERE a.status='scheduled' OR EXISTS(SELECT 1 FROM supplies own WHERE own.appointment_id=a.id AND own.author_id=?)":'';
+ // Perfil sem abastecimento (ex.: clientes) não vê agenda nem registros de abastecimento.
+ const appointmentWhere=a.profile==='none'?' WHERE false':requester?' WHERE a.requester_id=?':fueler?" WHERE a.status='scheduled' OR EXISTS(SELECT 1 FROM supplies own WHERE own.appointment_id=a.id AND own.author_id=?)":'';
  const appointmentArgs=requester||fueler?[a.id]:[];
  const supplyWhere=manager?'':' WHERE s.author_id=?',supplyArgs=manager?[]:[a.id];
  const none=Promise.resolve([] as Row[]);
@@ -176,21 +177,26 @@ export async function mutate(path:string,b:Row,a:Member){
   if(clash)throw new AppError(clash.username===username?'Este usuário já está em uso. Escolha outro.':'Este e-mail já pertence a outro cadastro.',409);
   if(b.capabilities!=null&&(!Array.isArray(b.capabilities)||b.capabilities.some((c:unknown)=>!allCapabilities.includes(c as never))))throw new AppError('Acesso adicional inválido.');
   // O gestor já tem todos os acessos; os adicionais valem para os demais perfis.
-  const caps=profile==='manager'?[]:allCapabilities.filter(c=>(b.capabilities||[]).includes(c));
+  // Liberação técnica é feita na tela de equipamentos, por isso inclui Cadastros gerais.
+  const asked=new Set<string>(b.capabilities||[]);if(asked.has('manutencao'))asked.add('cadastros');
+  const caps=profile==='manager'?[]:allCapabilities.filter(c=>asked.has(c));
+  if(b.orgScope!=null&&(!Array.isArray(b.orgScope)||b.orgScope.length>100||b.orgScope.some((o:unknown)=>typeof o!=='string')))throw new AppError('Escopo de organizações inválido.');
+  const scope=profile==='manager'?[]:[...new Set<string>(b.orgScope||[])];
+  if(scope.length){const known=await all('SELECT id FROM requester_orgs WHERE id = ANY(?::text[])',scope);if(known.length!==scope.length)throw new AppError('Escopo de organizações inválido.');}
   const notifyRequests=profile==='planner'?Number(b.notifyRequests!==false):1,notifySchedule=profile==='fueler'?Number(b.notifySchedule!==false):1,active=flag(b.active);
   if(!existing){
    const temporary=b.temporaryPassword?checkTemporaryPassword(b.temporaryPassword):defaultPassword();
    const hash=await hashPassword(temporary),mid=id();
    await db().tx(async tx=>{
-    await tx.run('INSERT INTO members(id,username,email,name,profile,capabilities,notify_requests,notify_schedule,active,created_at,password_hash,must_change_password,password_changed_at) VALUES(?,?,?,?,?,?::text[],?,?,?,?,?,1,?)',mid,username,addr,name,profile,caps,notifyRequests,notifySchedule,active,t,hash,t);
+    await tx.run('INSERT INTO members(id,username,email,name,profile,capabilities,org_scope,notify_requests,notify_schedule,active,created_at,password_hash,must_change_password,password_changed_at) VALUES(?,?,?,?,?,?::text[],?::text[],?,?,?,?,?,1,?)',mid,username,addr,name,profile,caps,scope,notifyRequests,notifySchedule,active,t,hash,t);
     await audit(tx,a,'Acesso criado',mid,{username,profile,capabilities:caps,active:!!active,customTemporaryPassword:!!b.temporaryPassword});
    });
    return {id:mid,username,message:`Usuário ${username} criado. No primeiro acesso a pessoa usa a senha ${b.temporaryPassword?'provisória informada':'padrão'} e define a senha definitiva.`};
   }
   await db().tx(async tx=>{
-   await tx.run('UPDATE members SET username=?,email=?,name=?,profile=?,capabilities=?::text[],notify_requests=?,notify_schedule=?,active=? WHERE id=?',username,addr,name,profile,caps,notifyRequests,notifySchedule,active,existing.id);
+   await tx.run('UPDATE members SET username=?,email=?,name=?,profile=?,capabilities=?::text[],org_scope=?::text[],notify_requests=?,notify_schedule=?,active=? WHERE id=?',username,addr,name,profile,caps,scope,notifyRequests,notifySchedule,active,existing.id);
    if(!active||existing.profile!==profile)await tx.run('DELETE FROM sessions WHERE member_id=?',existing.id);
-   await audit(tx,a,'Acesso atualizado',existing.id,{before:{username:existing.username,email:existing.email,profile:existing.profile,capabilities:existing.capabilities,active:existing.active},after:{username,email:addr,profile,capabilities:caps,active,notifyRequests,notifySchedule}});
+   await audit(tx,a,'Acesso atualizado',existing.id,{before:{username:existing.username,email:existing.email,profile:existing.profile,capabilities:existing.capabilities,orgScope:existing.org_scope,active:existing.active},after:{username,email:addr,profile,capabilities:caps,orgScope:scope,active,notifyRequests,notifySchedule}});
   });
   return {id:existing.id,username};
  }

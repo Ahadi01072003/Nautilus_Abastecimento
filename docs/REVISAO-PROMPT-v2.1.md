@@ -116,11 +116,54 @@ Correspondem às etapas 1 e 2 da sequência recomendada (§25): inspeção do si
 - Roteiro no navegador em desktop e celular, sem erros de console.
 - Migração ensaiada numa cópia local com a estrutura de produção.
 
-## 6. Próximas fases
+## 6. Fase 3 entregue (13/10/2026)
+
+Decisões confirmadas pelo usuário:
+1. **Anexos**: Supabase Storage com bucket privado (`nautilus-anexos`).
+   - O envio vai do navegador direto ao Storage, por URL assinada.
+   - Depois do envio, o servidor confere tamanho e conteúdo real (assinatura do arquivo) antes de marcar como salvo.
+   - A visualização usa link de 2 minutos.
+   - A chave de serviço do Supabase fica só na função `nautilus-storage`. O servidor do NAUTILUS se autentica com um token gerado no próprio banco (`app_settings`); nenhuma chave nova foi criada na Vercel.
+2. **Liberação técnica**:
+   - Novo acesso adicional "Liberação técnica".
+   - Impedimento técnico manual (e, na Operação, por NC crítica) bloqueia reservas e lançamentos no banco.
+   - A liberação exige justificativa e evidência. Nada é apagado.
+   - Com dois impedimentos ativos, são necessárias duas liberações.
+3. **Escopo do cliente**:
+   - Novo perfil "Sem acesso ao abastecimento" e acesso "Acompanhamento de OS".
+   - Cada usuário tem "Organizações visíveis", editável pelo gestor; vazio = todas.
+   - A restrição vale na lista, no detalhe, nos documentos e no acesso direto.
+4. **Rascunho esquecido**: o gestor libera as reservas, com motivo e auditoria.
+5. **Dependência de etapa opcional não incluída**: é ignorada e gera aviso na revisão.
+
+Entregue:
+- **Planejamento de atividade**:
+  - Rascunho com salvamento automático. O status mostra "Salvando", "Salvo às" ou "Não salvo"; "Salvo" só aparece após confirmação do servidor.
+  - Horários por etapa, com sugestão pelas durações padrão, aplicada só após confirmação.
+  - Equipamentos com agenda do intervalo: livre, reservado (com o motivo) ou bloqueado.
+  - Colaboradores por função.
+  - Documentos da OS e das etapas.
+  - Troca de tipo com confirmação.
+- **Reservas provisórias exclusivas**:
+  - O banco recusa sobreposição `[início, fim)` e equipamento bloqueado, travando a linha do equipamento. Isso vale inclusive para gravações simultâneas.
+- **Revisar e lançar**:
+  - Pendências e avisos aparecem antes do lançamento.
+  - O lançamento é idempotente: duplo clique ou reenvio devolve a mesma OS.
+  - Ele cria o número da OS, congela o planejamento, confirma as reservas e cria as etapas da OS.
+- **Rascunhos**: lista com as reservas que cada um segura; o gestor pode liberá-las.
+- **Lista de OS** (Planejamento) e **Operação › Ordens de serviço**:
+  - Mesma fonte de dados.
+  - Filtro por sobreposição de período, organização, tipo, local, situação e número.
+  - Ordem padrão da especificação; canceladas só aparecem por filtro.
+  - Contagem por organização; cartões no celular.
+  - Detalhe da OS com documentos.
+  - Cancelamento libera as reservas.
+- **Condição técnica**: aba em Cadastros gerais › Tipos e equipamentos, com os compromissos afetados.
+
+## 7. Próximas fases
 
 | Fase | Conteúdo | Decisões necessárias |
 |---|---|---|
-| 3 | Planejamento de atividade: rascunho persistido, reservas provisórias com intertravamento, revisão e lançamento idempotente, lista de OS | Itens 3.3, 3.5 e 3.6 |
 | 4 | Lista e Gantt compartilhados (ano/mês/dia), filtros por sobreposição, contagens por organização | — |
-| 5 | Operação: execução por etapa, cronômetros, ocorrências/impactos/bloqueios, checklists na OS, NC crítica com bloqueio global e repercussão nas OS | Item 3.4 (comando técnico mínimo) e anexos (seção 2) |
+| 5 | Operação: execução por etapa, cronômetros, ocorrências/impactos/bloqueios, checklists na OS, NC crítica com bloqueio global e repercussão nas OS | — |
 | 6 | Encerramento automático, revisões de OS, auditoria imutável, cenários de risco | — |

@@ -2,7 +2,7 @@
 // Configuração central de módulos e telas. Uma tela só aparece quando existe e quando o
 // servidor a libera em actor.modules; o servidor revalida cada consulta e comando.
 import {useEffect,useState} from 'react';
-import {Compass,LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,type LucideIcon} from 'lucide-react';
+import {Compass,LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,FilePen,ListOrdered,HardHat,ClipboardList,type LucideIcon} from 'lucide-react';
 import {Sidebar,SidebarContent,SidebarHeader,SidebarFooter,SidebarGroup,SidebarGroupLabel,SidebarMenu,SidebarMenuItem,SidebarMenuButton,SidebarMenuSub,SidebarMenuSubItem,SidebarMenuSubButton,useSidebar} from '@/components/ui/sidebar';
 import {signOut} from './login';
 
@@ -19,6 +19,12 @@ export const MODULES:Module[]=[
  ]},
  {id:'planejamento',label:'Planejamento',icon:CalendarRange,screens:[
   {id:'plan-fluxos',label:'Cadastro de fluxo',icon:Workflow,subtitle:'Tipos de atividade, etapas, dependências e necessidades padrão, com versões.'},
+  {id:'plan-atividade',label:'Planejamento de atividade',icon:CalendarPlus,subtitle:'Rascunho com horários, recursos e documentos; revise e lance a OS.'},
+  {id:'plan-rascunhos',label:'Rascunhos',icon:FilePen,subtitle:'Planejamentos ainda não lançados e as reservas provisórias que eles seguram.'},
+  {id:'plan-os',label:'Lista de OS programadas',icon:ListOrdered,subtitle:'OS lançadas, com filtros por período, solicitante, local e situação.'},
+ ]},
+ {id:'operacao',label:'Operação',icon:HardHat,screens:[
+  {id:'op-os',label:'Ordens de serviço',icon:ClipboardList,subtitle:'OS lançadas pelo Planejamento, na ordem de prioridade da operação.'},
  ]},
  {id:'cadastros',label:'Cadastros gerais',icon:Database,screens:[
   {id:'cad-solicitantes',label:'Solicitantes e clientes',icon:Building2,subtitle:'Organizações solicitantes, etiquetas visuais e pessoas de contato.'},

@@ -3,7 +3,8 @@
 Sistema web da Base Açu. Módulos (menu lateral expansível):
 
 - **Abastecimento**: solicitação, agendamento e registro de abastecimentos, controle de **estoque**, **reposições** por estoque mínimo e avisos por e-mail.
-- **Planejamento**: cadastro de fluxos (tipos de atividade, etapas, dependências e necessidades, com versões imutáveis). Planejamento de OS, Operação e Gantt são as próximas fases; veja [docs/REVISAO-PROMPT-v2.1.md](docs/REVISAO-PROMPT-v2.1.md).
+- **Planejamento**: cadastro de fluxos versionados; planejamento de atividade em rascunho (salvamento automático, reservas exclusivas de equipamentos, documentos), revisão e lançamento da OS; rascunhos; lista de OS.
+- **Operação**: consulta das OS lançadas (execução, apontamentos, checklists e Gantt são as próximas fases; veja [docs/REVISAO-PROMPT-v2.1.md](docs/REVISAO-PROMPT-v2.1.md)).
 - **Cadastros gerais**: solicitantes e clientes, locais, tipos e equipamentos, colaboradores e funções (com usuários e senhas), checklists versionados e categorias de ocorrências, impactos e bloqueios.
 - **Exportação** CSV, fora dos módulos.
 
@@ -38,7 +39,15 @@ Proteções: senhas com PBKDF2-SHA256 (310 mil iterações, sal individual); ses
 | Abastecedor | Ver a agenda compartilhada, registrar o consumo de agendamentos e ver os próprios registros |
 | Gestor | Tudo: estoque, reposições, cadastros, usuários e senhas, parâmetros, auditoria e exportação |
 
-Além do perfil, o gestor pode dar **acessos adicionais** acumuláveis: *Cadastros gerais* (sem usuários e senhas, que continuam exclusivos do gestor) e *Planejamento*.
+Além do perfil, o gestor pode dar **acessos adicionais** acumuláveis:
+- *Cadastros gerais*: não inclui usuários e senhas, que continuam exclusivos do gestor.
+- *Planejamento*.
+- *Acompanhamento de OS*.
+- *Liberação técnica*.
+
+Clientes usam o perfil *Sem acesso ao abastecimento* com *Organizações visíveis* marcadas: eles veem só as OS da sua organização.
+
+Anexos ficam no Supabase Storage (bucket privado `nautilus-anexos`), operados pela função `supabase/functions/nautilus-storage`. A URL e o token dessa função ficam em `nautilus.app_settings`.
 
 Permissões são verificadas no servidor **e** no banco (triggers), não apenas na tela.
 
