@@ -19,7 +19,7 @@ export function sameOrigin(req:Request){
  if(host)expected.add(`${req.headers.get('x-forwarded-proto')||new URL(req.url).protocol.replace(':','')}://${host}`);
  if(!origin||!expected.has(origin)||req.headers.get('Sec-Fetch-Site')==='cross-site')throw new AppError('Origem não autorizada.',403);
 }
-const limits={read:120,write:40,export:5,cron:10,email_test:2,login:10,password:10};
+const limits={read:120,write:90,export:5,cron:10,email_test:2,login:10,password:10};
 /** Contador atômico por chave (conta ou hash do endereço de rede), janela de 1 minuto. */
 export async function rateLimit(subject:string,action:keyof typeof limits){
  const minute=Math.floor(Date.now()/60000),key=subject+':'+action;

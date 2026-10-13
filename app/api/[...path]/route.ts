@@ -5,6 +5,7 @@ import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
+import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -15,7 +16,7 @@ export const runtime='nodejs';
 export const maxDuration=30;
 
 function json(value:unknown,status=200){return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});}
-const known=['Responsável sem autorização','Agendamento sem autorização','Agendamento indisponível','Acesso sem autorização','Equipamento incompatível ou inativo','Estoque insuficiente','Quantidade excede','Recebimento excede','Quantidade deve ser inteira','Operador inativo','Estoque alterado durante conferência','Mantenha ao menos um gestor ativo','Cancelamento sem autorização','Estoque sem autorização','Combustível indisponível','Registro sem agendamento exige gestor e justificativa','Solicitante sem acesso ativo','Auditoria sem autorização','Hierarquia de local inválida','Nível do local não pode ser alterado','Dependência circular entre etapas','Versão publicada é imutável','Planejamento lançado não pode ser alterado','Liberação técnica sem autorização','Impedimento técnico não pode ser alterado','Equipamento bloqueado por impedimento técnico','Equipamento reservado no período'];
+const known=['Responsável sem autorização','Agendamento sem autorização','Agendamento indisponível','Acesso sem autorização','Equipamento incompatível ou inativo','Estoque insuficiente','Quantidade excede','Recebimento excede','Quantidade deve ser inteira','Operador inativo','Estoque alterado durante conferência','Mantenha ao menos um gestor ativo','Cancelamento sem autorização','Estoque sem autorização','Combustível indisponível','Registro sem agendamento exige gestor e justificativa','Solicitante sem acesso ativo','Auditoria sem autorização','Hierarquia de local inválida','Nível do local não pode ser alterado','Dependência circular entre etapas','Versão publicada é imutável','Planejamento lançado não pode ser alterado','Liberação técnica sem autorização','Impedimento técnico não pode ser alterado','Equipamento bloqueado por impedimento técnico','Equipamento reservado no período','Checklist concluído não pode ser alterado','Apontamento não pode ser alterado','Evento de execução não pode ser alterado','Intervalo de execução não pode ser alterado'];
 function error(e:unknown){
  if(e instanceof AppError)return json({error:e.message},e.status);
  const pg=e as {code?:string;message?:string;constraint_name?:string};
@@ -77,6 +78,8 @@ export async function GET(req:Request){try{
  if(path==='planning/validate'){await rateLimit(member.id,'read');return json(await validateDraft(member,url.searchParams.get('id')||''));}
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}
  if(path==='orders/refs'){await rateLimit(member.id,'read');return json(await ordersRefs(member));}
+ if(path==='ops/order'){await rateLimit(member.id,'read');return json(await orderDetail(member,url.searchParams.get('id')||''));}
+ if(path==='ops/start-check'){await rateLimit(member.id,'read');return json(await startCheck(member,url.searchParams.get('stepId')||''));}
  if(path==='condition'){await rateLimit(member.id,'read');return json(await conditionState(member));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
@@ -107,6 +110,7 @@ export async function POST(req:Request){try{
  if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));
  if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
+ if(path.startsWith('ops/'))return json(await operationMutate(path,body,member));
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));
  const result=await mutate(path,body,member);
  flushLater(req);

@@ -96,7 +96,7 @@ export async function planningState(member:Member){
 }
 
 export async function planDetail(member:Member,planId:string){
- const a=await requireAny(member,['planejamento','acompanhamento']);
+ const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
  const plan=await loadPlan(idOf(planId,'Planejamento'));
  if(!plan||!canView(a,plan))throw new AppError('Planejamento não encontrado ou fora do seu acesso.',404);
  const impediments=await all("SELECT equipment_id,reason,opened_at FROM equipment_impediments WHERE released_at IS NULL AND equipment_id = ANY(?::text[])",plan.steps.flatMap(s=>s.equipment_ids));
@@ -187,7 +187,7 @@ export async function validateDraft(member:Member,planId:string){
 
 /** Lista de OS lançadas (mesma fonte para Planejamento, Operação e contagens). */
 export async function ordersList(member:Member,url:URL){
- const a=await requireAny(member,['planejamento','acompanhamento']);
+ const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
  const from=instant(url.searchParams.get('from'),'Período inicial'),to=instant(url.searchParams.get('to'),'Período final');
  const where:string[]=[],values:unknown[]=[];
  const scope=scopeOf(a);if(scope){where.push('w.org_id = ANY(?::text[])');values.push(scope);}
@@ -210,7 +210,7 @@ export async function ordersList(member:Member,url:URL){
 }
 
 export async function ordersRefs(member:Member){
- const a=await requireAny(member,['planejamento','acompanhamento']);
+ const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
  const scope=scopeOf(a);
  const data=await refs();
  return {orgs:data.orgs.filter(o=>!scope||scope.includes(o.id)),people:data.people.filter(p=>!scope||scope.includes(p.org_id)),locations:data.locations,activityTypes:data.activityTypes,equipment:data.equipment,equipmentTypes:data.equipmentTypes,operators:data.operators,functions:data.functions,scoped:!!scope,canPlan:isManager(a)||(a.capabilities||[]).includes('planejamento')};
@@ -231,6 +231,24 @@ async function createDraftFrom(tx:Executor,a:Member,activityTypeId:string,header
   for(const n of needs.filter(x=>x.step_id===s.id))await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,quantity) VALUES(?,?,?,?,?,?)',id(),pid,sid,n.equipment_type_id,n.function_id,n.quantity);
  }
  return {pid,type};
+}
+
+/** Checklists previstos na OS, com a versão vigente fixada no lançamento: os vinculados ao tipo
+ * de atividade (um por OS) e os vinculados a equipamento/tipo (um por equipamento alocado). */
+export async function createRequirements(tx:Executor,workOrderId:string,plan:Plan){
+ const versions=await tx.all(`SELECT v.*,coalesce(array_agg(l.activity_type_id) FILTER (WHERE l.activity_type_id IS NOT NULL),'{}') activity_ids,
+  coalesce(array_agg(l.equipment_id) FILTER (WHERE l.equipment_id IS NOT NULL),'{}') equipment_ids,coalesce(array_agg(l.equipment_type_id) FILTER (WHERE l.equipment_type_id IS NOT NULL),'{}') type_ids
+  FROM checklist_versions v JOIN checklist_templates t ON t.id=v.template_id AND t.current_version=v.version AND t.active=1 LEFT JOIN checklist_links l ON l.version_id=v.id GROUP BY v.id`);
+ const used=[...new Set(plan.steps.filter(s=>s.included).flatMap(s=>s.equipment_ids))];
+ const equipment=used.length?await tx.all('SELECT id,type_id FROM equipment WHERE id = ANY(?::text[])',used):[];
+ let n=0;const t=now();
+ for(const v of versions){
+  const rows:(string|null)[]=[];
+  if((v.activity_ids as string[]).includes(plan.activity_type_id))rows.push(null);
+  for(const e of equipment)if((v.equipment_ids as string[]).includes(e.id)||(e.type_id&&(v.type_ids as string[]).includes(e.type_id)))rows.push(e.id);
+  for(const eq of rows){await tx.run('INSERT INTO checklist_requirements(id,work_order_id,version_id,equipment_id,mandatory,moment,created_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',id(),workOrderId,v.id,eq,v.mandatory,v.moment,t);n++;}
+ }
+ return n;
 }
 
 /** Libera as reservas ativas do planejamento (rascunho descartado, gestor, cancelamento). */
@@ -267,7 +285,8 @@ export async function planningMutate(path:string,b:Row,member:Member){
    // Promove as reservas provisórias (o banco revalida conflito e condição técnica).
    await tx.run("UPDATE reservations SET status='confirmada' WHERE plan_id=? AND status='provisoria'",plan.id);
    for(const s of plan.steps.filter(x=>x.included))await tx.run('INSERT INTO os_steps(id,work_order_id,step_key,plan_step_id) VALUES(?,?,?,?)',id(),wid,s.step_key,s.id);
-   await audit(tx,a,'Planejamento: OS lançada',wid,{number:w!.number,planId:plan.id,steps:plan.steps.filter(x=>x.included).length,reservations:plan.steps.flatMap(s=>s.equipment_ids).length});
+   const required=await createRequirements(tx,wid,plan);
+   await audit(tx,a,'Planejamento: OS lançada',wid,{number:w!.number,planId:plan.id,steps:plan.steps.filter(x=>x.included).length,reservations:plan.steps.flatMap(s=>s.equipment_ids).length,checklists:required});
    return {workOrderId:wid,number:w!.number as number};
   });
   return {...result,message:`${osNumber(result.number)} lançada e disponível na Operação.`};

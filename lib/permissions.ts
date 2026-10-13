@@ -3,8 +3,8 @@ import {db} from './db';
 
 export type Profile='requester'|'planner'|'fueler'|'manager'|'none';
 /** Acessos adicionais, acumuláveis com qualquer perfil. O gestor tem todos. */
-export type Capability='cadastros'|'planejamento'|'acompanhamento'|'manutencao';
-export const capabilities:Capability[]=['cadastros','planejamento','acompanhamento','manutencao'];
+export type Capability='cadastros'|'planejamento'|'acompanhamento'|'manutencao'|'operacao';
+export const capabilities:Capability[]=['cadastros','planejamento','acompanhamento','manutencao','operacao'];
 export type Member={id:string;profile:Profile;active?:number|boolean;name:string;capabilities?:string[];[key:string]:unknown};
 export const profiles:Profile[]=['requester','planner','fueler','manager','none'];
 export function isManager(a:Member){return a.profile==='manager';}
@@ -32,9 +32,9 @@ export const operationModules=['op-os'];
 export function modules(a:Member){
  const list:string[]=isManager(a)?[...fuelModules,'exportacao']:a.profile==='fueler'?['solicitacoes','abastecimentos']:a.profile==='none'?[]:['solicitacoes'];
  if(has(a,'planejamento'))list.push(...planningModules);
- if(has(a,'planejamento')||has(a,'acompanhamento'))list.push(...operationModules);
+ if(has(a,'planejamento')||has(a,'acompanhamento')||has(a,'operacao'))list.push(...operationModules);
  if(has(a,'cadastros'))list.push(...registryModules);
  return list;
 }
 /** Pode consultar OS lançadas (respeitando o escopo de organizações). */
-export function canSeeOrders(a:Member){return has(a,'planejamento')||has(a,'acompanhamento');}
+export function canSeeOrders(a:Member){return has(a,'planejamento')||has(a,'acompanhamento')||has(a,'operacao');}
