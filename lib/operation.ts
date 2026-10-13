@@ -37,8 +37,14 @@ export async function orderDetail(member:Member,workOrderId:string){
  const used=[...new Set(plan!.steps.flatMap(s=>s.equipment_ids))];
  const complementary=await db().all(`SELECT t.id template_id,t.code,v.id version_id,v.title,v.moment,v.general_use FROM checklist_templates t JOIN checklist_versions v ON v.template_id=t.id AND v.version=t.current_version
   WHERE t.active=1 AND (v.general_use=1 OR EXISTS (SELECT 1 FROM checklist_links l LEFT JOIN equipment e ON e.id = ANY(?::text[]) WHERE l.version_id=v.id AND (l.activity_type_id=? OR l.equipment_id = ANY(?::text[]) OR l.equipment_type_id=e.type_id))) ORDER BY t.code`,used,wo.activity_type_id,used);
+ const people=[...new Set(plan!.steps.flatMap(s=>s.operator_ids))];
+ const [equipmentTags,operatorNames,orgs]=await Promise.all([
+  used.length?db().all('SELECT id,tag FROM equipment WHERE id = ANY(?::text[])',used):[],
+  people.length?db().all('SELECT id,name FROM operators WHERE id = ANY(?::text[])',people):[],
+  db().all('SELECT id,name,acronym,color FROM requester_orgs WHERE id=?',wo.org_id),
+ ]);
  const caps=a.capabilities||[];
- return {order:wo,plan,steps,intervals,occurrences,events,requirements,instances:instances.map(i=>({...i,answers:answers.filter(x=>x.instance_id===i.id)})),questions,complementary,categories,
+ return {order:wo,plan,steps,equipmentTags,operatorNames,orgs,intervals,occurrences,events,requirements,instances:instances.map(i=>({...i,answers:answers.filter(x=>x.instance_id===i.id)})),questions,complementary,categories,
   impediments:impediments.filter(i=>used.includes(i.equipment_id)),serverNow:now(),
   can:{execute:isManager(a)||caps.includes('operacao'),plan:isManager(a)||caps.includes('planejamento')}};
 }

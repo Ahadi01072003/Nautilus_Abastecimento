@@ -13,6 +13,7 @@ import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,type R} from './kit';
 import {layers,hhmm} from './flows';
+import OrderExecution from './execution';
 
 /** Horário de Brasília para o campo datetime-local e de volta (com fuso explícito). */
 const toLocal=(iso?:string|null)=>iso?new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(iso)).replace(' ','T'):'';
@@ -193,14 +194,18 @@ export function Orders({mode,refreshKey}:{mode:'planejamento'|'operacao',refresh
  // Atualização periódica para refletir lançamentos e bloqueios de outras pessoas.
  useEffect(()=>{const t=setInterval(()=>{if(!document.hidden)void refresh()},45000);return()=>clearInterval(t)},[refresh]);
  const paths=useMemo(()=>refs?locationPaths(refs.locations):new Map(),[refs]);
- async function openDetail(o:R){try{const r=await load<R>('planning/plan?id='+encodeURIComponent(o.current_plan_id));setDetail({order:o,...r})}catch(e){toast.error((e as Error).message)}}
+ // OS aberta na tela de execução (?os=), com a lista mantida por trás para voltar com os mesmos filtros.
+ const [execId,setExecId]=useState<string|null>(null);
+ useEffect(()=>{const read=()=>setExecId(new URLSearchParams(location.search).get('os'));read();window.addEventListener('popstate',read);return()=>window.removeEventListener('popstate',read)},[]);
+ const openExec=(id:string|null)=>{setExecId(id);const q=new URLSearchParams(location.search);if(id)q.set('os',id);else q.delete('os');history.pushState(null,'','/?'+q.toString());window.scrollTo({top:0})};
+ async function openDetail(o:R){if(mode==='operacao'){openExec(o.id);return}try{const r=await load<R>('planning/plan?id='+encodeURIComponent(o.current_plan_id));setDetail({order:o,...r})}catch(e){toast.error((e as Error).message)}}
  async function doCancel(e:FormEvent){e.preventDefault();if(!detail)return;setBusy(true);try{const r=await post('planning/cancel',{id:detail.plan.id,version:detail.order.version,reason:cancel});toast.success(r.message);setDetail(null);setCancel('');await refresh()}catch(err){toast.error((err as Error).message)}finally{setBusy(false)}}
  if(error)return <div className="error-panel"><AlertTriangle/><h2>Não foi possível carregar as OS</h2><p>{error}</p><Button onClick={()=>void refresh()}>Tentar novamente</Button></div>;
  if(!refs||!rows)return <Skeleton className="h-96 rounded-xl"/>;
  const f=(k:string,v:string)=>setFilters(x=>({...x,[k]:v}));
  const orgOf=(id:string)=>refs.orgs.find((o:R)=>o.id===id);
  const status=(o:R)=><span className="status-cell"><Badge tone={statusNames[o.status]?.[1]}>{statusNames[o.status]?.[0]}</Badge>{o.late&&<Badge tone="danger">Início vencido</Badge>}{o.blocked_resources>0&&<Badge tone="danger"><Lock size={11}/> Equipamento bloqueado</Badge>}</span>;
- return <div className="orders">
+ return <>{execId&&<OrderExecution key={execId} orderId={execId} onBack={()=>{openExec(null);void refresh()}}/>}<div className="orders" hidden={!!execId}>
   <section className="n-panel"><div className="filters order-filters"><Filter size={16} aria-hidden/>
    <label className="date-filter"><span>De</span><input type="datetime-local" aria-label="Período: de" value={filters.from} onChange={e=>f('from',e.target.value)}/></label>
    <label className="date-filter"><span>Até</span><input type="datetime-local" aria-label="Período: até" value={filters.to} onChange={e=>f('to',e.target.value)}/></label>
@@ -220,10 +225,10 @@ export function Orders({mode,refreshKey}:{mode:'planejamento'|'operacao',refresh
 
   <Dialog open={!!detail} onOpenChange={v=>{if(!busy&&!v){setDetail(null);setCancel('')}}}><DialogContent className="n-dialog n-dialog-wide">{detail&&<><DialogHeader><div className="modal-eyebrow"><ClipboardList size={16}/> {osLabel(detail.order.number)} · {mode==='planejamento'?'PLANEJAMENTO':'OPERAÇÃO'}</div><DialogTitle>{detail.plan.activity_name}</DialogTitle><DialogDescription>Lançada por {detail.order.launched_by_name} em {fmt(detail.order.launched_at)} · fluxo {detail.plan.activity_code} v{detail.plan.flow_version}</DialogDescription></DialogHeader>
    <OrderSummary detail={detail} refs={refs} paths={paths} status={status}/>
-   {mode==='operacao'&&<div className="notice"><Info size={17}/><span>Início e término das etapas, apontamentos e checklists entram na próxima fase da Operação. Esta consulta mostra o planejamento vigente.</span></div>}
+   <Button variant="outline" onClick={()=>{const id=detail.order.id;setDetail(null);openExec(id)}}>Abrir execução da OS</Button>
    {mode==='planejamento'&&refs.canPlan&&detail.order.status==='programada'&&<form onSubmit={doCancel} className="cancel-box"><Field label="Cancelar OS · motivo" wide hint="Libera as reservas. A OS continua consultável como cancelada."><Textarea required maxLength={1200} value={cancel} onChange={e=>setCancel(e.target.value)}/></Field><Button type="submit" variant="outline" disabled={busy||!cancel.trim()}>Cancelar OS</Button></form>}
   </>}</DialogContent></Dialog>
- </div>;
+ </div></>;
 }
 
 function OrderSummary({detail,refs,paths,status}:{detail:R,refs:R,paths:Map<string,string>,status:(o:R)=>ReactNode}){

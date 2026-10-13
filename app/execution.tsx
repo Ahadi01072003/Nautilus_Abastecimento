@@ -1,0 +1,199 @@
+'use client';
+// Operação › OS: linha do tempo das etapas, etapa selecionada com ações e cronômetros,
+// apontamentos, checklists e histórico. Os horários vêm do servidor; o relógio da tela
+// só anda entre as atualizações (nunca é a referência gravada).
+import {useCallback,useEffect,useMemo,useState,FormEvent} from 'react';
+import {ArrowLeft,Play,Pause,Square,Ban,RotateCcw,MessageSquarePlus,ListChecks,History,AlertTriangle,CheckCircle2,Lock,Clock,Timer,LoaderCircle,Truck,Users,CircleSlash,ShieldAlert} from 'lucide-react';
+import {toast} from 'sonner';
+import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
+import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
+import {Skeleton} from '@/components/ui/skeleton';
+import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
+import {Textarea} from '@/components/ui/textarea';
+import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,type R} from './kit';
+import {osLabel} from './planning';
+
+const MIN=60000;
+/** Duração em HH:MM com horas acumuladas (02:15, 27:35, 125:08). */
+export const dur=(ms:number)=>{const m=Math.max(0,Math.floor(ms/MIN));return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`};
+const dh=(ms:number)=>{const m=Math.floor(Math.abs(ms)/MIN);return `${String(Math.floor(m/60)).padStart(2,'0')}h${String(m%60).padStart(2,'0')}`};
+/** Desvio legível: atraso, antecipação, no horário ou menos de 1 minuto. */
+export function deviation(actual:number,planned:number,done=true){const d=actual-planned;if(d===0)return 'No horário';if(Math.abs(d)<MIN)return d>0?'Atraso de menos de 1 minuto':'Menos de 1 minuto antes';return d>0?`Atraso de ${dh(d)}`:`${done?'Concluída':'Iniciada'} ${dh(d)} antes`}
+const stepNames:Record<string,[string,string]>={nao_iniciada:['Não iniciada','muted'],em_execucao:['Em execução','success'],bloqueada:['Bloqueada','danger'],pausada:['Pausada','warning'],concluida:['Concluída','info'],dispensada:['Dispensada','muted']};
+const orderNames:Record<string,[string,string]>={programada:['Programada','info'],em_andamento:['Em andamento','success'],encerramento_pendente:['Encerramento pendente','warning'],concluida:['Concluída','muted'],cancelada:['Cancelada','danger']};
+const kindNames:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto',bloqueio:'Bloqueio'};
+const eventNames:Record<string,string>={inicio:'Início',bloqueio:'Bloqueio',pausa:'Pausa',retomada:'Retomada',termino:'Término',dispensa:'Dispensa',encerramento:'Encerramento',encerramento_pendente:'Encerramento pendente',nc_critica:'NC crítica',interrupcao_tecnica:'Interrupção técnica'};
+const moments:Record<string,string>={pre_atividade:'Pré-atividade',pre_uso:'Pré-uso',durante:'Durante',pos_atividade:'Pós-atividade'};
+const localNow=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date()).replace(' ','T');
+
+type Action={kind:'block'|'note'|'pause'|'finish'|'resolve'|'dispense',step?:R,item?:R,key:string};
+
+export default function OrderExecution({orderId,onBack}:{orderId:string,onBack:()=>void}){
+ const [data,setData]=useState<R|null>(null),[error,setError]=useState(''),[selected,setSelected]=useState<string|null>(null),[tick,setTick]=useState(()=>Date.now()),[action,setAction]=useState<Action|null>(null),[form,setForm]=useState<R>({}),[busy,setBusy]=useState(false),[formError,setFormError]=useState(''),[blockerMap,setBlockerMap]=useState<Record<string,string[]>>({}),[checklist,setChecklist]=useState<string|null>(null),[complementary,setComplementary]=useState<R>({});
+ const [offset,setOffset]=useState(0);
+ const refresh=useCallback(async()=>{try{const d=await load<R>('ops/order?id='+encodeURIComponent(orderId));setOffset(Date.parse(d.serverNow)-Date.now());setData(d);setError('')}catch(e){setError((e as Error).message)}},[orderId]);
+ // eslint-disable-next-line react-hooks/set-state-in-effect -- Execução vinda do servidor.
+ useEffect(()=>{void refresh()},[refresh]);
+ // Atualiza a execução de outras pessoas periodicamente; o relógio local só move os cronômetros.
+ useEffect(()=>{const t=setInterval(()=>{if(!document.hidden)void refresh()},20000);const c=setInterval(()=>setTick(Date.now()),1000);return()=>{clearInterval(t);clearInterval(c)}},[refresh]);
+ const now=tick+offset;
+ const steps=useMemo(()=>{if(!data)return [] as R[];return (data.steps as R[]).map((s):R=>{const p=(data.plan.steps as R[]).find(x=>x.id===s.plan_step_id)!;const iv=(data.intervals as R[]).filter(i=>i.os_step_id===s.id);return {...s,plan:p,intervals:iv}}).sort((a,b)=>a.plan.position-b.plan.position)},[data]);
+ const sel=steps.find(s=>s.id===selected)||null;
+ const tags=useTags(data);
+ // Pré-requisitos de início da etapa selecionada (consulta ao servidor).
+ useEffect(()=>{if(!sel||sel.status!=='nao_iniciada')return;let alive=true;const sid=sel.id;load<R>('ops/start-check?stepId='+sid).then(r=>{if(alive)setBlockerMap(m=>({...m,[sid]:r.blockers}))}).catch(()=>{});return()=>{alive=false}},[sel?.id,sel?.status,data]); // eslint-disable-line react-hooks/exhaustive-deps
+ const blockers=sel&&sel.status==='nao_iniciada'?blockerMap[sel.id]??null:null;
+
+ if(error)return <div className="error-panel"><AlertTriangle/><h2>OS indisponível</h2><p>{error}</p><Button onClick={onBack}>Voltar</Button></div>;
+ if(!data)return <Skeleton className="h-96 rounded-xl"/>;
+ const {order,plan,can}=data;
+ const sum=(iv:R[],kind:string)=>iv.filter(i=>i.kind===kind).reduce((n,i)=>n+((i.end_at?Date.parse(i.end_at):now)-Date.parse(i.start_at)),0);
+ const timing=(s:R)=>{const ps=Date.parse(s.plan.planned_start),pe=Date.parse(s.plan.planned_end);
+  if(s.status==='nao_iniciada')return now<ps?`Início previsto em ${dur(ps-now)}`:`Início atrasado em ${dur(now-ps)}`;
+  if(s.status==='em_execucao')return now<=pe?`Restam ${dur(pe-now)}`:`Fim previsto vencido há ${dur(now-pe)}`;
+  if(s.status==='bloqueada'||s.status==='pausada'){const open=s.intervals.find((i:R)=>!i.end_at);return `Parada há ${dur(open?now-Date.parse(open.start_at):0)}`}
+  if(s.status==='concluida')return deviation(Date.parse(s.actual_end),pe);
+  return 'Dispensada';};
+ const active=steps.filter(s=>['em_execucao','bloqueada','pausada'].includes(s.status));
+ const occ=(data.occurrences as R[]).filter(o=>!sel||o.os_step_id===sel.id);
+ const name=(id:string)=>steps.find(s=>s.id===id)?.plan.name||'—';
+ const open=(kind:Action['kind'],step?:R,item?:R)=>{setFormError('');setAction({kind,step,item,key:crypto.randomUUID()});setForm({kind:'ocorrencia',categoryId:'',description:'',reason:'',resolution:'',occurredAt:localNow(),severity:'media',blocking:false,impactStart:'',impactEnd:'',equipmentId:''})};
+ const iso=(v:string)=>v?new Date(v+':00-03:00').toISOString():null;
+ async function run(path:string,body:R,done?:()=>void){setBusy(true);setFormError('');try{const r=await post(path,body);toast.success(r.message||'Registrado.');done?.();await refresh()}catch(e){setFormError((e as Error).message);toast.error((e as Error).message)}finally{setBusy(false)}}
+ const simple=(path:string,s:R)=>run(path,{operationKey:crypto.randomUUID(),stepId:s.id});
+ async function submit(e:FormEvent){e.preventDefault();if(!action)return;const f=form,k=action.key,s=action.step;
+  if(action.kind==='block')await run('ops/block',{operationKey:k,stepId:s!.id,categoryId:f.categoryId,description:f.description},()=>setAction(null));
+  if(action.kind==='note')await run('ops/note',{operationKey:k,stepId:s!.id,kind:f.kind,categoryId:f.categoryId||null,description:f.description,occurredAt:iso(f.occurredAt),severity:f.severity,blocking:f.kind==='impacto'&&f.blocking,impactStart:iso(f.impactStart),impactEnd:iso(f.impactEnd),equipmentId:f.equipmentId||null},()=>setAction(null));
+  if(action.kind==='pause')await run('ops/pause',{operationKey:k,stepId:s!.id,reason:f.reason},()=>setAction(null));
+  if(action.kind==='finish')await run('ops/finish',{operationKey:k,stepId:s!.id,resolution:f.resolution},()=>setAction(null));
+  if(action.kind==='resolve')await run('ops/resolve',{operationKey:k,id:action.item!.id,resolution:f.resolution},()=>setAction(null));
+  if(action.kind==='dispense')await run('ops/dispense',{stepId:s!.id,reason:f.reason},()=>setAction(null));
+ }
+ const categories=(kind:string)=>(data.categories as R[]).filter(c=>c.kind===kind).map(c=>({value:c.id,label:c.name}));
+ const blockedTags=new Set((data.impediments as R[]).map(i=>i.equipment_id));
+ const openBlocks=(s:R)=>(data.occurrences as R[]).filter(o=>o.os_step_id===s.id&&o.blocking&&o.status==='aberto');
+ const dependents=(s:R)=>steps.filter(x=>(x.plan.depends_on as string[]).includes(s.step_key)&&x.status==='nao_iniciada');
+
+ return <div className="exec">
+  <div className="exec-head"><button className="text-action" onClick={onBack}><ArrowLeft size={15} className="inline"/> Voltar à lista</button>
+   <div className="exec-title"><div><span className="tag-label">{osLabel(order.number)}</span><h2>{order.activity_name}</h2><Badge tone={orderNames[order.status][1]}>{orderNames[order.status][0]}</Badge>{active.some(s=>s.status==='bloqueada')&&<Badge tone="danger"><Lock size={11}/> Etapa bloqueada</Badge>}</div>
+    <dl className="exec-facts"><div><dt>Solicitante</dt><dd><OrgOf data={data}/></dd></div><div><dt>Planejado</dt><dd>{fmt(order.planned_start)} → {fmt(order.planned_end)}</dd></div><div><dt>Real</dt><dd>{order.actual_start?`${fmt(order.actual_start)} → ${order.actual_end?fmt(order.actual_end):'em curso'}`:'Não iniciada'}</dd></div><div><dt>Duração real</dt><dd>{order.actual_start?dur((order.actual_end?Date.parse(order.actual_end):now)-Date.parse(order.actual_start)):'—'}</dd></div><div><dt>Fluxo</dt><dd>{plan.activity_code} v{plan.flow_version}</dd></div>{order.closed_at&&<div><dt>Encerramento administrativo</dt><dd>{fmt(order.closed_at)}</dd></div>}</dl></div>
+   {data.impediments.length>0&&<div className="form-error"><ShieldAlert size={17}/><span>{(data.impediments as R[]).map(i=>`${i.tag} bloqueado (${i.kind==='nc_critica'?'NC crítica':'impedimento técnico'}): ${i.reason}`).join(' · ')}. Aguardando liberação técnica ou substituição pelo Planejamento.</span></div>}
+   {order.status==='encerramento_pendente'&&<div className="notice warn"><AlertTriangle size={17}/><span>Todas as etapas terminaram. Falta concluir checklist obrigatório para encerrar a OS (aba Checklists).</span></div>}
+  </div>
+
+  <section className="n-panel"><div className="panel-heading"><div><h2>Linha do tempo</h2><p>Clique numa etapa para ver as ações e filtrar os registros. Selecionar não inicia a etapa.</p></div><button className={`chip ${!sel?'on':''}`} onClick={()=>setSelected(null)}>Todas as etapas</button></div>
+   <ol className="timeline" aria-label="Etapas da OS">{steps.map(s=><li key={s.id} className={`tl ${s.status} ${sel?.id===s.id?'selected':''} ${s.status==='nao_iniciada'&&Date.parse(s.plan.planned_start)<now?'late':''}`}>
+    <span className="tl-time">{timing(s)}</span>
+    <button className="tl-dot" aria-pressed={sel?.id===s.id} aria-label={`${s.plan.name}: ${stepNames[s.status][0]}`} onClick={()=>setSelected(sel?.id===s.id?null:s.id)}>{s.status==='concluida'?<CheckCircle2 size={18}/>:s.status==='bloqueada'?<Lock size={16}/>:s.status==='pausada'?<Pause size={16}/>:s.status==='dispensada'?<CircleSlash size={16}/>:s.status==='em_execucao'?<Play size={15}/>:null}</button>
+    <span className="tl-name">{s.plan.name}</span><small>{stepNames[s.status][0]}</small>
+   </li>)}</ol>
+  </section>
+
+  {sel&&<section className="n-panel step-panel"><div className="panel-heading"><div><h2>{sel.plan.name} <Badge tone={stepNames[sel.status][1]}>{stepNames[sel.status][0]}</Badge></h2><p>{sel.plan.description||'Sem descrição.'}</p></div>{active.length>1&&<div className="others">{active.length} etapas ativas: {active.filter(x=>x.id!==sel.id).map(x=><button key={x.id} className="chip" onClick={()=>setSelected(x.id)}>{x.plan.name}</button>)}</div>}</div>
+   <div className="step-body">
+    <div className="clock">
+     <div className="clock-main"><Timer size={20}/><div><small>Tempo efetivo</small><strong>{dur(sum(sel.intervals,'ativo'))}</strong></div></div>
+     <dl><div><dt>Decorrido</dt><dd>{sel.actual_start?dur((sel.actual_end?Date.parse(sel.actual_end):now)-Date.parse(sel.actual_start)):'—'}</dd></div><div><dt>Parado</dt><dd>{dur(sum(sel.intervals,'interrompido'))}</dd></div>
+      <div><dt>Planejado</dt><dd>{fmt(sel.plan.planned_start)} → {fmt(sel.plan.planned_end)}</dd></div>
+      {sel.actual_start&&<div><dt>Desvio de início</dt><dd>{deviation(Date.parse(sel.actual_start),Date.parse(sel.plan.planned_start),false)}</dd></div>}
+      {sel.actual_end&&<div><dt>Desvio de conclusão</dt><dd>{deviation(Date.parse(sel.actual_end),Date.parse(sel.plan.planned_end))}</dd></div>}
+      {['em_execucao','bloqueada','pausada'].includes(sel.status)&&<div><dt>Prazo restante</dt><dd>{Date.parse(sel.plan.planned_end)>=now?dur(Date.parse(sel.plan.planned_end)-now):`vencido há ${dur(now-Date.parse(sel.plan.planned_end))}`}</dd></div>}
+      {['em_execucao','bloqueada','pausada'].includes(sel.status)&&dependents(sel).length>0&&(()=>{const next=dependents(sel).sort((a,b)=>Date.parse(a.plan.planned_start)-Date.parse(b.plan.planned_start))[0];const d=Date.parse(next.plan.planned_start)-now;return <div><dt>Próximo marco</dt><dd>{d>=0?`${dur(d)} até o início de “${next.plan.name}”`:`início de “${next.plan.name}” vencido há ${dur(-d)}`}</dd></div>})()}
+     </dl>
+     {sel.status==='em_execucao'&&Date.parse(sel.plan.planned_end)>=now&&dependents(sel).length>0&&Date.parse(dependents(sel)[0].plan.planned_start)===Date.parse(sel.plan.planned_end)&&<p className="clock-hint">Restam {dh(Date.parse(sel.plan.planned_end)-now)} para concluir esta etapa e liberar a próxima no horário planejado.</p>}
+    </div>
+    <div className="step-side">
+     <div className="resources"><b><Truck size={14} className="inline"/> Equipamentos</b>{(sel.plan.equipment_ids as string[]).length?(sel.plan.equipment_ids as string[]).map(e=><span key={e} className={blockedTags.has(e)?'blocked':''}>{tags.equipment(e)}{blockedTags.has(e)&&' · bloqueado'}</span>):<span>—</span>}
+      <b><Users size={14} className="inline"/> Colaboradores</b>{(sel.plan.operator_ids as string[]).length?(sel.plan.operator_ids as string[]).map(o=><span key={o}>{tags.operator(o)}</span>):<span>—</span>}</div>
+     {sel.status==='nao_iniciada'&&blockers&&blockers.length>0&&<div className="notice warn"><AlertTriangle size={17}/><div><b>Pré-requisitos para iniciar</b><ul>{blockers.map((b,i)=><li key={i}>{b}</li>)}</ul></div></div>}
+     {openBlocks(sel).length>0&&<div className="form-error"><Lock size={17}/><span>{openBlocks(sel).length} bloqueio(s) aberto(s): {openBlocks(sel).map(o=>o.description).join(' · ')}</span></div>}
+     {can.execute&&<div className="step-actions">
+      {sel.status==='nao_iniciada'&&<Button className="primary-action" disabled={busy||!!blockers?.length||order.status==='cancelada'} onClick={()=>void simple('ops/start',sel)}><Play size={16}/> Iniciar etapa</Button>}
+      {sel.status==='em_execucao'&&<><Button className="primary-action" disabled={busy} onClick={()=>open('finish',sel)}><Square size={15}/> Finalizar etapa</Button><Button variant="outline" onClick={()=>open('pause',sel)}><Pause size={15}/> Pausar</Button></>}
+      {['pausada','bloqueada'].includes(sel.status)&&<><Button className="primary-action" disabled={busy} onClick={()=>void simple('ops/resume',sel)}><RotateCcw size={15}/> Retomar</Button><Button variant="outline" onClick={()=>open('finish',sel)}><Square size={15}/> Finalizar</Button></>}
+      {['nao_iniciada','em_execucao','pausada','bloqueada'].includes(sel.status)&&<Button variant="outline" onClick={()=>open('block',sel)}><Ban size={15}/> Bloquear</Button>}
+      <Button variant="outline" onClick={()=>open('note',sel)}><MessageSquarePlus size={15}/> {['concluida','dispensada'].includes(sel.status)?'Apontamento tardio':'Registrar apontamento'}</Button>
+     </div>}
+     {can.plan&&sel.status==='nao_iniciada'&&<button className="text-action" onClick={()=>open('dispense',sel)}>Dispensar etapa (Planejamento)</button>}
+     {!can.execute&&<p className="pending-text">Consulta: registrar execução exige o acesso “Operação”.</p>}
+    </div>
+   </div>
+  </section>}
+
+  <Tabs defaultValue="notes"><TabsList className="n-tabs"><TabsTrigger value="notes">Apontamentos{sel?` · ${sel.plan.name}`:''}</TabsTrigger><TabsTrigger value="checklists">Checklists</TabsTrigger><TabsTrigger value="history">Histórico</TabsTrigger></TabsList>
+   <TabsContent value="notes"><section className="n-panel">{occ.length?<ul className="occ-list">{occ.map(o=><li key={o.id} className={o.blocking&&o.status==='aberto'?'open':''}><div><Badge tone={o.kind==='bloqueio'?'danger':o.kind==='impacto'?'warning':'info'}>{kindNames[o.kind]}{o.kind==='impacto'&&o.blocking?' com bloqueio':''}</Badge>{o.category_name&&<Badge>{o.category_name}</Badge>}{o.late?<Badge tone="warning">Registro tardio</Badge>:null}{o.impediment_id&&<Badge tone="danger">NC crítica</Badge>}<b>{o.description}</b></div>
+     <small>{!sel&&<>Etapa “{name(o.os_step_id)}” · </>}Ocorrido {fmt(o.occurred_at)} · registrado {fmt(o.registered_at)} por {o.author_name}{o.severity?` · severidade ${o.severity}`:''}{o.impact_start?` · impacto ${fmt(o.impact_start)}${o.impact_end?' → '+fmt(o.impact_end):''}`:''}</small>
+     {o.status==='resolvido'?<small className="positive">Resolvido por {o.resolved_by_name} em {fmt(o.resolved_at)}: {o.resolution}</small>:(o.blocking||o.kind==='impacto')&&can.execute?<button className="text-action" onClick={()=>open('resolve',undefined,o)}>Registrar resolução</button>:null}</li>)}</ul>
+     :<Empty icon={MessageSquarePlus} title={sel?'Nenhuma ocorrência registrada nesta etapa':'Nenhum apontamento registrado'} description="Ocorrências não alteram o estado. Bloqueios param o tempo efetivo; o prazo continua correndo."/>}</section></TabsContent>
+   <TabsContent value="checklists"><Checklists data={data} steps={steps} can={can.execute} onOpen={setChecklist} onRefresh={refresh} complementary={complementary} setComplementary={setComplementary} tags={tags}/></TabsContent>
+   <TabsContent value="history"><section className="n-panel">{data.events.length?<ul className="event-list">{(data.events as R[]).filter(e=>!sel||e.os_step_id===sel.id).map(e=><li key={e.id}><History size={14}/><b>{eventNames[e.kind]}</b><span>{e.os_step_id?name(e.os_step_id):'OS'}</span><small>{fmt(e.occurred_at)} · {e.author_name}{e.detail?.reason?` · ${e.detail.reason}`:''}{e.detail?.equipment?` · ${e.detail.equipment}`:''}</small></li>)}</ul>:<Empty icon={History} title="Sem eventos ainda" description="Início, pausas, bloqueios, término e encerramento aparecem aqui."/>}</section></TabsContent>
+  </Tabs>
+
+  <Dialog open={!!action} onOpenChange={v=>{if(!busy&&!v)setAction(null)}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><Clock size={16}/> {osLabel(order.number)}{action?.step?` · ${action.step.plan.name}`:''}</div><DialogTitle>{{block:'Bloquear etapa',note:'Registrar apontamento',pause:'Pausar etapa',finish:'Finalizar etapa',resolve:'Registrar resolução',dispense:'Dispensar etapa'}[action?.kind||'block']}</DialogTitle><DialogDescription>{action?.kind==='block'?'Interrompe o tempo efetivo da etapa; o prazo continua correndo. A retomada exige resolver o bloqueio.':action?.kind==='finish'?'Registra o término real agora. Etapa bloqueada só termina informando como o impedimento foi resolvido.':action?.kind==='dispense'?'A etapa não será executada. Dependentes deixam de esperar por ela e as reservas dela são liberadas.':action?.kind==='resolve'?'A resolução fica registrada. Retomar a etapa é uma ação separada.':'O registro fica ligado à etapa e não pode ser apagado.'}</DialogDescription></DialogHeader>
+   {action&&<form onSubmit={submit}><div className="form-grid">
+    {action.kind==='note'&&<><Field label="Tipo *"><Choice value={form.kind} onChange={v=>setForm(f=>({...f,kind:v,categoryId:''}))} options={[{value:'ocorrencia',label:'Ocorrência'},{value:'impacto',label:'Impacto'}]}/></Field><Field label="Categoria"><Choice value={form.categoryId} onChange={v=>setForm(f=>({...f,categoryId:v}))} options={categories(form.kind)} placeholder="Opcional"/></Field>
+     <Field label="Quando ocorreu (Brasília)" hint="Pode ser anterior ao registro."><Input type="datetime-local" value={form.occurredAt} onChange={e=>setForm(f=>({...f,occurredAt:e.target.value}))}/></Field>
+     {form.kind==='impacto'&&<><Field label="Severidade"><Choice value={form.severity} onChange={v=>setForm(f=>({...f,severity:v}))} options={[{value:'baixa',label:'Baixa'},{value:'media',label:'Média'},{value:'alta',label:'Alta'}]}/></Field><Field label="Impacto: início"><Input type="datetime-local" value={form.impactStart} onChange={e=>setForm(f=>({...f,impactStart:e.target.value}))}/></Field><Field label="Impacto: fim"><Input type="datetime-local" value={form.impactEnd} onChange={e=>setForm(f=>({...f,impactEnd:e.target.value}))}/></Field>
+      <Field label="Equipamento afetado"><Choice value={form.equipmentId||'none'} onChange={v=>setForm(f=>({...f,equipmentId:v==='none'?'':v}))} options={[{value:'none',label:'Nenhum'},...(action.step!.plan.equipment_ids as string[]).map(e=>({value:e,label:tags.equipment(e)}))]}/></Field>
+      {['em_execucao','pausada','bloqueada','nao_iniciada'].includes(action.step!.status)&&<Toggle title="Impacto com bloqueio" description="Também bloqueia a etapa (um só registro). Exige categoria de impacto." checked={!!form.blocking} onChange={v=>setForm(f=>({...f,blocking:v}))}/>}</>}</>}
+    {action.kind==='block'&&<Field label="Categoria do bloqueio *" wide><Choice value={form.categoryId} onChange={v=>setForm(f=>({...f,categoryId:v}))} options={categories('bloqueio')} placeholder={categories('bloqueio').length?'Selecione':'Cadastre categorias em Cadastros gerais'}/></Field>}
+    {(action.kind==='block'||action.kind==='note')&&<Field label="Descrição *" wide><Textarea required maxLength={2000} value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></Field>}
+    {(action.kind==='pause'||action.kind==='dispense')&&<Field label={action.kind==='pause'?'Motivo da pausa *':'Motivo da dispensa *'} wide><Textarea required maxLength={1200} value={form.reason} onChange={e=>setForm(f=>({...f,reason:e.target.value}))}/></Field>}
+    {(action.kind==='resolve'||(action.kind==='finish'&&(action.step!.status==='bloqueada'||openBlocks(action.step!).length>0)))&&<Field label={action.kind==='resolve'?'Como foi resolvido *':'Como o impedimento foi resolvido ou como ocorreu a interrupção final *'} wide><Textarea required maxLength={1200} value={form.resolution} onChange={e=>setForm(f=>({...f,resolution:e.target.value}))}/></Field>}
+    {action.kind==='finish'&&action.step!.status!=='bloqueada'&&!openBlocks(action.step!).length&&<p className="wide notice"><CheckCircle2 size={16}/> Término registrado com o horário do servidor no momento da confirmação.</p>}
+   </div>{formError&&<div className="form-error" role="alert"><AlertTriangle size={17}/>{formError}</div>}<div className="modal-footer"><Button type="button" variant="outline" onClick={()=>setAction(null)} disabled={busy}>Voltar</Button><Button type="submit" className="primary-action" disabled={busy}>{busy?<LoaderCircle className="animate-spin" size={16}/>:null} Confirmar</Button></div></form>}
+  </DialogContent></Dialog>
+  {checklist&&<ChecklistFill instanceId={checklist} data={data} steps={steps} can={can.execute} tags={tags} onClose={()=>{setChecklist(null);void refresh()}} onSaved={refresh}/>}
+ </div>;
+}
+
+function useTags(data:R|null){
+ return useMemo(()=>{const eq=new Map<string,string>(),op=new Map<string,string>();for(const s of (data?.plan?.steps||[]) as R[]){for(const r of s.reservations||[])eq.set(r.equipment_id,r.equipment_id)}
+  for(const i of (data?.impediments||[]) as R[])eq.set(i.equipment_id,i.tag);for(const t of (data?.equipmentTags||[]) as R[])eq.set(t.id,t.tag);for(const o of (data?.operatorNames||[]) as R[])op.set(o.id,o.name);
+  return {equipment:(id:string)=>eq.get(id)||id,operator:(id:string)=>op.get(id)||id}},[data]);
+}
+function OrgOf({data}:{data:R}){return <OrgTag org={(data.orgs as R[]|undefined)?.find(o=>o.id===data.order.org_id)}/>}
+
+function Checklists({data,steps,can,onOpen,onRefresh,complementary,setComplementary,tags}:{data:R,steps:R[],can:boolean,onOpen:(id:string)=>void,onRefresh:()=>Promise<void>,complementary:R,setComplementary:(f:(x:R)=>R)=>void,tags:{equipment:(id:string)=>string}}){
+ const [busy,setBusy]=useState(false);
+ const instances=data.instances as R[];
+ async function start(body:R){setBusy(true);try{const r=await post('ops/checklist/start',{operationKey:crypto.randomUUID(),...body});await onRefresh();onOpen(r.id)}catch(e){toast.error((e as Error).message)}finally{setBusy(false)}}
+ const status=(i?:R)=>!i?<Badge>Pendente</Badge>:i.status==='concluido'?<Badge tone="success">Concluído{i.answers.filter((a:R)=>a.answer==='NC').length?` · ${i.answers.filter((a:R)=>a.answer==='NC').length} NC`:''}</Badge>:<Badge tone="warning">Em preenchimento</Badge>;
+ const used=[...new Set(steps.flatMap(s=>s.plan.equipment_ids as string[]))];
+ return <section className="n-panel">
+  <div className="panel-heading"><div><h2>Checklists previstos</h2><p>Versões fixadas no lançamento. Obrigatórios de pré-atividade/pré-uso impedem o início; os demais obrigatórios impedem o encerramento.</p></div></div>
+  {data.requirements.length?<ul className="ck-list">{(data.requirements as R[]).map(r=>{const i=instances.find(x=>x.requirement_id===r.id);return <li key={r.id}><div><b>{r.title}</b><small>{r.code} v{r.version} · {moments[r.moment]}{r.equipment_id?` · ${tags.equipment(r.equipment_id)}`:''}</small></div>{r.mandatory?<Badge tone="danger">Obrigatório</Badge>:<Badge>Opcional</Badge>}{status(i)}{i?<Button size="sm" variant="outline" onClick={()=>onOpen(i.id)}>{i.status==='concluido'?'Ver':'Continuar'}</Button>:can&&<Button size="sm" disabled={busy} onClick={()=>void start({workOrderId:data.order.id,requirementId:r.id})}><ListChecks size={14}/> Preencher</Button>}</li>})}</ul>:<Empty icon={ListChecks} title="Nenhum checklist previsto" description="Esta OS não tem checklist vinculado ao tipo de atividade ou aos equipamentos."/>}
+  {instances.filter(i=>!i.requirement_id).length>0&&<><div className="panel-heading"><h2>Complementares</h2></div><ul className="ck-list">{instances.filter(i=>!i.requirement_id).map(i=><li key={i.id}><div><b>{i.title}</b><small>{i.code} v{i.version} · {moments[i.moment]}{i.equipment_id?` · ${tags.equipment(i.equipment_id)}`:''}{i.os_step_id?` · ${steps.find(s=>s.id===i.os_step_id)?.plan.name}`:''}</small></div>{status(i)}<Button size="sm" variant="outline" onClick={()=>onOpen(i.id)}>{i.status==='concluido'?'Ver':'Continuar'}</Button></li>)}</ul></>}
+  {can&&data.complementary.length>0&&<div className="filters"><Choice label="Checklist complementar" value={complementary.templateId||''} onChange={v=>setComplementary(x=>({...x,templateId:v}))} options={(data.complementary as R[]).map(c=>({value:c.template_id,label:`${c.code} · ${c.title}`}))} placeholder="Checklist complementar"/><Choice label="Equipamento" value={complementary.equipmentId||'none'} onChange={v=>setComplementary(x=>({...x,equipmentId:v==='none'?'':v}))} options={[{value:'none',label:'Sem equipamento'},...used.map(e=>({value:e,label:tags.equipment(e)}))]}/><Choice label="Etapa" value={complementary.stepId||'none'} onChange={v=>setComplementary(x=>({...x,stepId:v==='none'?'':v}))} options={[{value:'none',label:'OS inteira'},...steps.map(s=>({value:s.id,label:s.plan.name}))]}/><Button disabled={busy||!complementary.templateId} onClick={()=>void start({workOrderId:data.order.id,templateId:complementary.templateId,equipmentId:complementary.equipmentId||null,stepId:complementary.stepId||null})}><ListChecks size={15}/> Iniciar</Button></div>}
+ </section>;
+}
+
+function ChecklistFill({instanceId,data,steps,can,tags,onClose,onSaved}:{instanceId:string,data:R,steps:R[],can:boolean,tags:{equipment:(id:string)=>string},onClose:()=>void,onSaved:()=>Promise<void>}){
+ const inst=(data.instances as R[]).find(i=>i.id===instanceId);
+ const questions=(data.questions as R[]).filter(q=>q.version_id===inst?.version_id);
+ const [notes,setNotes]=useState<Record<string,string>>(()=>Object.fromEntries((inst?.answers||[]).map((a:R)=>[a.question_id,a.note])));
+ const [target,setTarget]=useState<R>({equipmentId:'',stepId:''}),[saving,setSaving]=useState<string|null>(null),[err,setErr]=useState('');
+ if(!inst)return null;
+ const readOnly=inst.status==='concluido'||!can;
+ const answerOf=(q:R)=>(inst.answers as R[]).find(a=>a.question_id===q.id);
+ const used=[...new Set(steps.flatMap(s=>s.plan.equipment_ids as string[]))];
+ async function answer(q:R,value:string){setSaving(q.id);setErr('');try{const r=await post('ops/checklist/answer',{operationKey:crypto.randomUUID(),instanceId,questionId:q.id,answer:value,note:notes[q.id]||'',equipmentId:target.equipmentId||null,stepId:target.stepId||null});if(r.message&&r.message!=='Resposta salva.')toast.warning(r.message);await onSaved()}catch(e){setErr((e as Error).message)}finally{setSaving(null)}}
+ async function complete(){setErr('');try{const r=await post('ops/checklist/complete',{operationKey:crypto.randomUUID(),instanceId});toast.success(r.message);onClose()}catch(e){setErr((e as Error).message)}}
+ const needsEquipment=!inst.equipment_id&&questions.some(q=>q.critical&&q.target==='equipamento');
+ const needsStep=!inst.os_step_id&&questions.some(q=>q.critical&&q.target==='atividade');
+ const answered=(inst.answers as R[]).length,nc=(inst.answers as R[]).filter(a=>a.answer==='NC').length;
+ return <Dialog open onOpenChange={v=>{if(!v)onClose()}}><DialogContent className="n-dialog n-dialog-wide"><DialogHeader><div className="modal-eyebrow"><ListChecks size={16}/> {inst.code} v{inst.version}{inst.equipment_id?` · ${tags.equipment(inst.equipment_id)}`:''}</div><DialogTitle>{inst.title}</DialogTitle><DialogDescription>{readOnly?`Concluído por ${inst.completed_by_name||'—'}${inst.completed_at?' em '+fmt(inst.completed_at):''}. As respostas não podem mais ser alteradas.`:'Cada resposta é salva na hora. Resposta vazia não é N/A. NC em pergunta crítica de equipamento bloqueia o equipamento imediatamente.'}</DialogDescription></DialogHeader>
+  <div className="ck-summary"><span>{answered}/{questions.length} respondidas</span>{nc>0&&<Badge tone="danger">{nc} NC</Badge>}</div>
+  {!readOnly&&(needsEquipment||needsStep)&&<div className="form-grid ck-target">{needsEquipment&&<Field label="Equipamento avaliado (para NC crítica)"><Choice value={target.equipmentId} onChange={v=>setTarget(t=>({...t,equipmentId:v}))} options={used.map(e=>({value:e,label:tags.equipment(e)}))}/></Field>}{needsStep&&<Field label="Etapa afetada (para NC crítica da atividade)"><Choice value={target.stepId} onChange={v=>setTarget(t=>({...t,stepId:v}))} options={steps.map(s=>({value:s.id,label:s.plan.name}))}/></Field>}</div>}
+  <ol className="ck-questions">{questions.map(q=>{const a=answerOf(q);const needNote=a&&(q.note_on as string[]).includes(a.answer);return <li key={q.id} className={a?.answer==='NC'?'nc':''}>
+   <div className="ck-q"><b>{q.position}. {q.text}</b>{q.critical?<Badge tone="danger">Crítica{q.target==='equipamento'?' · equipamento':''}</Badge>:null}{q.required?null:<Badge>Opcional</Badge>}</div>
+   <div className="segmented" role="group" aria-label={`Resposta da pergunta ${q.position}`}>{['C','NC',...(q.allow_na?['NA']:[])].map(v=><button key={v} type="button" disabled={readOnly||saving===q.id} aria-pressed={a?.answer===v} onClick={()=>void answer(q,v)}>{v==='NA'?'N/A':v}</button>)}{saving===q.id&&<LoaderCircle size={14} className="animate-spin"/>}</div>
+   {(a||!readOnly)&&<Input aria-label={`Observação da pergunta ${q.position}`} disabled={readOnly} maxLength={1200} placeholder={needNote?'Observação obrigatória para esta resposta':'Observação (opcional)'} value={notes[q.id]??''} onChange={e=>setNotes(n=>({...n,[q.id]:e.target.value}))} onBlur={()=>{if(a&&(notes[q.id]||'')!==a.note)void answer(q,a.answer)}}/>}
+   {needNote&&!a.note&&<small className="danger-text">Observação obrigatória para {a.answer==='NA'?'N/A':a.answer}.</small>}
+  </li>})}</ol>
+  {err&&<div className="form-error" role="alert"><AlertTriangle size={17}/>{err}</div>}
+  <div className="modal-footer"><Button variant="outline" onClick={onClose}>Fechar</Button>{!readOnly&&<Button className="primary-action" onClick={()=>void complete()}><CheckCircle2 size={16}/> Concluir checklist</Button>}</div>
+ </DialogContent></Dialog>;
+}
