@@ -429,3 +429,16 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
  }
  return {ok:true,version:plan.version+1,savedAt:t};
 }
+
+/** Etapas (planejado e real) de várias OS de uma vez, para o Gantt. Respeita o escopo. */
+export async function ordersSteps(member:Member,url:URL){
+ const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
+ const ids=(url.searchParams.get('ids')||'').split(',').filter(Boolean);
+ if(!ids.length)return {steps:[]};
+ if(ids.length>100||ids.some(i=>i.length>100))throw new AppError('Seleção grande demais.');
+ const scope=scopeOf(a);
+ const rows=await all(`SELECT o.id,o.work_order_id,o.step_key,o.status,o.actual_start,o.actual_end,p.name,p.position,p.planned_start,p.planned_end,p.depends_on
+  FROM os_steps o JOIN plan_steps p ON p.id=o.plan_step_id JOIN work_orders w ON w.id=o.work_order_id
+  WHERE o.work_order_id = ANY(?::text[])${scope?' AND w.org_id = ANY(?::text[])':''} ORDER BY p.position`,ids,...(scope?[scope]:[]));
+ return {steps:rows};
+}

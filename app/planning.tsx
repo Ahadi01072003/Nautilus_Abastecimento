@@ -14,6 +14,7 @@ import {Textarea} from '@/components/ui/textarea';
 import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,type R} from './kit';
 import {layers,hhmm} from './flows';
 import OrderExecution from './execution';
+import Gantt from './gantt';
 
 /** Horário de Brasília para o campo datetime-local e de volta (com fuso explícito). */
 const toLocal=(iso?:string|null)=>iso?new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(iso)).replace(' ','T'):'';
@@ -196,6 +197,12 @@ export function Orders({mode,refreshKey}:{mode:'planejamento'|'operacao',refresh
  const paths=useMemo(()=>refs?locationPaths(refs.locations):new Map(),[refs]);
  // OS aberta na tela de execução (?os=), com a lista mantida por trás para voltar com os mesmos filtros.
  const [execId,setExecId]=useState<string|null>(null);
+ // Lista ou Gantt: a escolha fica na sessão (mesma fonte e mesmos filtros nos dois).
+ const [display,setDisplay]=useState<'lista'|'gantt'>('lista');
+ // eslint-disable-next-line react-hooks/set-state-in-effect -- Preferência da sessão lida após montar.
+ useEffect(()=>{try{if(sessionStorage.getItem('nautilus.orders.display')==='gantt')setDisplay('gantt')}catch{}},[]);
+ const showAs=(d:'lista'|'gantt')=>{setDisplay(d);try{sessionStorage.setItem('nautilus.orders.display',d)}catch{}};
+ const ganttQuery=useMemo(()=>new URLSearchParams(Object.entries(filters).filter(([k,v])=>v&&k!=='from'&&k!=='to') as [string,string][]).toString(),[filters]);
  useEffect(()=>{const read=()=>setExecId(new URLSearchParams(location.search).get('os'));read();window.addEventListener('popstate',read);return()=>window.removeEventListener('popstate',read)},[]);
  const openExec=(id:string|null)=>{setExecId(id);const q=new URLSearchParams(location.search);if(id)q.set('os',id);else q.delete('os');history.pushState(null,'','/?'+q.toString());window.scrollTo({top:0})};
  async function openDetail(o:R){if(mode==='operacao'){openExec(o.id);return}try{const r=await load<R>('planning/plan?id='+encodeURIComponent(o.current_plan_id));setDetail({order:o,...r})}catch(e){toast.error((e as Error).message)}}
@@ -216,11 +223,14 @@ export function Orders({mode,refreshKey}:{mode:'planejamento'|'operacao',refresh
    <Input className="number-filter" aria-label="Número da OS" placeholder="Nº da OS" inputMode="numeric" value={filters.number} onChange={e=>f('number',e.target.value)}/>
    {Object.values(filters).some(Boolean)&&<button className="text-action" onClick={()=>setFilters({from:'',to:'',org:'',type:'',location:'',status:'',number:''})}>Limpar</button>}
   </div>
+  <div className="display-toggle"><div className="segmented" role="group" aria-label="Exibição"><button type="button" aria-pressed={display==='lista'} onClick={()=>showAs('lista')}>Lista</button><button type="button" aria-pressed={display==='gantt'} onClick={()=>showAs('gantt')}>Gantt</button></div>{display==='gantt'&&<small>O Gantt usa os mesmos filtros; o período é o intervalo visível.</small>}</div>
+  {display==='gantt'?<Gantt query={ganttQuery} orgs={refs.orgs} onOpen={id=>openExec(id)}/>:<>
   <div className="org-counts" aria-label="OS por organização solicitante">{Object.entries(rows.counts as Record<string,number>).sort((a,b)=>b[1]-a[1]).map(([org,n])=><span key={org}><OrgTag org={orgOf(org)}/><b>{n}</b><small>{Math.round(100*n/Math.max(1,rows.total))}%</small></span>)}<span className="org-total">{rows.total} OS{rows.scoped?' no seu escopo':''}{filters.from||filters.to?' com programação no período':''}</span></div>
   {rows.orders.length?<>
    <div className="table-scroll orders-table"><Table><TableHeader><TableRow><TableHead>OS</TableHead><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Local</TableHead><TableHead>Período planejado</TableHead><TableHead>Real</TableHead><TableHead>Situação</TableHead><TableHead>Etapas</TableHead></TableRow></TableHeader><TableBody>{rows.orders.map((o:R)=><TableRow key={o.id} className="clickable" onClick={()=>void openDetail(o)}><TableCell><button className="tag-label" onClick={e=>{e.stopPropagation();void openDetail(o)}}>{osLabel(o.number)}</button></TableCell><TableCell><b>{o.activity_name}</b><small>{o.description||o.activity_code}</small></TableCell><TableCell><OrgTag org={orgOf(o.org_id)}/></TableCell><TableCell>{paths.get(o.location_id)||'—'}</TableCell><TableCell>{range(o.planned_start,o.planned_end)}</TableCell><TableCell>{o.actual_start?range(o.actual_start,o.actual_end||new Date().toISOString()):'—'}</TableCell><TableCell>{status(o)}</TableCell><TableCell>{o.steps_done}/{o.steps_total}</TableCell></TableRow>)}</TableBody></Table></div>
    <ul className="order-cards">{rows.orders.map((o:R)=><li key={o.id}><button type="button" onClick={()=>void openDetail(o)}><div><b>{osLabel(o.number)}</b><OrgTag org={orgOf(o.org_id)}/></div><span>{o.activity_name}</span><small><CalendarRange size={12} className="inline"/> {range(o.planned_start,o.planned_end)}</small><small><MapPin size={12} className="inline"/> {paths.get(o.location_id)||'—'}</small>{status(o)}</button></li>)}</ul>
   </>:<Empty icon={ClipboardList} title="Nenhuma OS encontrada" description={mode==='planejamento'?'OS lançadas aparecem aqui. Rascunhos ficam em Planejamento › Rascunhos.':'As OS lançadas pelo Planejamento aparecem aqui.'}/>}
+  </>}
   </section>
 
   <Dialog open={!!detail} onOpenChange={v=>{if(!busy&&!v){setDetail(null);setCancel('')}}}><DialogContent className="n-dialog n-dialog-wide">{detail&&<><DialogHeader><div className="modal-eyebrow"><ClipboardList size={16}/> {osLabel(detail.order.number)} · {mode==='planejamento'?'PLANEJAMENTO':'OPERAÇÃO'}</div><DialogTitle>{detail.plan.activity_name}</DialogTitle><DialogDescription>Lançada por {detail.order.launched_by_name} em {fmt(detail.order.launched_at)} · fluxo {detail.plan.activity_code} v{detail.plan.flow_version}</DialogDescription></DialogHeader>

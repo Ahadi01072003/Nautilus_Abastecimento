@@ -4,7 +4,7 @@ Sistema web da Base Açu. Módulos (menu lateral expansível):
 
 - **Abastecimento**: solicitação, agendamento e registro de abastecimentos, controle de **estoque**, **reposições** por estoque mínimo e avisos por e-mail.
 - **Planejamento**: cadastro de fluxos versionados; planejamento de atividade em rascunho (salvamento automático, reservas exclusivas de equipamentos), revisão e lançamento da OS; rascunhos; lista de OS.
-- **Operação**: consulta das OS lançadas (execução, apontamentos, checklists e Gantt são as próximas fases; veja [docs/REVISAO-PROMPT-v2.1.md](docs/REVISAO-PROMPT-v2.1.md)).
+- **Operação**: execução das OS por etapa (iniciar, bloquear, pausar, retomar, finalizar), cronômetros, apontamentos, checklists com NC crítica (bloqueio global do equipamento), encerramento automático e Gantt. Detalhes em [docs/REVISAO-PROMPT-v2.1.md](docs/REVISAO-PROMPT-v2.1.md).
 - **Cadastros gerais**: solicitantes e clientes, locais, tipos e equipamentos, colaboradores e funções (com usuários e senhas), checklists versionados e categorias de ocorrências, impactos e bloqueios.
 - **Exportação** CSV, fora dos módulos.
 
@@ -42,6 +42,7 @@ Proteções: senhas com PBKDF2-SHA256 (310 mil iterações, sal individual); ses
 Além do perfil, o gestor pode dar **acessos adicionais** acumuláveis:
 - *Cadastros gerais*: não inclui usuários e senhas, que continuam exclusivos do gestor.
 - *Planejamento*.
+- *Operação*: executa as etapas das OS.
 - *Acompanhamento de OS*.
 - *Liberação técnica*.
 

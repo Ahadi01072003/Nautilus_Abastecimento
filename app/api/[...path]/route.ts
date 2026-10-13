@@ -3,7 +3,7 @@ import {after} from 'next/server';
 import {state,mutate,exportCSV} from '@/lib/service';
 import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
-import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs} from '@/lib/planning';
+import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {AppError} from '@/lib/domain';
@@ -77,6 +77,7 @@ export async function GET(req:Request){try{
  if(path==='planning/availability'){await rateLimit(member.id,'read');return json(await availability(member,url));}
  if(path==='planning/validate'){await rateLimit(member.id,'read');return json(await validateDraft(member,url.searchParams.get('id')||''));}
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}
+ if(path==='orders/steps'){await rateLimit(member.id,'read');return json(await ordersSteps(member,url));}
  if(path==='orders/refs'){await rateLimit(member.id,'read');return json(await ordersRefs(member));}
  if(path==='ops/order'){await rateLimit(member.id,'read');return json(await orderDetail(member,url.searchParams.get('id')||''));}
  if(path==='ops/start-check'){await rateLimit(member.id,'read');return json(await startCheck(member,url.searchParams.get('stepId')||''));}

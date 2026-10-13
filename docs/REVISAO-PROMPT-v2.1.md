@@ -155,10 +155,56 @@ Entregue:
   - Cancelamento libera as reservas.
 - **Condição técnica**: aba em Cadastros gerais › Tipos e equipamentos, com os compromissos afetados.
 
-## 7. Próximas fases
+## 7. Fases 4, 5 e 6 entregues (13/10/2026)
 
-| Fase | Conteúdo | Decisões necessárias |
-|---|---|---|
-| 4 | Lista e Gantt compartilhados (ano/mês/dia), filtros por sobreposição, contagens por organização | — |
-| 5 | Operação: execução por etapa, cronômetros, ocorrências/impactos/bloqueios, checklists na OS, NC crítica com bloqueio global e repercussão nas OS | — |
-| 6 | Encerramento automático, revisões de OS, auditoria imutável, cenários de risco | — |
+**Operação › Ordens de serviço** (acesso adicional "Operação" para quem executa):
+- **Linha do tempo** com marcadores por etapa:
+  - O status temporal fica acima ("Início previsto em", "Início atrasado em", "Restam", "Parada há", "Concluída 00h18 antes", "Atraso de").
+  - O nome da etapa fica abaixo.
+  - Selecionar não inicia a etapa. No celular, a linha fica vertical.
+- **Ações por etapa**: iniciar, bloquear (com categoria), pausar (com motivo), retomar, finalizar e apontamento tardio.
+  - Toda ação tem chave de idempotência.
+  - Comandos simultâneos são serializados pela trava da OS e da etapa.
+- **Pré-requisitos para iniciar**:
+  - dependências término → início;
+  - checklists obrigatórios de pré-atividade e pré-uso;
+  - equipamento sem impedimento e não ocupado por outra etapa em execução.
+- **Cronômetros** calculados a partir dos eventos gravados no servidor:
+  - tempo efetivo (soma dos intervalos ativos) e tempo parado;
+  - tempo decorrido;
+  - desvios de início e de conclusão;
+  - prazo restante e próximo marco.
+  - Duração em HH:MM acima de 24 h. Diferença abaixo de 1 minuto aparece como "menos de 1 minuto".
+- **Apontamentos**: ocorrência (não para o relógio), impacto (com ou sem bloqueio) e bloqueio.
+  - Bloqueios sobrepostos geram um só intervalo de parada, e cada bloqueio precisa de resolução própria.
+  - Nada é apagado nem reescrito; apontamento só recebe a resolução.
+- **Checklists na OS**:
+  - Previstos no lançamento, com a versão fixada, e complementares aplicáveis.
+  - Respostas C/NC/N/A salvas na hora; resposta vazia não é N/A.
+  - Concluído = imutável.
+- **NC crítica de equipamento**:
+  - Bloqueio global imediato, antes de concluir o checklist.
+  - Interrompe etapas em execução que usam o equipamento, em qualquer OS.
+  - Responder C depois, resolver o bloqueio local ou encerrar a OS não liberam o equipamento; só a liberação técnica libera.
+- **NC crítica da atividade**: impedimento local na etapa indicada.
+- **Equipamento em uso real** continua ocupado depois do fim previsto: novas reservas são recusadas pelo banco até o término.
+- **Dispensa formal de etapa** pelo Planejamento, com motivo; libera dependentes e reservas.
+- **Encerramento automático**, uma única vez, quando todas as etapas aplicáveis e os checklists obrigatórios estão concluídos.
+  - Se faltar checklist, a OS fica em **Encerramento pendente** e preserva o término físico.
+  - O encerramento administrativo não altera o término operacional.
+- **Auditoria, eventos e intervalos imutáveis** no banco.
+
+**Gantt** (Lista de OS e Operação, alternando Lista/Gantt com os mesmos filtros):
+- Uma linha por OS, com as etapas expansíveis e as dependências indicadas.
+- Barra planejada e execução real; legenda por estado (texto + cor); etiqueta do solicitante separada do estado.
+- Escalas Ano/Mês/Dia.
+- Roda do mouse aproxima ou afasta ancorada no cursor; pode ser desligada em "Roda do mouse controla o zoom". Fora do Gantt, a página rola normalmente.
+- Arrastar o fundo move o período; também há teclado (setas, + e −) e botões.
+- "Hoje" e "Ajustar ao período".
+- Zoom preservado ao abrir uma OS e ao alternar Lista/Gantt.
+- Consulta apenas o intervalo visível.
+
+## 8. Próximos passos sugeridos
+- Revisão de OS lançada (nova versão do planejamento com o mesmo número, substituindo reservas de forma atômica).
+- Reabertura excepcional e correção de apontamento com histórico.
+- Reaplicação de checklist por turno; calendário de turnos; painel de causas recorrentes.
