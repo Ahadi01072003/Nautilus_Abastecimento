@@ -232,8 +232,8 @@ function checklistContent(b:Row){
   const textValue=required(q.text,label,500);
   if(!['atividade','equipamento'].includes(q.target))throw new AppError(`${label}: indique se a pergunta é sobre a atividade ou o equipamento.`);
   const answers=(v:unknown,what:string)=>{const list=idList(v,`${label} · ${what}`,3);if(list.some(x=>!ANSWERS.includes(x)))throw new AppError(`${label}: resposta inválida em ${what}.`);return ANSWERS.filter(x=>list.includes(x));};
-  const allowNa=bool(q.allowNa),noteOn=answers(q.noteOn,'observação obrigatória'),evidenceOn=answers(q.evidenceOn,'anexo obrigatório');
-  if(!allowNa&&(noteOn.includes('NA')||evidenceOn.includes('NA')))throw new AppError(`${label}: N/A não é permitido, então não pode exigir observação ou anexo para N/A.`);
+  const allowNa=bool(q.allowNa),noteOn=answers(q.noteOn,'observação obrigatória'),evidenceOn:string[]=[];
+  if(!allowNa&&noteOn.includes('NA'))throw new AppError(`${label}: N/A não é permitido, então não pode exigir observação para N/A.`);
   return {text:textValue,required:bool(q.required),critical:bool(q.critical),target:q.target as string,allowNa,noteOn,evidenceOn};
  });
  const links=b.links&&typeof b.links==='object'?b.links:{};

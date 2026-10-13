@@ -6,7 +6,6 @@ import {registryMutate} from '../lib/registry';
 import {flowsMutate} from '../lib/flows';
 import {planningMutate,planningState,planDetail,validateDraft,ordersList,availability} from '../lib/planning';
 import {conditionMutate,conditionState} from '../lib/condition';
-import {attachmentsMutate,attachmentUrl,setTestStorage} from '../lib/attachments';
 import {modules,type Member} from '../lib/permissions';
 import type {Database,Row} from '../lib/db';
 
@@ -41,7 +40,7 @@ before(async()=>{
   {key:'conf-0001',name:'Conferência',required:false,dependsOn:['move-0001']},
  ]},manager) as {id:string}).id;
 });
-after(async()=>{setTestStorage(null);await ctx.drop();});
+after(async()=>{await ctx.drop();});
 
 async function draft(who:Member=planner){const {id}=await planningMutate('planning/create',{activityTypeId:flow},who) as {id:string};return id;}
 async function plan(id:string,who:Member=planner){return (await planDetail(who,id)).plan;}
@@ -186,29 +185,4 @@ test('escopo: cliente vê só as OS da sua organização, sem abastecimento',asy
  const all=await set(client,['acompanhamento'],'none',[]);
  assert.ok((await ordersList(all,new URL('http://x/'))).orders.some(o=>o.id===a.workOrderId));
  await set(client,['acompanhamento'],'none',[orgB]);
-});
-
-test('anexos: tipo, tamanho e conteúdo conferidos; lançado não muda; acesso por escopo',async()=>{
- const files=new Map<string,Uint8Array>();
- setTestStorage({signUpload:async p=>'https://storage.test/upload/'+p,signDownload:async p=>'https://storage.test/get/'+p,inspect:async p=>files.has(p)?{size:files.get(p)!.length,head:files.get(p)!.slice(0,16)}:null,remove:async p=>{files.delete(p);}});
- const id=await draft();
- await rejects(attachmentsMutate('attachments/start',{planId:id,name:'x.exe',mime:'application/octet-stream',size:10},planner),400,/JPG, PNG ou PDF/);
- await rejects(attachmentsMutate('attachments/start',{planId:id,name:'x.pdf',mime:'image/png',size:10},planner),400,/JPG, PNG ou PDF/);
- await rejects(attachmentsMutate('attachments/start',{planId:id,name:'g.pdf',mime:'application/pdf',size:21*1024*1024},planner),413);
- await rejects(attachmentsMutate('attachments/start',{planId:id,name:'a.pdf',mime:'application/pdf',size:10},planner2),404);
- const s=await attachmentsMutate('attachments/start',{planId:id,name:'Plano.pdf',mime:'application/pdf',size:9,title:'Plano de rigging'},planner) as {id:string,uploadUrl:string};
- const path=s.uploadUrl.replace('https://storage.test/upload/','');
- files.set(path,new TextEncoder().encode('<html>xx>'));
- await rejects(attachmentsMutate('attachments/finish',{id:s.id},planner),422,/não corresponde/);
- assert.equal(files.has(path),false,'conteúdo falso é removido');
- const s2=await attachmentsMutate('attachments/start',{planId:id,name:'Plano.pdf',mime:'application/pdf',size:9},planner) as {id:string,uploadUrl:string};
- files.set(s2.uploadUrl.replace('https://storage.test/upload/',''),new TextEncoder().encode('%PDF-1.7\n'));
- await attachmentsMutate('attachments/finish',{id:s2.id},planner);
- assert.equal((await plan(id)).attachments.length,1);
- assert.match((await attachmentUrl(planner,new URL('http://x/?id='+s2.id))).url,/storage\.test\/get/);
- await rejects(attachmentUrl(client,new URL('http://x/?id='+s2.id)),404,/fora do seu acesso/);
- const c=complete(29,'eq2');await save(id,{...c.patch,orgId:orgB},c.steps);
- await planningMutate('planning/launch',{id,version:(await plan(id)).version,launchKey:crypto.randomUUID()},planner);
- assert.ok((await attachmentUrl(client,new URL('http://x/?id='+s2.id))).url,'cliente da organização consulta o documento da OS lançada');
- await rejects(attachmentsMutate('attachments/remove',{id:s2.id},planner),403,/lançado/);
 });

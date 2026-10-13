@@ -58,9 +58,9 @@ export default function Registry({view,actorId,manager,refreshKey,onChanged}:{vi
   else if(kind==='operator')setForm({...base,name:item?.name||'',badge:item?.badge||'',functionIds:item?.function_ids||[],memberId:item?.member_id||''});
   else if(kind==='member')setForm({...base,name:item?.name||'',username:item?.username||'',email:item?.email||'',role:item?.role||'requester',capabilities:item?.capabilities||[],orgScope:item?.org_scope||[],notifyRequests:item?.notify_requests!==0,notifySchedule:item?.notify_schedule!==0,temporaryPassword:''});
   else if(kind==='resetPassword')setForm({id:item?.id,temporaryPassword:''});
-  else if(kind==='checklist'){const v=item?.current;setForm({id:item?.id,code:item?.code||'',expectedVersion:item?.current_version,title:v?.title||'',description:v?.description||'',instructions:v?.instructions||'',moment:v?.moment||'pre_atividade',mandatory:!!v?.mandatory,generalUse:!!v?.general_use,notes:'',activityTypeIds:v?.activity_type_ids||[],equipmentIds:v?.equipment_ids||[],equipmentTypeIds:v?.equipment_type_ids||[],questions:(v?.questions||[]).map((q:R)=>({key:newKey(),text:q.text,required:!!q.required,critical:!!q.critical,target:q.target,allowNa:!!q.allow_na,noteOn:q.note_on,evidenceOn:q.evidence_on}))});if(!item)setForm(f=>({...f,questions:[blankQuestion()]}))}
+  else if(kind==='checklist'){const v=item?.current;setForm({id:item?.id,code:item?.code||'',expectedVersion:item?.current_version,title:v?.title||'',description:v?.description||'',instructions:v?.instructions||'',moment:v?.moment||'pre_atividade',mandatory:!!v?.mandatory,generalUse:!!v?.general_use,notes:'',activityTypeIds:v?.activity_type_ids||[],equipmentIds:v?.equipment_ids||[],equipmentTypeIds:v?.equipment_type_ids||[],questions:(v?.questions||[]).map((q:R)=>({key:newKey(),text:q.text,required:!!q.required,critical:!!q.critical,target:q.target,allowNa:!!q.allow_na,noteOn:q.note_on}))});if(!item)setForm(f=>({...f,questions:[blankQuestion()]}))}
  }
- const blankQuestion=()=>({key:newKey(),text:'',required:true,critical:false,target:'atividade',allowNa:true,noteOn:['NC','NA'],evidenceOn:[]});
+ const blankQuestion=()=>({key:newKey(),text:'',required:true,critical:false,target:'atividade',allowNa:true,noteOn:['NC','NA']});
 
  async function submit(e:FormEvent){
   e.preventDefault();if(!modal)return;setSaving(true);setFormError('');
@@ -165,7 +165,7 @@ export default function Registry({view,actorId,manager,refreshKey,onChanged}:{vi
 
 function ChecklistEditor({form,setForm,data,isNew,blank}:{form:R,setForm:(f:(x:R)=>R)=>void,data:R,isNew:boolean,blank:()=>R}){
  const set=(key:string,value:unknown)=>setForm(f=>({...f,[key]:value}));
- const setQ=(i:number,patch:R)=>setForm(f=>({...f,questions:f.questions.map((q:R,j:number)=>{if(j!==i)return q;const next={...q,...patch};if(!next.allowNa){next.noteOn=next.noteOn.filter((x:string)=>x!=='NA');next.evidenceOn=next.evidenceOn.filter((x:string)=>x!=='NA')}return next})}));
+ const setQ=(i:number,patch:R)=>setForm(f=>({...f,questions:f.questions.map((q:R,j:number)=>{if(j!==i)return q;const next={...q,...patch};if(!next.allowNa){next.noteOn=next.noteOn.filter((x:string)=>x!=='NA')}return next})}));
  const move=(i:number,d:number)=>setForm(f=>{const qs=[...f.questions];const [q]=qs.splice(i,1);qs.splice(i+d,0,q);return {...f,questions:qs}});
  const opts=(list:string,label:(x:R)=>string,keep:string[])=>(data[list] as R[]).filter(x=>x.active||keep.includes(x.id)).map(x=>({value:x.id,label:label(x)+(x.active?'':' (inativo)')}));
  return <>
@@ -188,14 +188,13 @@ function ChecklistEditor({form,setForm,data,isNew,blank}:{form:R,setForm:(f:(x:R
     </div>
     <div className="question-options">
      <span>Exige observação em:</span>{answers.filter(a=>a.value!=='NA'||q.allowNa).map(a=><label key={a.value} className="inline-check"><Checkbox checked={q.noteOn.includes(a.value)} onCheckedChange={v=>setQ(i,{noteOn:v?[...q.noteOn,a.value]:q.noteOn.filter((x:string)=>x!==a.value)})}/>{a.label}</label>)}
-     <span>Exige anexo em:</span>{answers.filter(a=>a.value!=='NA'||q.allowNa).map(a=><label key={a.value} className="inline-check"><Checkbox checked={q.evidenceOn.includes(a.value)} onCheckedChange={v=>setQ(i,{evidenceOn:v?[...q.evidenceOn,a.value]:q.evidenceOn.filter((x:string)=>x!==a.value)})}/>{a.label}</label>)}
-    </div>
+     </div>
     {q.critical&&q.target==='equipamento'&&<p className="question-lock"><Lock size={14}/> NC nesta pergunta bloqueia o equipamento em todo o sistema até a liberação pela Manutenção. Esse efeito não pode ser desligado.</p>}
     {q.critical&&q.target==='atividade'&&<p className="question-lock soft"><Info size={14}/> NC crítica de atividade gera impedimento local na etapa, sem bloquear equipamentos.</p>}
    </div>)}
    <Button type="button" variant="outline" onClick={()=>setForm(f=>({...f,questions:[...f.questions,blank()]}))} disabled={form.questions.length>=150}><Plus size={16}/> Adicionar pergunta</Button>
   </fieldset>
   {!isNew&&<Field label="O que mudou nesta versão" wide><Input maxLength={500} value={form.notes} onChange={e=>set('notes',e.target.value)} placeholder="Ex.: incluída pergunta sobre extintor"/></Field>}
-  <div className="notice wide"><Copy size={17}/><span>Resposta vazia é diferente de N/A. Recomenda-se exigir observação em NC e justificativa em N/A; evidência obrigatória deve ser possível de obter em campo.</span></div>
+  <div className="notice wide"><Copy size={17}/><span>Resposta vazia é diferente de N/A. Recomenda-se exigir observação em NC (o que foi encontrado) e em N/A (por que não se aplica).</span></div>
  </>;
 }

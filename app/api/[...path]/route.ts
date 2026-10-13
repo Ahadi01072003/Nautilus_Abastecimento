@@ -5,7 +5,6 @@ import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
-import {attachmentsMutate,attachmentUrl} from '@/lib/attachments';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -79,7 +78,6 @@ export async function GET(req:Request){try{
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}
  if(path==='orders/refs'){await rateLimit(member.id,'read');return json(await ordersRefs(member));}
  if(path==='condition'){await rateLimit(member.id,'read');return json(await conditionState(member));}
- if(path==='attachments/url'){await rateLimit(member.id,'read');return json(await attachmentUrl(member,url));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
 
@@ -110,7 +108,6 @@ export async function POST(req:Request){try{
  if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));
- if(path.startsWith('attachments/')){await rateLimit(member.id,'upload');return json(await attachmentsMutate(path,body,member));}
  const result=await mutate(path,body,member);
  flushLater(req);
  return json(result);

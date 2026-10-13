@@ -2,7 +2,7 @@
 // Planejamento de atividade (rascunho com salvamento automático, reservas, documentos,
 // revisão e lançamento), Rascunhos e Lista de OS (também usada na Operação).
 import {useCallback,useEffect,useMemo,useRef,useState,FormEvent,ReactNode} from 'react';
-import {Plus,AlertTriangle,LoaderCircle,CheckCircle2,CircleDashed,CloudOff,Rocket,Trash2,Upload,FileText,Image as ImageIcon,ExternalLink,Download,X,Wand2,ClipboardList,CalendarRange,Lock,Info,Unlock,Filter,Clock,Users,Truck,MapPin} from 'lucide-react';
+import {Plus,AlertTriangle,LoaderCircle,CheckCircle2,CircleDashed,CloudOff,Rocket,Trash2,X,Wand2,ClipboardList,CalendarRange,Lock,Info,Unlock,Filter,Clock,Users,Truck,MapPin} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Table,TableHeader,TableRow,TableHead,TableBody,TableCell} from '@/components/ui/table';
@@ -126,10 +126,9 @@ function PlanEditor({planId,refs,onClose,onReplaced,onLaunched}:{planId:string,r
     <Field label="Descrição" wide><Textarea maxLength={2000} value={form.description} onChange={e=>update(f=>({...f,description:e.target.value}))} placeholder="O que será feito, observações para a operação"/></Field>
     {org&&<div className="n-field"><label>Etiqueta</label><OrgTag org={org}/></div>}
    </div>
-   <Docs plan={plan} stepKey={null} editable={editable} onChange={reload}/>
   </section>
   <section className="n-panel plan-section"><div className="panel-heading"><div><h2>Etapas, horários e recursos</h2><p>{order.cyclic.length?'':`${form.steps.filter(s=>s.included).length} etapa(s) incluída(s) · ${reserved} equipamento(s) reservado(s) provisoriamente.`} Etapas sem dependência podem ocorrer em paralelo.</p></div>{editable&&<Button variant="outline" onClick={proposeTimes}><Wand2 size={16}/> Sugerir horários</Button>}</div>
-   <div className="plan-steps">{form.steps.map(s=><StepCard key={s.key} step={s} steps={form.steps} refs={refs} paths={paths} planId={planId} serverStep={plan.steps.find((x:R)=>x.step_key===s.key)} editable={editable} onChange={patch=>setStep(s.key,patch)} plan={plan} reloadDocs={reload}/>)}</div>
+   <div className="plan-steps">{form.steps.map(s=><StepCard key={s.key} step={s} steps={form.steps} refs={refs} paths={paths} planId={planId} serverStep={plan.steps.find((x:R)=>x.step_key===s.key)} editable={editable} onChange={patch=>setStep(s.key,patch)}/>)}</div>
   </section>
   </fieldset>
   {editable&&<div className="plan-footer"><button className="text-action danger-text" onClick={()=>setConfirmDiscard(true)}><Trash2 size={14} className="inline"/> Descartar rascunho</button><Button variant="outline" onClick={()=>void save(form)} disabled={saveState==='saving'}>Salvar agora</Button></div>}
@@ -142,7 +141,7 @@ function PlanEditor({planId,refs,onClose,onReplaced,onLaunched}:{planId:string,r
   </DialogContent></Dialog>
   <Dialog open={!!review} onOpenChange={v=>{if(!launching&&!v)setReview(null)}}><DialogContent className="n-dialog n-dialog-wide"><DialogHeader><div className="modal-eyebrow"><Rocket size={16}/> REVISAR E LANÇAR</div><DialogTitle>{plan.activity_name}{org?` · ${org.acronym}`:''}</DialogTitle><DialogDescription>Você mesmo revisa e lança; não há aprovação de terceiro. O lançamento cria o número da OS, congela este planejamento, confirma as reservas e publica a OS na Operação.</DialogDescription></DialogHeader>
    {review&&<div className="review">
-    <div className="review-grid"><div><small>Solicitante</small><OrgTag org={org}/></div><div><small>Local</small><b>{paths.get(form.locationId)||'—'}</b></div><div><small>Janela prevista</small><b>{range(toISO(form.start),toISO(form.end))}</b></div><div><small>Documentos</small><b>{plan.attachments.length}</b></div></div>
+    <div className="review-grid"><div><small>Solicitante</small><OrgTag org={org}/></div><div><small>Local</small><b>{paths.get(form.locationId)||'—'}</b></div><div><small>Janela prevista</small><b>{range(toISO(form.start),toISO(form.end))}</b></div></div>
     <ol className="review-steps">{form.steps.filter(s=>s.included).map(s=><li key={s.key}><b>{s.name}</b><span>{range(toISO(s.start),toISO(s.end))}</span><small>{[...s.equipmentIds.map(e=>refs.equipment.find((x:R)=>x.id===e)?.tag),...s.operatorIds.map(o=>refs.operators.find((x:R)=>x.id===o)?.name)].filter(Boolean).join(' · ')||'Sem recursos identificados'}</small></li>)}</ol>
     {review.errors.length?<div className="form-error"><AlertTriangle size={17}/><div><b>{review.errors.length} pendência(s) impedem o lançamento</b><ul>{review.errors.map((e:R,i:number)=><li key={i}>{e.message}</li>)}</ul></div></div>:<div className="notice"><CheckCircle2 size={17}/><span>Sem pendências. Pronto para lançar.</span></div>}
     {review.warnings.length>0&&<div className="notice warn"><Info size={17}/><div><b>Avisos</b><ul>{review.warnings.map((e:R,i:number)=><li key={i}>{e.message}</li>)}</ul></div></div>}
@@ -152,7 +151,7 @@ function PlanEditor({planId,refs,onClose,onReplaced,onLaunched}:{planId:string,r
  </div>;
 }
 
-function StepCard({step:s,steps,refs,paths,planId,serverStep,editable,onChange,plan,reloadDocs}:{step:Step,steps:Step[],refs:R,paths:Map<string,string>,planId:string,serverStep:R,editable:boolean,onChange:(p:Partial<Step>)=>void,plan:R,reloadDocs:()=>void}){
+function StepCard({step:s,steps,refs,paths,planId,serverStep,editable,onChange}:{step:Step,steps:Step[],refs:R,paths:Map<string,string>,planId:string,serverStep:R,editable:boolean,onChange:(p:Partial<Step>)=>void}){
  const [avail,setAvail]=useState<Record<string,R>>({}),[showAll,setShowAll]=useState(false);
  const startISO=toISO(s.start),endISO=toISO(s.end),valid=!!startISO&&!!endISO&&Date.parse(endISO)>Date.parse(startISO);
  // Consulta a agenda do intervalo da etapa (o servidor revalida ao gravar).
@@ -179,40 +178,8 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,editable,onChange,p
    <fieldset className="n-field wide"><legend>Colaboradores {fnNeeds.length>0&&<small>({fnNeeds.map(n=>`${n.quantity}× ${name('functions',n.functionId)}`).join(', ')})</small>}</legend>
     <div className="resource-list people">{operators.map(o=>{const fits=fnNeeds.some(n=>o.function_ids.includes(n.functionId));return <label key={o.id} className={`resource ${s.operatorIds.includes(o.id)?'chosen':''}`}><Checkbox checked={s.operatorIds.includes(o.id)} onCheckedChange={v=>onChange({operatorIds:v?[...s.operatorIds,o.id]:s.operatorIds.filter(x=>x!==o.id)})}/><span><b>{o.name}</b><small>{o.function_ids.map((f:string)=>name('functions',f)).join(', ')||'Sem função'}</small></span>{fits&&<Badge tone="info">Função exigida</Badge>}</label>})}</div>
    </fieldset>
-   <div className="wide"><Docs plan={plan} stepKey={s.key} editable={editable} onChange={reloadDocs}/></div>
   </div>}
  </article>;
-}
-
-/* ───────────────────────── Documentos ───────────────────────── */
-
-function Docs({plan,stepKey,editable,onChange}:{plan:R,stepKey:string|null,editable:boolean,onChange:()=>void}){
- const [uploads,setUploads]=useState<{name:string,progress:number,error?:string}[]>([]),[preview,setPreview]=useState<R|null>(null);
- const docs=(plan.attachments as R[]).filter(a=>(a.step_key||null)===stepKey);
- async function send(file:File){
-  const entry={name:file.name,progress:0};setUploads(u=>[...u,entry]);
-  const set=(p:Partial<typeof entry>&{error?:string})=>setUploads(u=>u.map(x=>x.name===file.name?{...x,...p}:x));
-  try{
-   const mime=file.type||(/\.pdf$/i.test(file.name)?'application/pdf':/\.png$/i.test(file.name)?'image/png':'image/jpeg');
-   const s=await post('attachments/start',{planId:plan.id,stepKey,name:file.name,mime,size:file.size,title:file.name.replace(/\.[^.]+$/,'')});
-   await new Promise<void>((resolve,reject)=>{const x=new XMLHttpRequest();x.open('PUT',s.uploadUrl);x.setRequestHeader('Content-Type',mime);x.setRequestHeader('x-upsert','false');x.upload.onprogress=e=>{if(e.lengthComputable)set({progress:Math.round(100*e.loaded/e.total)})};x.onload=()=>x.status<300?resolve():reject(new Error('O armazenamento recusou o envio.'));x.onerror=()=>reject(new Error('Falha de rede durante o envio.'));x.send(file)});
-   await post('attachments/finish',{id:s.id});
-   setUploads(u=>u.filter(x=>x.name!==file.name));toast.success(`${file.name} anexado.`);onChange();
-  }catch(e){set({error:(e as Error).message})}
- }
- async function open(a:R,download=false){try{const r=await load<R>(`attachments/url?id=${a.id}${download?'&download=1':''}`);if(download){const link=document.createElement('a');link.href=r.url;link.rel='noopener';link.click()}else setPreview({...a,url:r.url})}catch(e){toast.error((e as Error).message)}}
- async function remove(a:R){try{await post('attachments/remove',{id:a.id});onChange()}catch(e){toast.error((e as Error).message)}}
- return <div className="docs"><div className="docs-head"><span><FileText size={15}/> {stepKey?'Documentos da etapa':'Documentos da OS'}</span>{editable&&<label className="text-action upload-button"><Upload size={14} className="inline"/> Anexar JPG, PNG ou PDF<input type="file" accept=".jpg,.jpeg,.png,.pdf,image/jpeg,image/png,application/pdf" multiple hidden onChange={e=>{for(const f of Array.from(e.target.files||[]))void send(f);e.target.value=''}}/></label>}</div>
-  {docs.length===0&&uploads.length===0&&<small className="docs-empty">Nenhum documento.</small>}
-  <ul>{docs.map(a=><li key={a.id}>{a.mime==='application/pdf'?<FileText size={16}/>:<ImageIcon size={16}/>}<button type="button" className="doc-name" onClick={()=>void open(a)}>{a.title}</button><small>{(a.size_bytes/1048576).toFixed(1)} MB · {a.author_name}</small>{a.status==='pendente'&&<Badge tone="warning">Envio incompleto</Badge>}<button type="button" className="icon-action" aria-label={`Baixar ${a.title}`} onClick={()=>void open(a,true)}><Download size={14}/></button>{editable&&<button type="button" className="icon-action" aria-label={`Remover ${a.title}`} onClick={()=>void remove(a)}><Trash2 size={14}/></button>}</li>)}
-   {uploads.map(u=><li key={u.name} className={u.error?'upload-error':''}><Upload size={16}/><span className="doc-name">{u.name}</span>{u.error?<small className="danger-text">{u.error}</small>:<progress max={100} value={u.progress} aria-label={`Enviando ${u.name}`}/>}{u.error&&<button type="button" className="icon-action" aria-label="Fechar aviso" onClick={()=>setUploads(x=>x.filter(y=>y.name!==u.name))}><X size={14}/></button>}</li>)}</ul>
-  <Dialog open={!!preview} onOpenChange={v=>{if(!v)setPreview(null)}}><DialogContent className="n-dialog n-dialog-wide"><DialogHeader><div className="modal-eyebrow"><FileText size={16}/> DOCUMENTO</div><DialogTitle>{preview?.title}</DialogTitle><DialogDescription>{preview?.original_name} · link temporário de 2 minutos.</DialogDescription></DialogHeader>
-   {preview&&(preview.mime==='application/pdf'?<iframe className="doc-preview" src={preview.url} title={preview.title}/>:
-    // eslint-disable-next-line @next/next/no-img-element -- Link assinado e temporário do armazenamento privado; não deve passar pelo otimizador de imagens.
-    <img className="doc-preview" src={preview.url} alt={preview.title}/>)}
-   <div className="modal-footer"><a className="text-action" href={preview?.url} target="_blank" rel="noreferrer noopener"><ExternalLink size={14} className="inline"/> Abrir em nova aba</a><Button variant="outline" onClick={()=>preview&&void open(preview,true)}><Download size={16}/> Baixar</Button></div>
-  </DialogContent></Dialog>
- </div>;
 }
 
 /* ───────────────────────── Lista de OS (Planejamento e Operação) ───────────────────────── */
@@ -267,8 +234,6 @@ function OrderSummary({detail,refs,paths,status}:{detail:R,refs:R,paths:Map<stri
   <div className="review-grid"><div><small>Situação</small>{status(order)}</div><div><small>Solicitante</small><OrgTag org={name('orgs',order.org_id)}/>{person&&<small>{person.name}</small>}</div><div><small>Local</small><b>{paths.get(order.location_id)||'—'}</b></div><div><small>Período planejado</small><b>{range(order.planned_start,order.planned_end)}</b></div></div>
   {plan.description&&<p className="flow-description">{plan.description}</p>}
   {order.cancel_reason&&<div className="notice warn"><Info size={17}/><span>Cancelada: {order.cancel_reason}</span></div>}
-  <ol className="review-steps">{plan.steps.filter((s:R)=>s.included).map((s:R)=><li key={s.id}><b>{s.name}</b><span>{range(s.planned_start,s.planned_end)}{s.location_id?` · ${paths.get(s.location_id)}`:''}</span><small>{s.equipment_ids.map((e:string)=>{const blocked=impediments.find((i:R)=>i.equipment_id===e);return (name('equipment',e)?.tag||'')+(blocked?` (bloqueado: ${blocked.reason})`:'')}).join(' · ')}{s.equipment_ids.length&&s.operator_ids.length?' · ':''}{s.operator_ids.map((o:string)=>name('operators',o)?.name).join(' · ')}</small>{plan.attachments.filter((a:R)=>a.step_key===s.step_key).length>0&&<small><FileText size={12} className="inline"/> {plan.attachments.filter((a:R)=>a.step_key===s.step_key).length} documento(s)</small>}</li>)}</ol>
-  <Docs plan={plan} stepKey={null} editable={false} onChange={()=>{}}/>
-  {plan.steps.filter((s:R)=>s.included).map((s:R)=>plan.attachments.some((a:R)=>a.step_key===s.step_key)?<div key={s.id}><small className="field-title">{s.name}</small><Docs plan={plan} stepKey={s.step_key} editable={false} onChange={()=>{}}/></div>:null)}
+  <ol className="review-steps">{plan.steps.filter((s:R)=>s.included).map((s:R)=><li key={s.id}><b>{s.name}</b><span>{range(s.planned_start,s.planned_end)}{s.location_id?` · ${paths.get(s.location_id)}`:''}</span><small>{s.equipment_ids.map((e:string)=>{const blocked=impediments.find((i:R)=>i.equipment_id===e);return (name('equipment',e)?.tag||'')+(blocked?` (bloqueado: ${blocked.reason})`:'')}).join(' · ')}{s.equipment_ids.length&&s.operator_ids.length?' · ':''}{s.operator_ids.map((o:string)=>name('operators',o)?.name).join(' · ')}</small></li>)}</ol>
  </div>;
 }

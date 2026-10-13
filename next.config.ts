@@ -1,17 +1,14 @@
 import type {NextConfig} from 'next';
 
 const dev=process.env.NODE_ENV!=='production';
-// Anexos: envio e visualização direto no armazenamento privado (URLs assinadas e temporárias).
-const storage=process.env.STORAGE_ORIGIN||'https://jmcghnptoagvjcgugzlf.supabase.co';
 const csp=[
  "default-src 'self'",
  // Next.js injeta scripts inline para hidratação; não há scripts de terceiros.
  `script-src 'self' 'unsafe-inline'${dev?" 'unsafe-eval'":''}`,
  "style-src 'self' 'unsafe-inline'",
- `img-src 'self' data: ${storage}`,
+ "img-src 'self' data:",
  "font-src 'self' data:",
- `connect-src 'self' ${storage}`,
- `frame-src ${storage}`,
+ "connect-src 'self'",
  "object-src 'none'",
  "base-uri 'self'",
  "form-action 'self'",

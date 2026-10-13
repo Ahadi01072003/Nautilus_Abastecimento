@@ -96,7 +96,7 @@ Correspondem às etapas 1 e 2 da sequência recomendada (§25): inspeção do si
   - Histórico de alterações.
 - **Checklists**:
   - Perguntas C/NC/N/A, obrigatória, crítica, alvo (atividade/equipamento) e N/A permitido.
-  - Exigência de observação ou anexo por resposta.
+  - Exigência de observação por resposta.
   - Vínculos com tipos de atividade, tipos de equipamento e equipamentos específicos, ou uso geral.
   - Cada gravação publica uma versão imutável.
   - O efeito "NC crítica de equipamento bloqueia globalmente" não pode ser desligado.
@@ -119,11 +119,7 @@ Correspondem às etapas 1 e 2 da sequência recomendada (§25): inspeção do si
 ## 6. Fase 3 entregue (13/10/2026)
 
 Decisões confirmadas pelo usuário:
-1. **Anexos**: Supabase Storage com bucket privado (`nautilus-anexos`).
-   - O envio vai do navegador direto ao Storage, por URL assinada.
-   - Depois do envio, o servidor confere tamanho e conteúdo real (assinatura do arquivo) antes de marcar como salvo.
-   - A visualização usa link de 2 minutos.
-   - A chave de serviço do Supabase fica só na função `nautilus-storage`. O servidor do NAUTILUS se autentica com um token gerado no próprio banco (`app_settings`); nenhuma chave nova foi criada na Vercel.
+1. **Anexos**: inicialmente feitos em armazenamento privado; **removidos por decisão do usuário** (13/10/2026). O NAUTILUS não guarda documentos nem evidências em arquivo; checklists usam observação por pergunta.
 2. **Liberação técnica**:
    - Novo acesso adicional "Liberação técnica".
    - Impedimento técnico manual (e, na Operação, por NC crítica) bloqueia reservas e lançamentos no banco.
@@ -132,7 +128,7 @@ Decisões confirmadas pelo usuário:
 3. **Escopo do cliente**:
    - Novo perfil "Sem acesso ao abastecimento" e acesso "Acompanhamento de OS".
    - Cada usuário tem "Organizações visíveis", editável pelo gestor; vazio = todas.
-   - A restrição vale na lista, no detalhe, nos documentos e no acesso direto.
+   - A restrição vale na lista, no detalhe e no acesso direto.
 4. **Rascunho esquecido**: o gestor libera as reservas, com motivo e auditoria.
 5. **Dependência de etapa opcional não incluída**: é ignorada e gera aviso na revisão.
 
@@ -142,7 +138,6 @@ Entregue:
   - Horários por etapa, com sugestão pelas durações padrão, aplicada só após confirmação.
   - Equipamentos com agenda do intervalo: livre, reservado (com o motivo) ou bloqueado.
   - Colaboradores por função.
-  - Documentos da OS e das etapas.
   - Troca de tipo com confirmação.
 - **Reservas provisórias exclusivas**:
   - O banco recusa sobreposição `[início, fim)` e equipamento bloqueado, travando a linha do equipamento. Isso vale inclusive para gravações simultâneas.
@@ -156,7 +151,7 @@ Entregue:
   - Filtro por sobreposição de período, organização, tipo, local, situação e número.
   - Ordem padrão da especificação; canceladas só aparecem por filtro.
   - Contagem por organização; cartões no celular.
-  - Detalhe da OS com documentos.
+  - Detalhe da OS.
   - Cancelamento libera as reservas.
 - **Condição técnica**: aba em Cadastros gerais › Tipos e equipamentos, com os compromissos afetados.
 

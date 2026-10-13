@@ -49,18 +49,17 @@ async function refs(){
 
 /** Planejamento completo: etapas, necessidades, pessoas, reservas ativas e documentos. */
 export type PlanStep=Row&{needs:Row[],operator_ids:string[],equipment_ids:string[],reservations:Row[]};
-export type Plan=Row&{attachments:Row[],steps:PlanStep[]};
+export type Plan=Row&{steps:PlanStep[]};
 export async function loadPlan(planId:string,ex:Executor=db()):Promise<Plan|null>{
  const plan=await ex.first('SELECT p.*,t.code activity_code,t.name activity_name,v.version flow_version,w.number os_number,w.status os_status FROM plans p JOIN activity_types t ON t.id=p.activity_type_id JOIN flow_versions v ON v.id=p.flow_version_id LEFT JOIN work_orders w ON w.id=p.work_order_id WHERE p.id=?',planId);
  if(!plan)return null;
- const [steps,needs,people,reservations,attachments]=await Promise.all([
+ const [steps,needs,people,reservations]=await Promise.all([
   ex.all('SELECT * FROM plan_steps WHERE plan_id=? ORDER BY position',planId),
   ex.all('SELECT * FROM plan_step_needs WHERE plan_id=?',planId),
   ex.all('SELECT * FROM plan_step_people WHERE plan_id=?',planId),
   ex.all("SELECT * FROM reservations WHERE plan_id=? AND status<>'liberada'",planId),
-  ex.all("SELECT id,step_key,title,description,purpose,original_name,mime,size_bytes,status,author_name,created_at,ready_at FROM attachments WHERE plan_id=? AND status IN ('pendente','pronto') ORDER BY created_at",planId),
  ]);
- return {...plan,attachments,steps:steps.map(s=>({...s,needs:needs.filter(n=>n.plan_step_id===s.id).map(n=>({equipment_type_id:n.equipment_type_id,function_id:n.function_id,quantity:n.quantity})),operator_ids:people.filter(p=>p.plan_step_id===s.id).map(p=>p.operator_id),equipment_ids:reservations.filter(r=>r.plan_step_id===s.id).map(r=>r.equipment_id),reservations:reservations.filter(r=>r.plan_step_id===s.id)}))};
+ return {...plan,steps:steps.map(s=>({...s,needs:needs.filter(n=>n.plan_step_id===s.id).map(n=>({equipment_type_id:n.equipment_type_id,function_id:n.function_id,quantity:n.quantity})),operator_ids:people.filter(p=>p.plan_step_id===s.id).map(p=>p.operator_id),equipment_ids:reservations.filter(r=>r.plan_step_id===s.id).map(r=>r.equipment_id),reservations:reservations.filter(r=>r.plan_step_id===s.id)}))};
 }
 
 /** Quem vê o planejamento: rascunho só o autor e o gestor; lançado, quem consulta OS no escopo. */
@@ -319,11 +318,10 @@ export async function planningMutate(path:string,b:Row,member:Member){
    if(!changed)throw new AppError('Este rascunho foi alterado em outra tela. Atualize para continuar.',409);
    await releaseAll(tx,plan.id,'Tipo de atividade trocado');
    const r=await createDraftFrom(tx,a,idOf(b.activityTypeId,'Tipo de atividade'),plan);
-   await tx.run('UPDATE attachments SET plan_id=? WHERE plan_id=? AND step_key IS NULL AND status IN (\'pendente\',\'pronto\')',r.pid,plan.id);
    await audit(tx,a,'Planejamento: tipo de atividade trocado',r.pid,{from:plan.activity_code,to:r.type.code,previousPlan:plan.id});
    return r;
   });
-  return {id:res.pid,message:'Tipo trocado. Etapas carregadas do novo fluxo; dados gerais e documentos gerais foram mantidos.'};
+  return {id:res.pid,message:'Tipo trocado. Etapas carregadas do novo fluxo; os dados gerais foram mantidos.'};
  }
 
  if(path==='planning/save')return saveDraft(a,plan,b);
