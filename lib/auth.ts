@@ -71,7 +71,7 @@ export async function destroySession(token:string|undefined){
 export async function sessionMember(token:string|undefined|null):Promise<(Member&{must_change_password:number})|null>{
  if(!token||token.length>100)return null;
  const id=tokenId(token);
- const row=await db().first("SELECT s.created_at session_created,s.expires_at,s.last_seen_at,m.id,m.username,m.email,m.name,m.profile,m.active,m.must_change_password FROM sessions s JOIN members m ON m.id=s.member_id WHERE s.id=?",id);
+ const row=await db().first("SELECT s.created_at session_created,s.expires_at,s.last_seen_at,m.id,m.username,m.email,m.name,m.profile,m.active,m.capabilities,m.must_change_password FROM sessions s JOIN members m ON m.id=s.member_id WHERE s.id=?",id);
  if(!row)return null;
  const t=Date.now();
  if(!row.active||!profiles.includes(row.profile)||row.expires_at<new Date(t).toISOString()||Date.parse(row.session_created)+SESSION_MAX_MS<t){

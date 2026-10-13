@@ -1,9 +1,9 @@
 import {scheduledDate,appointmentVersion} from './scheduling';
-import {Member,Profile,isManager,canPlan,canRecord,requireProfile,modules,profiles} from './permissions';
+import {Member,Profile,isManager,canPlan,canRecord,requireProfile,modules,profiles,capabilities as allCapabilities} from './permissions';
 import {enqueue,enqueueMinimum} from './notifications';
 import {emailSetup,sendResendEmail} from './resend';
 import {db,type Executor,type Row} from './db';
-import {defaultPassword,hashPassword,normalizeUsername,checkTemporaryPassword,TEMPORARY_PASSWORD_DAYS} from './auth';
+import {defaultPassword,hashPassword,normalizeUsername,checkTemporaryPassword} from './auth';
 import {AppError,businessDeadline,email,required,text,milli,dateISO,safeCSV,isoDay} from './domain';
 
 const id=()=>crypto.randomUUID();
@@ -33,7 +33,7 @@ export async function state(a:Member,page=0){
  const appointmentArgs=requester||fueler?[a.id]:[];
  const supplyWhere=manager?'':' WHERE s.author_id=?',supplyArgs=manager?[]:[a.id];
  const none=Promise.resolve([] as Row[]);
- const [fuels,equipment,operators,supplies,movements,requests,holidays,members,audits,stats,daily,appointments,executors,notifications,appointmentCount,supplyCount]=await Promise.all([
+ const [fuels,equipment,operators,supplies,movements,requests,holidays,stats,daily,appointments,executors,notifications,appointmentCount,supplyCount]=await Promise.all([
   all(manager?'SELECT * FROM fuels ORDER BY name':`SELECT id,name,unit,integral,active${fueler?',stock_milli':''} FROM fuels WHERE active=1 ORDER BY name`),
   all(manager?'SELECT * FROM equipment ORDER BY tag':'SELECT id,tag,description,type,fuel_ids,active FROM equipment WHERE active=1 ORDER BY tag'),
   manager||fueler?all('SELECT id,name,badge,active FROM operators'+(manager?'':' WHERE active=1')+' ORDER BY name'):none,
@@ -41,8 +41,6 @@ export async function state(a:Member,page=0){
   manager?all('SELECT m.*,f.name fuel_name,f.unit FROM movements m JOIN fuels f ON f.id=m.fuel_id ORDER BY m.occurred_at DESC LIMIT 200'):none,
   manager?all('SELECT r.id,r.fuel_id,r.requested_milli,r.received_milli,r.stock_reference_milli,r.opened_at,r.deadline,r.status,f.name fuel_name,f.unit,f.stock_milli,f.minimum_milli FROM requests r JOIN fuels f ON f.id=r.fuel_id ORDER BY r.opened_at DESC LIMIT 200'):none,
   manager?all('SELECT * FROM holidays ORDER BY date'):none,
-  manager?all('SELECT id,username,email,name,profile AS role,notify_requests,notify_schedule,active,created_at,must_change_password,password_changed_at,locked_until,last_login_at FROM members ORDER BY name'):none,
-  manager?all('SELECT * FROM audits ORDER BY created_at DESC LIMIT 100'):none,
   manager?all(`SELECT fuel_id,COUNT(*) count,SUM(quantity_milli)::bigint quantity_milli FROM supplies WHERE status='confirmed' AND substr(${LOCAL_DAY},1,7)=? GROUP BY fuel_id`,localMonth()):none,
   // Histórico diário completo (por dia e combustível) para o gráfico com zoom ano › mês › dia.
   manager?all(`SELECT ${LOCAL_DAY} AS day,fuel_id,SUM(quantity_milli)::bigint quantity_milli,COUNT(*) count FROM supplies WHERE status='confirmed' GROUP BY 1,2 ORDER BY 1`):none,
@@ -53,14 +51,12 @@ export async function state(a:Member,page=0){
   manager||fueler?first('SELECT count(*) total FROM supplies s'+supplyWhere,...supplyArgs):Promise.resolve({total:0})
  ]);
  await requireFresh(a);
- let standard:string|null=null;
- if(manager){try{standard=defaultPassword();}catch{standard=null;}}
  const setup=emailSetup();
  return {
-  actor:{id:a.id,name:a.name,username:a.username,role:a.profile,canFuel:canRecord(a),canPlan:canPlan(a),canRequest:a.profile==='requester'||manager,modules:modules(a)},
-  fuels,equipment,operators,supplies,movements,requests,holidays,members,audits,stats,daily,appointments,executors,notifications,
+  actor:{id:a.id,name:a.name,username:a.username,role:a.profile,capabilities:a.capabilities||[],canFuel:canRecord(a),canPlan:canPlan(a),canRequest:a.profile==='requester'||manager,modules:modules(a)},
+  fuels,equipment,operators,supplies,movements,requests,holidays,stats,daily,appointments,executors,notifications,
   pagination:{page,limit,appointments:appointmentCount?.total||0,supplies:supplyCount?.total||0},
-  emailReady:setup.ready&&setup.enabled,...(manager?{emailSetup:setup,access:{defaultPassword:standard,temporaryPasswordDays:TEMPORARY_PASSWORD_DAYS}}:{}),generatedAt:now()
+  emailReady:setup.ready&&setup.enabled,...(manager?{emailSetup:setup}:{}),generatedAt:now()
  };
 }
 
@@ -169,29 +165,6 @@ export async function mutate(path:string,b:Row,a:Member){
   });
   return {ok:true};
  }
- if(path==='equipment'){
-  requireProfile(a,['manager']);const tag=required(b.tag,'TAG',60).toUpperCase(),description=required(b.description,'Descrição',250),type=required(b.type,'Tipo',100);
-  if(!Array.isArray(b.fuelIds)||!b.fuelIds.length||b.fuelIds.length>50||b.fuelIds.some((f:unknown)=>typeof f!=='string'))throw new AppError('Selecione ao menos um combustível compatível.');
-  const fuelIds=[...new Set(b.fuelIds as string[])];
-  const allowed=await all('SELECT id FROM fuels WHERE active=1');if(fuelIds.some(f=>!allowed.some(v=>v.id===f)))throw new AppError('Combustível inválido.');
-  const old=b.id?await first('SELECT * FROM equipment WHERE id=?',idOf(b.id,'Equipamento')):null;if(b.id&&!old)throw new AppError('Equipamento não encontrado.',404);
-  const eid=old?.id||id();
-  await db().tx(async tx=>{
-   await tx.run('INSERT INTO equipment(id,tag,description,type,fuel_ids,active) VALUES(?,?,?,?,?::text[],?) ON CONFLICT(id) DO UPDATE SET tag=excluded.tag,description=excluded.description,type=excluded.type,fuel_ids=excluded.fuel_ids,active=excluded.active',eid,tag,description,type,fuelIds,flag(b.active));
-   await audit(tx,a,old?'Equipamento atualizado':'Equipamento cadastrado',eid,{before:old,after:{tag,description,type,fuelIds,active:b.active!==false}});
-  });
-  return {id:eid};
- }
- if(path==='operators'){
-  requireProfile(a,['manager']);const name=required(b.name,'Nome',180),badge=text(b.badge,60);
-  const old=b.id?await first('SELECT * FROM operators WHERE id=?',idOf(b.id,'Operador')):null;if(b.id&&!old)throw new AppError('Operador não encontrado.',404);
-  const oid=old?.id||id();
-  await db().tx(async tx=>{
-   await tx.run('INSERT INTO operators(id,name,badge,active) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,badge=excluded.badge,active=excluded.active',oid,name,badge,flag(b.active));
-   await audit(tx,a,old?'Operador atualizado':'Operador cadastrado',oid,{before:old,after:{name,badge,active:b.active!==false}});
-  });
-  return {id:oid};
- }
  if(path==='members'){
   requireProfile(a,['manager']);
   const username=normalizeUsername(b.username),name=required(b.name,'Nome',180),addr=b.email?email(b.email):null;
@@ -201,20 +174,23 @@ export async function mutate(path:string,b:Row,a:Member){
   if(existing?.id===a.id&&(b.active===false||profile!=='manager'))throw new AppError('Você não pode retirar o seu próprio acesso de gestor.');
   const clash=await first('SELECT id,username,email FROM members WHERE (username=? OR email=?) AND id<>?',username,addr,existing?.id||'');
   if(clash)throw new AppError(clash.username===username?'Este usuário já está em uso. Escolha outro.':'Este e-mail já pertence a outro cadastro.',409);
+  if(b.capabilities!=null&&(!Array.isArray(b.capabilities)||b.capabilities.some((c:unknown)=>!allCapabilities.includes(c as never))))throw new AppError('Acesso adicional inválido.');
+  // O gestor já tem todos os acessos; os adicionais valem para os demais perfis.
+  const caps=profile==='manager'?[]:allCapabilities.filter(c=>(b.capabilities||[]).includes(c));
   const notifyRequests=profile==='planner'?Number(b.notifyRequests!==false):1,notifySchedule=profile==='fueler'?Number(b.notifySchedule!==false):1,active=flag(b.active);
   if(!existing){
    const temporary=b.temporaryPassword?checkTemporaryPassword(b.temporaryPassword):defaultPassword();
    const hash=await hashPassword(temporary),mid=id();
    await db().tx(async tx=>{
-    await tx.run('INSERT INTO members(id,username,email,name,profile,notify_requests,notify_schedule,active,created_at,password_hash,must_change_password,password_changed_at) VALUES(?,?,?,?,?,?,?,?,?,?,1,?)',mid,username,addr,name,profile,notifyRequests,notifySchedule,active,t,hash,t);
-    await audit(tx,a,'Acesso criado',mid,{username,profile,active:!!active,customTemporaryPassword:!!b.temporaryPassword});
+    await tx.run('INSERT INTO members(id,username,email,name,profile,capabilities,notify_requests,notify_schedule,active,created_at,password_hash,must_change_password,password_changed_at) VALUES(?,?,?,?,?,?::text[],?,?,?,?,?,1,?)',mid,username,addr,name,profile,caps,notifyRequests,notifySchedule,active,t,hash,t);
+    await audit(tx,a,'Acesso criado',mid,{username,profile,capabilities:caps,active:!!active,customTemporaryPassword:!!b.temporaryPassword});
    });
    return {id:mid,username,message:`Usuário ${username} criado. No primeiro acesso a pessoa usa a senha ${b.temporaryPassword?'provisória informada':'padrão'} e define a senha definitiva.`};
   }
   await db().tx(async tx=>{
-   await tx.run('UPDATE members SET username=?,email=?,name=?,profile=?,notify_requests=?,notify_schedule=?,active=? WHERE id=?',username,addr,name,profile,notifyRequests,notifySchedule,active,existing.id);
+   await tx.run('UPDATE members SET username=?,email=?,name=?,profile=?,capabilities=?::text[],notify_requests=?,notify_schedule=?,active=? WHERE id=?',username,addr,name,profile,caps,notifyRequests,notifySchedule,active,existing.id);
    if(!active||existing.profile!==profile)await tx.run('DELETE FROM sessions WHERE member_id=?',existing.id);
-   await audit(tx,a,'Acesso atualizado',existing.id,{before:{username:existing.username,email:existing.email,profile:existing.profile,active:existing.active},after:{username,email:addr,profile,active,notifyRequests,notifySchedule}});
+   await audit(tx,a,'Acesso atualizado',existing.id,{before:{username:existing.username,email:existing.email,profile:existing.profile,capabilities:existing.capabilities,active:existing.active},after:{username,email:addr,profile,capabilities:caps,active,notifyRequests,notifySchedule}});
   });
   return {id:existing.id,username};
  }

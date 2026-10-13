@@ -1,6 +1,8 @@
 import {cookies} from 'next/headers';
 import {after} from 'next/server';
 import {state,mutate,exportCSV} from '@/lib/service';
+import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
+import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -11,7 +13,7 @@ export const runtime='nodejs';
 export const maxDuration=30;
 
 function json(value:unknown,status=200){return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});}
-const known=['Responsável sem autorização','Agendamento sem autorização','Agendamento indisponível','Acesso sem autorização','Equipamento incompatível ou inativo','Estoque insuficiente','Quantidade excede','Recebimento excede','Quantidade deve ser inteira','Operador inativo','Estoque alterado durante conferência','Mantenha ao menos um gestor ativo','Cancelamento sem autorização','Estoque sem autorização','Combustível indisponível','Registro sem agendamento exige gestor e justificativa','Solicitante sem acesso ativo','Auditoria sem autorização'];
+const known=['Responsável sem autorização','Agendamento sem autorização','Agendamento indisponível','Acesso sem autorização','Equipamento incompatível ou inativo','Estoque insuficiente','Quantidade excede','Recebimento excede','Quantidade deve ser inteira','Operador inativo','Estoque alterado durante conferência','Mantenha ao menos um gestor ativo','Cancelamento sem autorização','Estoque sem autorização','Combustível indisponível','Registro sem agendamento exige gestor e justificativa','Solicitante sem acesso ativo','Auditoria sem autorização','Hierarquia de local inválida','Nível do local não pode ser alterado','Dependência circular entre etapas','Versão publicada é imutável'];
 function error(e:unknown){
  if(e instanceof AppError)return json({error:e.message},e.status);
  const pg=e as {code?:string;message?:string;constraint_name?:string};
@@ -22,9 +24,12 @@ function error(e:unknown){
   if(pg.constraint_name==='equipment_tag_key')return json({error:'Já existe um equipamento com esta TAG.'},409);
   if(pg.constraint_name==='fuels_name_key')return json({error:'Já existe um combustível com este nome.'},409);
   if(pg.constraint_name==='members_username_key')return json({error:'Este usuário já está em uso. Escolha outro.'},409);
+  const unique:Record<string,string>={requester_orgs_name_key:'Já existe uma organização com este nome.',requester_orgs_acronym_key:'Já existe uma organização com esta sigla.',locations_name_key:'Já existe um local com este nome no mesmo nível.',equipment_types_name_key:'Já existe um tipo de equipamento com este nome.',job_functions_name_key:'Já existe uma função com este nome.',occurrence_categories_name_key:'Já existe uma categoria com este nome neste tipo.',activity_types_code_key:'Já existe um tipo de atividade com este código.',activity_types_name_key:'Já existe um tipo de atividade com este nome.',checklist_templates_code_key:'Já existe um checklist com este código.',operators_member_key:'Este usuário já está vinculado a outro colaborador.'};
+  if(pg.constraint_name&&unique[pg.constraint_name])return json({error:unique[pg.constraint_name]},409);
   if(pg.constraint_name==='members_email_key')return json({error:'Este e-mail já pertence a outro cadastro.'},409);
   return json({error:'Este cadastro ou lançamento já existe. Atualize a tela.'},409);
  }
+ if(pg?.code==='23503')return json({error:'Um item vinculado não existe mais. Atualize a tela e confira a seleção.'},409);
  if(pg?.code==='23514')return json({error:'Os valores informados ultrapassam os limites permitidos. Confira capacidade, mínimo e saldo.'},409);
  console.error('NAUTILUS: falha interna na operação.',pg?.code||'');
  return json({error:'Não foi possível concluir. Atualize a tela e confira o resultado antes de tentar novamente.'},500);
@@ -60,6 +65,10 @@ export async function GET(req:Request){try{
  const {member}=await session();
  if(path==='state'){await rateLimit(member.id,'read');const result=await state(member,Number(url.searchParams.get('page')||0));flushLater(req);return json(result);}
  if(path==='export'){await rateLimit(member.id,'export');return await exportCSV(url,member);}
+ if(path==='registry'){await rateLimit(member.id,'read');return json(await registryState(member));}
+ if(path==='registry/checklist-versions'){await rateLimit(member.id,'read');return json(await checklistVersions(member,url.searchParams.get('id')||''));}
+ if(path==='flows'){await rateLimit(member.id,'read');return json(await flowsState(member));}
+ if(path==='flows/version'){await rateLimit(member.id,'read');return json(await flowVersion(member,url.searchParams.get('id')||''));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
 
@@ -84,7 +93,10 @@ export async function POST(req:Request){try{
  }
  const {member}=await session();
  await rateLimit(member.id,'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
- const body=await boundedJSON(req);
+ // Fluxos e checklists levam várias etapas/perguntas por envio.
+ const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'?262144:undefined);
+ if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));
+ if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
  const result=await mutate(path,body,member);
  flushLater(req);
  return json(result);

@@ -3,11 +3,11 @@ import {AppError} from './domain';
 import {db} from './db';
 
 export const MAX_BODY_BYTES=32768;
-export async function boundedJSON(req:Request){
+export async function boundedJSON(req:Request,max=MAX_BODY_BYTES){
  if(!/^application\/json(?:\s*;.*)?$/i.test(req.headers.get('Content-Type')||''))throw new AppError('Formato inválido.',415);
  const reader=req.body?.getReader();if(!reader)throw new AppError('Dados inválidos.');
  let bytes=0;const decoder=new TextDecoder('utf-8',{fatal:true});let source='';
- try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>MAX_BODY_BYTES){await reader.cancel();throw new AppError('Dados excedem o limite.',413);}source+=decoder.decode(value,{stream:true});}source+=decoder.decode();}
+ try{while(true){const {done,value}=await reader.read();if(done)break;bytes+=value.byteLength;if(bytes>max){await reader.cancel();throw new AppError('Dados excedem o limite.',413);}source+=decoder.decode(value,{stream:true});}source+=decoder.decode();}
  catch(e){if(e instanceof AppError)throw e;throw new AppError('Dados inválidos.');}
  let body;try{body=JSON.parse(source);}catch{throw new AppError('Dados inválidos.');}
  if(!body||Array.isArray(body)||typeof body!=='object')throw new AppError('Dados inválidos.');return body;

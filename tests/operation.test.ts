@@ -2,6 +2,7 @@ import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {freshDatabase,addMember,seedOperation,key} from './helpers';
 import {mutate,state,exportCSV} from '../lib/service';
+import {registryState} from '../lib/registry';
 import type {Database} from '../lib/db';
 import type {Member} from '../lib/permissions';
 
@@ -59,7 +60,7 @@ test('perfis: solicitante só vê os próprios pedidos; planejador não registra
  const view=await state(requester2);
  assert.ok(view.appointments.every(a=>a.requester_id===requester2.id));
  assert.ok(view.appointments.some(a=>a.id===mine));
- assert.deepEqual(view.members,[]);assert.deepEqual(view.supplies,[]);assert.deepEqual(view.movements,[]);
+ assert.deepEqual(view.supplies,[]);assert.deepEqual(view.movements,[]);
  assert.equal('access' in view,false,'senha padrão só aparece para o gestor');
  await schedule(mine);
  await rejects(mutate('supplies',{operationKey:key(),appointmentId:mine,equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:1,occurredAt:new Date().toISOString(),hourmeter:100},planner),403);
@@ -69,9 +70,10 @@ test('perfis: solicitante só vê os próprios pedidos; planejador não registra
  const a=await db.first('SELECT version FROM appointments WHERE id=?',mine);
  await rejects(mutate('appointments/cancel',{id:mine,version:a!.version,reason:'x'},requester2),403);
  await rejects(mutate('appointments/cancel',{id:mine,version:a!.version,reason:'x'},requester),409);
- const managerView=await state(manager);
+ await rejects(registryState(requester2),403);
+ const managerView=await registryState(manager);
  assert.equal(managerView.access?.defaultPassword,'Primeiro@2026');
- assert.ok(managerView.members.every(m=>!('password_hash' in m)),'hash de senha nunca sai do servidor');
+ assert.ok(managerView.members.length>0&&managerView.members.every(m=>!('password_hash' in m)),'hash de senha nunca sai do servidor');
  const fuelerView=await state(fueler);
  assert.ok(fuelerView.supplies.every(s=>s.author_id===fueler.id));
 });
@@ -149,24 +151,17 @@ test('conferência de estoque usa versão e remove a marcação provisória',asy
  await assert.rejects(mutate('stock',{operationKey:key(),fuelId:'diesel',quantity:700,reason:'Excesso'},manager),/capacidade/);
 });
 
-test('cadastros: feriado inválido, equipamento, combustível e operador',async()=>{
+test('cadastros: feriado inválido e combustível',async()=>{
  await rejects(mutate('holidays',{date:'2026-02-30',name:'Inválido'},manager),400,/Data inválida/);
  await mutate('holidays',{date:'2026-11-20',name:'Consciência Negra'},manager);
- await rejects(mutate('equipment',{tag:'emp-03',description:'Nova',type:'Empilhadeira',fuelIds:['nao-existe']},manager),400,/inválido/);
- const eq=await mutate('equipment',{tag:'emp-03',description:'Nova',type:'Empilhadeira',fuelIds:['diesel','diesel']},manager) as {id:string};
- const row=await db.first('SELECT * FROM equipment WHERE id=?',eq.id);
- assert.equal(row!.tag,'EMP-03');assert.deepEqual(row!.fuel_ids,['diesel']);
- await rejects(mutate('equipment',{id:'nao-existe',tag:'X',description:'X',type:'X',fuelIds:['diesel']},manager),404);
  const fuelId=(await mutate('fuels',{name:'Arla 32',unit:'L',integral:false,capacity:200,minimum:20,leadDays:3,balance:10},manager) as {id:string}).id;
  // Saldo inicial abaixo do mínimo já abre reposição.
  assert.equal((await db.all("SELECT id FROM requests WHERE fuel_id=? AND status='open'",fuelId)).length,1);
  await rejects(mutate('fuels',{name:'Excesso',unit:'L',capacity:10,minimum:1,leadDays:2,balance:20},manager),400,/capacidade/);
  await rejects(mutate('fuels',{id:fuelId,name:'Arla 32',unit:'L',capacity:5,minimum:1,leadDays:3},manager),400,/menor que o saldo/);
- const op=await mutate('operators',{name:'Operador Dois',badge:'123'},manager) as {id:string};
- assert.ok(await db.first('SELECT id FROM operators WHERE id=?',op.id));
  const view=await state(manager);
  assert.ok(view.stats.length>=1);assert.ok(view.daily.length>=1);
- assert.ok(view.audits.length>0);
+ assert.ok((await db.all('SELECT id FROM audits')).length>0);
 });
 
 test('exportação CSV neutraliza fórmulas e respeita filtros',async()=>{

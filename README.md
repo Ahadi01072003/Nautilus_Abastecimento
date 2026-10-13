@@ -1,6 +1,11 @@
-# NAUTILUS · Abastecimentos
+# NAUTILUS · Gestão operacional
 
-Sistema web da Base Açu para **solicitação, agendamento e registro de abastecimentos**, controle de **estoque** de combustíveis, **reposições** por estoque mínimo, avisos por e-mail e exportação CSV.
+Sistema web da Base Açu. Módulos (menu lateral expansível):
+
+- **Abastecimento**: solicitação, agendamento e registro de abastecimentos, controle de **estoque**, **reposições** por estoque mínimo e avisos por e-mail.
+- **Planejamento**: cadastro de fluxos (tipos de atividade, etapas, dependências e necessidades, com versões imutáveis). Planejamento de OS, Operação e Gantt são as próximas fases; veja [docs/REVISAO-PROMPT-v2.1.md](docs/REVISAO-PROMPT-v2.1.md).
+- **Cadastros gerais**: solicitantes e clientes, locais, tipos e equipamentos, colaboradores e funções (com usuários e senhas), checklists versionados e categorias de ocorrências, impactos e bloqueios.
+- **Exportação** CSV, fora dos módulos.
 
 > *Precisão. Profundidade. Clareza.*
 
@@ -15,7 +20,7 @@ Sistema web da Base Açu para **solicitação, agendamento e registro de abastec
 
 ## Acesso: usuário, senha padrão e senha definitiva
 
-1. O **gestor** cria o usuário em *Operadores e usuários › Usuários e senhas* (nome, usuário `nome.sobrenome`, perfil e e-mail opcional para avisos).
+1. O **gestor** cria o usuário em *Cadastros gerais › Colaboradores e funções › Usuários e acessos* (nome, usuário `nome.sobrenome`, perfil e e-mail opcional para avisos).
 2. A pessoa abre o site e entra com o **usuário** e a **senha padrão de primeiro acesso** (exibida ao gestor no próprio módulo; definida na variável `DEFAULT_PASSWORD`). O gestor também pode informar uma senha provisória específica.
 3. No primeiro acesso o sistema **exige** a criação da **senha definitiva** (mín. 8 caracteres, letras e números, diferente da senha padrão e sem conter o usuário). Nada mais é liberado antes disso.
 4. A senha provisória **expira em 7 dias**. Depois disso o gestor redefine.
@@ -32,6 +37,8 @@ Proteções: senhas com PBKDF2-SHA256 (310 mil iterações, sal individual); ses
 | Planejador | Agendar, reagendar e cancelar solicitações |
 | Abastecedor | Ver a agenda compartilhada, registrar o consumo de agendamentos e ver os próprios registros |
 | Gestor | Tudo: estoque, reposições, cadastros, usuários e senhas, parâmetros, auditoria e exportação |
+
+Além do perfil, o gestor pode dar **acessos adicionais** acumuláveis: *Cadastros gerais* (sem usuários e senhas, que continuam exclusivos do gestor) e *Planejamento*.
 
 Permissões são verificadas no servidor **e** no banco (triggers), não apenas na tela.
 
