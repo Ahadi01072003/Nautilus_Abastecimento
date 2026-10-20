@@ -7,6 +7,9 @@ import {flowsMutate} from '../lib/flows';
 import {planningMutate,planDetail} from '../lib/planning';
 import {conditionMutate} from '../lib/condition';
 import {orderDetail,operationMutate,startCheck} from '../lib/operation';
+import {opsBoard,opsDashboard} from '../lib/board';
+import {orderReport,orderWorkbook} from '../lib/reports';
+import {exportData,exportPreview} from '../lib/exports';
 import type {Member} from '../lib/permissions';
 import type {Database,Row} from '../lib/db';
 
@@ -192,4 +195,66 @@ test('dispensa formal pelo Planejamento libera dependentes e reservas',async()=>
  assert.equal((await step(wo,'insp-0001')).status,'dispensada');
  assert.equal((await db.all("SELECT * FROM reservations r JOIN os_steps o ON o.plan_step_id=r.plan_step_id WHERE o.id=? AND r.status<>'liberada'",insp.id)).length,0);
  assert.ok(!(await startCheck(operator,(await step(wo,'move-0001')).id)).blockers.some((b:string)=>/Inspeção/.test(b)));
+});
+
+test('painel de OS, planilha, relatório e exportação: escopo, tempo efetivo sem dupla contagem e auditoria',async()=>{
+ const wo=await launch(21,'eq2');
+ const ck=await fill(wo,'CK-ATV',{'Área isolada?':{answer:'C'},'Risco de queda?':{answer:'C'}});await ops('checklist/complete',{instanceId:ck.id});
+ const prep=await step(wo,'prep-0001'),insp=await step(wo,'insp-0001');
+ await ops('start',{stepId:prep.id});await ops('start',{stepId:insp.id});
+ await ops('note',{stepId:insp.id,kind:'ocorrencia',categoryId:catOcc,description:'=CMD()'});
+ await ops('pause',{stepId:prep.id,reason:'Aguardando material'});await ops('finish',{stepId:insp.id});
+ // Horários fixos: Preparação 08:00–09:00 (parada 09:00–09:30) e Inspeção 08:30–10:00, em paralelo.
+ await db.run('ALTER TABLE step_intervals DISABLE TRIGGER interval_guard');
+ try{
+  await db.run("UPDATE step_intervals SET start_at=?,end_at=? WHERE os_step_id=? AND kind='ativo'",at(21,8),at(21,9),prep.id);
+  await db.run("UPDATE step_intervals SET start_at=?,end_at=? WHERE os_step_id=? AND kind='interrompido'",at(21,9),at(21,9,30),prep.id);
+  await db.run("UPDATE step_intervals SET start_at=?,end_at=? WHERE os_step_id=?",at(21,8,30),at(21,10),insp.id);
+ }finally{await db.run('ALTER TABLE step_intervals ENABLE TRIGGER interval_guard');}
+ const url=(q:string)=>new URL('http://x/api/'+q);
+
+ const board=await opsBoard(viewer,url('ops/board?group=andamento'));
+ const card=board.orders.find(o=>o.id===wo)!;
+ assert.ok(card,'OS em andamento no painel');assert.equal(card.steps.length,3);assert.equal(card.intervals.length,3);assert.equal(card.occurrences.length,1);
+ assert.ok(board.counts.andamento>=1);assert.equal(board.canExecute,false);
+ assert.ok((await opsBoard(viewer,url('ops/board?group=todas&q=mov'))).orders.some(o=>o.id===wo),'busca pelo código da atividade');
+ await rejects(opsBoard(viewer,url('ops/board?group=qualquer')),400);
+ assert.ok((await opsDashboard(operator)).kpis.running>=1);
+
+ assert.equal((await orderReport(operator,wo)).effective,120*60000,'união dos intervalos ativos: 2h, não 2h30');
+
+ const book=await orderWorkbook(viewer,wo);
+ assert.match(book.headers.get('Content-Type')||'',/spreadsheetml/);assert.match(book.headers.get('Content-Disposition')||'',/OS-\d{6}_/);
+ assert.equal(new TextDecoder().decode(new Uint8Array(await book.arrayBuffer()).slice(0,2)),'PK');
+ assert.ok(await db.first("SELECT 1 FROM audits WHERE action='Exportação: planilha da OS' AND entity_id=? AND author_id=?",wo,viewer.id));
+
+ const n=(await db.first('SELECT number FROM work_orders WHERE id=?',wo))!.number;
+ const osCsv=await (await exportData(viewer,url('export?sets=os&format=csv'))).text();
+ const line=osCsv.split('\r\n').find(l=>l.startsWith(`"OS ${String(n).padStart(6,'0')}"`))!;
+ assert.ok(line.includes(';120;30;'),'tempo efetivo 120 min e parado 30 min');
+ const notes=await (await exportData(viewer,url('export?sets=apontamentos&format=csv'))).text();
+ assert.ok(notes.includes(`"'=CMD()"`),'fórmula neutralizada');
+ const zipped=await exportData(viewer,url('export?sets=os,etapas,periodos&format=csv'));
+ assert.equal(zipped.headers.get('Content-Type'),'application/zip');
+ const all=await exportData(viewer,url('export?sets=os,etapas,periodos,apontamentos,checklists&format=xlsx&start=2031-02-21&end=2031-02-21'));
+ assert.equal(new TextDecoder().decode(new Uint8Array(await all.arrayBuffer()).slice(0,2)),'PK');
+ assert.ok(await db.first("SELECT 1 FROM audits WHERE action='Exportação: planilha de dados' AND author_id=?",viewer.id));
+ assert.equal((await exportPreview(viewer,url('export/preview?sets=os&start=2031-02-21&end=2031-02-21'))).counts.os,1);
+ await rejects(exportData(viewer,url('export?sets=supplies')),403);
+ await rejects(exportData(viewer,url('export?sets=os,qualquer')),400);
+ await rejects(exportData(viewer,url('export?sets=os&start=2031-02-22&end=2031-02-21')),400);
+
+ // Escopo: quem só vê outra organização não enxerga a OS em nenhuma saída.
+ const other=(await registryMutate('registry/orgs',{name:'Cliente B',acronym:'CLB',category:'cliente',color:'#F47A04'},manager) as {id:string}).id;
+ const scoped=await addMember(db,'none');const m=await db.first('SELECT * FROM members WHERE id=?',scoped.id);
+ await mutate('members',{id:scoped.id,username:m!.username,name:m!.name,role:'none',capabilities:['acompanhamento'],orgScope:[other]},manager);
+ assert.ok(!(await opsBoard(scoped,url('ops/board?group=todas'))).orders.some(o=>o.id===wo));
+ await rejects(orderWorkbook(scoped,wo),404);
+ assert.equal((await exportPreview(scoped,url('export/preview?sets=os,apontamentos'))).counts.os,0);
+ await rejects(exportData(scoped,url(`export?sets=os&org=${org}`)),403);
+ // A auditoria só aceita exportação de quem consulta OS (gatilho no banco, além do servidor).
+ const fuelOnly=await addMember(db,'fueler');
+ await pgRejects(db.run("INSERT INTO audits(id,action,entity_id,author_id,author_name,created_at,detail) VALUES(?,?,?,?,?,?,?)",key(),'Exportação: forjada',wo,fuelOnly.id,'x',new Date().toISOString(),'{}'),/Auditoria sem autorização/);
+ await rejects(opsBoard(viewer,url('ops/board?group=constructor')),400);
+ assert.equal((await opsBoard(viewer,url('ops/board?group=todas&q=99999999999'))).orders.length,0);
 });

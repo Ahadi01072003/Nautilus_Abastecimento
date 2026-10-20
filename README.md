@@ -4,9 +4,14 @@ Sistema web da Base Açu. Módulos (menu lateral expansível):
 
 - **Abastecimento**: solicitação, agendamento e registro de abastecimentos, controle de **estoque**, **reposições** por estoque mínimo e avisos por e-mail.
 - **Planejamento**: cadastro de fluxos versionados; planejamento de atividade em rascunho (salvamento automático, reservas exclusivas de equipamentos), revisão e lançamento da OS; rascunhos; lista de OS.
-- **Operação**: execução das OS por etapa (iniciar, bloquear, pausar, retomar, finalizar), cronômetros, apontamentos, checklists com NC crítica (bloqueio global do equipamento), encerramento automático e Gantt. Detalhes em [docs/REVISAO-PROMPT-v2.1.md](docs/REVISAO-PROMPT-v2.1.md).
+- **Operação**:
+  - **Painel de OS**: indicadores do turno, cada OS em andamento com a **régua** (compacta; abre as etapas ao passar o mouse) e o **cronômetro do tempo efetivo**, pausa e retomada rápidas, próximas programadas, OS por solicitante (30 dias) e horas efetivas por atividade (7 dias).
+  - **Apontamentos** (substitui “Ordens de serviço”): lista Em andamento / Programadas / Concluídas / Todas com busca, e a execução da OS escolhida: régua por etapa, painel lateral com o cronômetro e as ações da etapa (iniciar, pausar, retomar, bloquear, finalizar, apontar), ocorrências, impactos, bloqueios, checklists com NC crítica, histórico, **relatório PDF** e **planilha Excel** da OS.
+  - Tempo efetivo da OS = união dos períodos de trabalho das etapas (etapas em paralelo não contam em dobro). Detalhes da execução em [docs/REVISAO-PROMPT-v2.1.md](docs/REVISAO-PROMPT-v2.1.md).
 - **Cadastros gerais**: solicitantes e clientes, locais, tipos e equipamentos, colaboradores e funções (com usuários e senhas), checklists versionados e categorias de ocorrências, impactos e bloqueios.
-- **Exportação** CSV, fora dos módulos.
+- **Exportação**, fora dos módulos: Excel (.xlsx, uma aba por conjunto) ou CSV (.zip quando há vários conjuntos), com prévia das contagens. Conjuntos de Operação (OS, etapas, períodos, apontamentos, checklists) para quem consulta OS, no seu escopo de organizações; conjuntos de Abastecimento só para o gestor.
+
+Identidade visual **Sonar**: moldura abissal com batimetria animada (respeita “reduzir movimento”), papel claro, sinal lima, ciano “ao vivo”; Archivo (títulos), Instrument Sans (texto) e JetBrains Mono (números), servidas pelo próprio site.
 
 > *Precisão. Profundidade. Clareza.*
 
@@ -96,6 +101,7 @@ Veja `.env.example`. Em produção ficam na Vercel (as sensíveis como *Sensitiv
 ## Banco de dados
 
 * `db/migrations/0001_schema.sql` – tabelas; `0002_integrity.sql` – regras (estoque nunca negativo, capacidade, autoria por perfil, agenda, estorno, último gestor); `0003_function_search_path.sql` – endurecimento.
+* `0009_exportacao.sql` – a auditoria aceita o registro de exportações (`Exportação: …`) de quem consulta OS; o acesso é conferido pelo servidor.
 * Em produção as tabelas ficam no schema `nautilus`, pertencente ao usuário `nautilus_app` (sem superpoderes), com RLS ativo e sem acesso para os papéis públicos da API do Supabase.
 * `scripts/import-v7.py` converte o SQLite exportado da v7. **O SQL gerado contém dados pessoais e nunca deve ser versionado.**
 
@@ -104,4 +110,5 @@ Veja `.env.example`. Em produção ficam na Vercel (as sensíveis como *Sensitiv
 * Plano gratuito do Supabase pausa o projeto após 7 dias sem acesso; a rotina diária da Vercel consulta o banco e evita isso, mas o plano pago remove o risco.
 * Os e-mails dependem de configurar `RESEND_API_KEY` e `EMAIL_FROM` na Vercel e `EMAIL_ENABLED=true`. A rotina diária reprocessa avisos pendentes; as ações do sistema também disparam o envio.
 * Não há recuperação de senha por e-mail: quem esquecer pede ao gestor para redefinir.
-* Busca e filtros do histórico de abastecimentos valem para a página carregada (100 registros); a exportação CSV cobre o período inteiro (até 10.000 linhas).
+* Busca e filtros do histórico de abastecimentos valem para a página carregada (100 registros); a exportação cobre o período inteiro (até 10.000 linhas por conjunto).
+* O relatório da OS é gerado pelo navegador (Imprimir › Salvar como PDF). Cada abertura do relatório, cada planilha e cada exportação ficam na auditoria (`Exportação: …`).

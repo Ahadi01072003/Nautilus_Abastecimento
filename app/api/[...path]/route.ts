@@ -1,11 +1,14 @@
 import {cookies} from 'next/headers';
 import {after} from 'next/server';
-import {state,mutate,exportCSV} from '@/lib/service';
+import {state,mutate} from '@/lib/service';
+import {exportData,exportPreview} from '@/lib/exports';
 import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
+import {opsBoard,opsDashboard} from '@/lib/board';
+import {orderWorkbook} from '@/lib/reports';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -67,7 +70,8 @@ export async function GET(req:Request){try{
  }
  const {member}=await session();
  if(path==='state'){await rateLimit(member.id,'read');const result=await state(member,Number(url.searchParams.get('page')||0));flushLater(req);return json(result);}
- if(path==='export'){await rateLimit(member.id,'export');return await exportCSV(url,member);}
+ if(path==='export'){await rateLimit(member.id,'export');return await exportData(member,url);}
+ if(path==='export/preview'){await rateLimit(member.id,'read');return json(await exportPreview(member,url));}
  if(path==='registry'){await rateLimit(member.id,'read');return json(await registryState(member));}
  if(path==='registry/checklist-versions'){await rateLimit(member.id,'read');return json(await checklistVersions(member,url.searchParams.get('id')||''));}
  if(path==='flows'){await rateLimit(member.id,'read');return json(await flowsState(member));}
@@ -79,6 +83,9 @@ export async function GET(req:Request){try{
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}
  if(path==='orders/steps'){await rateLimit(member.id,'read');return json(await ordersSteps(member,url));}
  if(path==='orders/refs'){await rateLimit(member.id,'read');return json(await ordersRefs(member));}
+ if(path==='ops/board'){await rateLimit(member.id,'read');return json(await opsBoard(member,url));}
+ if(path==='ops/dashboard'){await rateLimit(member.id,'read');return json(await opsDashboard(member));}
+ if(path==='ops/order.xlsx'){await rateLimit(member.id,'export');return await orderWorkbook(member,url.searchParams.get('id')||'');}
  if(path==='ops/order'){await rateLimit(member.id,'read');return json(await orderDetail(member,url.searchParams.get('id')||''));}
  if(path==='ops/start-check'){await rateLimit(member.id,'read');return json(await startCheck(member,url.searchParams.get('stepId')||''));}
  if(path==='condition'){await rateLimit(member.id,'read');return json(await conditionState(member));}

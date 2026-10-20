@@ -2,9 +2,10 @@
 // Configuração central de módulos e telas. Uma tela só aparece quando existe e quando o
 // servidor a libera em actor.modules; o servidor revalida cada consulta e comando.
 import {useEffect,useState} from 'react';
-import {Compass,LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,FilePen,ListOrdered,HardHat,ClipboardList,type LucideIcon} from 'lucide-react';
+import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,FilePen,ListOrdered,HardHat,ClipboardList,Gauge,type LucideIcon} from 'lucide-react';
 import {Sidebar,SidebarContent,SidebarHeader,SidebarFooter,SidebarGroup,SidebarGroupLabel,SidebarMenu,SidebarMenuItem,SidebarMenuButton,SidebarMenuSub,SidebarMenuSubItem,SidebarMenuSubButton,useSidebar} from '@/components/ui/sidebar';
 import {signOut} from './login';
+import Bathy from './bathy';
 
 export type Screen={id:string;label:string;icon:LucideIcon;subtitle:string};
 export type Module={id:string;label:string;icon:LucideIcon;screens:Screen[]};
@@ -24,7 +25,8 @@ export const MODULES:Module[]=[
   {id:'plan-os',label:'Lista de OS programadas',icon:ListOrdered,subtitle:'OS lançadas, com filtros por período, solicitante, local e situação.'},
  ]},
  {id:'operacao',label:'Operação',icon:HardHat,screens:[
-  {id:'op-os',label:'Ordens de serviço',icon:ClipboardList,subtitle:'OS lançadas pelo Planejamento, na ordem de prioridade da operação.'},
+  {id:'op-painel',label:'Painel de OS',icon:Gauge,subtitle:'Cada OS em andamento com a régua e o cronômetro do tempo efetivo.'},
+  {id:'op-os',label:'Apontamentos',icon:ClipboardList,subtitle:'Execução das etapas, ocorrências, impactos, bloqueios e checklists de cada OS.'},
  ]},
  {id:'cadastros',label:'Cadastros gerais',icon:Database,screens:[
   {id:'cad-solicitantes',label:'Solicitantes e clientes',icon:Building2,subtitle:'Organizações solicitantes, etiquetas visuais e pessoas de contato.'},
@@ -37,7 +39,7 @@ export const MODULES:Module[]=[
 ];
 /** Telas fora dos módulos. */
 export const STANDALONE:Screen[]=[
- {id:'exportacao',label:'Exportação',icon:Download,subtitle:'Dados organizados para seus indicadores.'},
+ {id:'exportacao',label:'Exportação',icon:Download,subtitle:'OS, etapas, apontamentos e abastecimentos em Excel ou CSV, com prévia antes de gerar.'},
 ];
 export const ALL_SCREENS=[...MODULES.flatMap(m=>m.screens),...STANDALONE];
 export const moduleOf=(view:string)=>MODULES.find(m=>m.screens.some(s=>s.id===view));
@@ -62,7 +64,9 @@ export function Navigation({view,setView,allowed,counts,person,onAccount}:{view:
  const go=(id:string)=>{setView(id);if(isMobile)setOpenMobile(false)};
  const visible=(s:Screen)=>!!allowed?.includes(s.id);
  return <Sidebar className="n-sidebar" collapsible="offcanvas">
-  <SidebarHeader className="n-sidebar-header"><div className="brand"><Compass size={33} strokeWidth={1.5}/><div><b>NAUTILUS</b><small>GESTÃO OPERACIONAL</small></div></div></SidebarHeader>
+  <div className="sonar-bathy" aria-hidden="true"><Bathy/></div>
+  <SidebarHeader className="n-sidebar-header"><div className="brand sonar-brand">{/* eslint-disable-next-line @next/next/no-img-element -- logotipo estático pequeno */}
+   <img src="/logo-white.png" alt="OceanPact | CBO" width={285} height={79}/><div className="sonar-sys">NAUTILUS</div></div></SidebarHeader>
   <SidebarContent>
    <SidebarGroup><SidebarGroupLabel>MÓDULOS</SidebarGroupLabel><SidebarMenu>
     {MODULES.map(m=>{const screens=m.screens.filter(visible);if(!screens.length)return null;const open=expanded.includes(m.id),current=active===m.id,total=screens.reduce((n,s)=>n+(counts[s.id]||0),0);

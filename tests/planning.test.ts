@@ -59,7 +59,7 @@ const complete=(day:number,eq='eq1')=>({patch:{orgId:orgA,locationId:loc,planned
 
 test('acessos: módulos do planejamento, da operação e do cliente',()=>{
  assert.ok(modules(planner).includes('plan-atividade')&&modules(planner).includes('op-os'));
- assert.deepEqual(modules(client),['op-os']);
+ assert.deepEqual(modules(client),['op-painel','op-os','exportacao']);
  assert.ok(!modules(tech).includes('plan-atividade'));
 });
 

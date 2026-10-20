@@ -1,7 +1,8 @@
 import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {freshDatabase,addMember,seedOperation,key} from './helpers';
-import {mutate,state,exportCSV} from '../lib/service';
+import {mutate,state} from '../lib/service';
+import {exportData} from '../lib/exports';
 import {registryState} from '../lib/registry';
 import type {Database} from '../lib/db';
 import type {Member} from '../lib/permissions';
@@ -168,15 +169,15 @@ test('exportação CSV neutraliza fórmulas e respeita filtros',async()=>{
  await db.run("UPDATE operators SET name='=CMD()' WHERE id='op1'");
  const id=await request(requester);await schedule(id,planner,future(9));
  await mutate('supplies',{operationKey:key(),appointmentId:id,equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:1,occurredAt:new Date().toISOString(),hourmeter:100,notes:'+SOMA(1)'},fueler);
- const bytes=new Uint8Array(await (await exportCSV(new URL('http://x/api/export?kind=supplies&fuel=diesel'),manager)).arrayBuffer());
+ const bytes=new Uint8Array(await (await exportData(manager,new URL('http://x/api/export?kind=supplies&fuel=diesel'))).arrayBuffer());
  assert.deepEqual([...bytes.slice(0,3)],[0xEF,0xBB,0xBF],'BOM UTF-8 para o Excel');
  const csv=new TextDecoder().decode(bytes);
  assert.ok(csv.startsWith('"ID";'));
  assert.ok(csv.includes(`"'=CMD()"`));assert.ok(csv.includes(`"'+SOMA(1)"`));
  assert.ok(!csv.includes('"gas"'));
- await rejects(exportCSV(new URL('http://x/api/export?kind=supplies&start=2026-13-01'),manager),400);
- await rejects(exportCSV(new URL('http://x/api/export?kind=supplies'),fueler),403);
- const movements=await (await exportCSV(new URL('http://x/api/export?kind=movements'),manager)).text();
+ await rejects(exportData(manager,new URL('http://x/api/export?kind=supplies&start=2026-13-01')),400);
+ await rejects(exportData(fueler,new URL('http://x/api/export?kind=supplies')),403);
+ const movements=await (await exportData(manager,new URL('http://x/api/export?kind=movements'))).text();
  assert.ok(movements.split('\r\n').length>5);
 });
 

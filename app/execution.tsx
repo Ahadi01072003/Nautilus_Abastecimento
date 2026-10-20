@@ -3,7 +3,7 @@
 // apontamentos, checklists e histórico. Os horários vêm do servidor; o relógio da tela
 // só anda entre as atualizações (nunca é a referência gravada).
 import {useCallback,useEffect,useMemo,useState,FormEvent} from 'react';
-import {ArrowLeft,Play,Pause,Square,Ban,RotateCcw,MessageSquarePlus,ListChecks,History,AlertTriangle,CheckCircle2,Lock,Clock,Timer,LoaderCircle,Truck,Users,CircleSlash,ShieldAlert} from 'lucide-react';
+import {Play,Pause,Square,Ban,RotateCcw,MessageSquarePlus,ListChecks,History,AlertTriangle,CheckCircle2,Lock,Clock,LoaderCircle,Truck,Users,ShieldAlert,ArrowRight,FileText,FileSpreadsheet} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
@@ -13,6 +13,8 @@ import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,type R} from './kit';
 import {osLabel} from './planning';
+import OsRuler,{effective} from './os-ruler';
+import {Digits,hms} from './ops-board';
 
 const MIN=60000;
 /** Duração em HH:MM com horas acumuladas (02:15, 27:35, 125:08). */
@@ -29,7 +31,7 @@ const localNow=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo'
 
 type Action={kind:'block'|'note'|'pause'|'finish'|'resolve'|'dispense',step?:R,item?:R,key:string};
 
-export default function OrderExecution({orderId,onBack}:{orderId:string,onBack:()=>void}){
+export default function OrderExecution({orderId,onChanged}:{orderId:string,onChanged?:()=>void}){
  const [data,setData]=useState<R|null>(null),[error,setError]=useState(''),[selected,setSelected]=useState<string|null>(null),[tick,setTick]=useState(()=>Date.now()),[action,setAction]=useState<Action|null>(null),[form,setForm]=useState<R>({}),[busy,setBusy]=useState(false),[formError,setFormError]=useState(''),[blockerMap,setBlockerMap]=useState<Record<string,string[]>>({}),[checklist,setChecklist]=useState<string|null>(null),[complementary,setComplementary]=useState<R>({});
  const [offset,setOffset]=useState(0);
  const refresh=useCallback(async()=>{try{const d=await load<R>('ops/order?id='+encodeURIComponent(orderId));setOffset(Date.parse(d.serverNow)-Date.now());setData(d);setError('')}catch(e){setError((e as Error).message)}},[orderId]);
@@ -45,8 +47,8 @@ export default function OrderExecution({orderId,onBack}:{orderId:string,onBack:(
  useEffect(()=>{if(!sel||sel.status!=='nao_iniciada')return;let alive=true;const sid=sel.id;load<R>('ops/start-check?stepId='+sid).then(r=>{if(alive)setBlockerMap(m=>({...m,[sid]:r.blockers}))}).catch(()=>{});return()=>{alive=false}},[sel?.id,sel?.status,data]); // eslint-disable-line react-hooks/exhaustive-deps
  const blockers=sel&&sel.status==='nao_iniciada'?blockerMap[sel.id]??null:null;
 
- if(error)return <div className="error-panel"><AlertTriangle/><h2>OS indisponível</h2><p>{error}</p><Button onClick={onBack}>Voltar</Button></div>;
- if(!data)return <Skeleton className="h-96 rounded-xl"/>;
+ if(error)return <div className="error-panel ap-center"><AlertTriangle/><h2>OS indisponível</h2><p>{error}</p></div>;
+ if(!data)return <div className="ap-center"><Skeleton className="h-96 rounded-xl"/></div>;
  const {order,plan,can}=data;
  const sum=(iv:R[],kind:string)=>iv.filter(i=>i.kind===kind).reduce((n,i)=>n+((i.end_at?Date.parse(i.end_at):now)-Date.parse(i.start_at)),0);
  const timing=(s:R)=>{const ps=Date.parse(s.plan.planned_start),pe=Date.parse(s.plan.planned_end);
@@ -60,7 +62,7 @@ export default function OrderExecution({orderId,onBack}:{orderId:string,onBack:(
  const name=(id:string)=>steps.find(s=>s.id===id)?.plan.name||'—';
  const open=(kind:Action['kind'],step?:R,item?:R)=>{setFormError('');setAction({kind,step,item,key:crypto.randomUUID()});setForm({kind:'ocorrencia',categoryId:'',description:'',reason:'',resolution:'',occurredAt:localNow(),severity:'media',blocking:false,impactStart:'',impactEnd:'',equipmentId:''})};
  const iso=(v:string)=>v?new Date(v+':00-03:00').toISOString():null;
- async function run(path:string,body:R,done?:()=>void){setBusy(true);setFormError('');try{const r=await post(path,body);toast.success(r.message||'Registrado.');done?.();await refresh()}catch(e){setFormError((e as Error).message);toast.error((e as Error).message)}finally{setBusy(false)}}
+ async function run(path:string,body:R,done?:()=>void){setBusy(true);setFormError('');try{const r=await post(path,body);toast.success(r.message||'Registrado.');done?.();await refresh();onChanged?.()}catch(e){setFormError((e as Error).message);toast.error((e as Error).message)}finally{setBusy(false)}}
  const simple=(path:string,s:R)=>run(path,{operationKey:crypto.randomUUID(),stepId:s.id});
  async function submit(e:FormEvent){e.preventDefault();if(!action)return;const f=form,k=action.key,s=action.step;
   if(action.kind==='block')await run('ops/block',{operationKey:k,stepId:s!.id,categoryId:f.categoryId,description:f.description},()=>setAction(null));
@@ -75,52 +77,31 @@ export default function OrderExecution({orderId,onBack}:{orderId:string,onBack:(
  const openBlocks=(s:R)=>(data.occurrences as R[]).filter(o=>o.os_step_id===s.id&&o.blocking&&o.status==='aberto');
  const dependents=(s:R)=>steps.filter(x=>(x.plan.depends_on as string[]).includes(s.step_key)&&x.status==='nao_iniciada');
 
- return <div className="exec">
-  <div className="exec-head"><button className="text-action" onClick={onBack}><ArrowLeft size={15} className="inline"/> Voltar à lista</button>
-   <div className="exec-title"><div><span className="tag-label">{osLabel(order.number)}</span><h2>{order.activity_name}</h2><Badge tone={orderNames[order.status][1]}>{orderNames[order.status][0]}</Badge>{active.some(s=>s.status==='bloqueada')&&<Badge tone="danger"><Lock size={11}/> Etapa bloqueada</Badge>}</div>
-    <dl className="exec-facts"><div><dt>Solicitante</dt><dd><OrgOf data={data}/></dd></div><div><dt>Planejado</dt><dd>{fmt(order.planned_start)} → {fmt(order.planned_end)}</dd></div><div><dt>Real</dt><dd>{order.actual_start?`${fmt(order.actual_start)} → ${order.actual_end?fmt(order.actual_end):'em curso'}`:'Não iniciada'}</dd></div><div><dt>Duração real</dt><dd>{order.actual_start?dur((order.actual_end?Date.parse(order.actual_end):now)-Date.parse(order.actual_start)):'—'}</dd></div><div><dt>Fluxo</dt><dd>{plan.activity_code} v{plan.flow_version}</dd></div>{order.closed_at&&<div><dt>Encerramento administrativo</dt><dd>{fmt(order.closed_at)}</dd></div>}</dl></div>
+ const rulerSteps=steps.map(s=>({id:s.id,status:s.status,name:s.plan.name,planned_start:s.plan.planned_start,planned_end:s.plan.planned_end,position:s.plan.position}));
+ const eff=effective(data.intervals as R[],now);
+ const ps=Date.parse(order.planned_start),pe=Date.parse(order.planned_end),first=order.actual_start?Date.parse(order.actual_start):null;
+ const done=steps.filter(s=>['concluida','dispensada'].includes(s.status)).length;
+ const allOpenBlocks=(data.occurrences as R[]).filter(o=>o.blocking&&o.status==='aberto');
+ return <>
+  <div className="ap-center">
+   <div className="oshead">
+    <div className="row"><span className="id">{osLabel(order.number)} · {plan.activity_code} v{plan.flow_version}</span><span className="row" style={{gap:10}}>{active.some(s=>s.status==='bloqueada')&&<span className="st bloqueada"><i/>Etapa bloqueada</span>}<span className={`st ${order.status}`}><i/>{orderNames[order.status][0]}</span></span></div>
+    <h2>{order.activity_name}</h2>
+   </div>
+   <dl className="facts"><div><dt>Solicitante</dt><dd><OrgOf data={data}/></dd></div><div><dt>Planejado</dt><dd>{fmt(order.planned_start)} → {fmt(order.planned_end)}</dd></div><div><dt>Real</dt><dd>{order.actual_start?`${fmt(order.actual_start)} → ${order.actual_end?fmt(order.actual_end):'em curso'}`:'Não iniciada'}</dd></div><div><dt>Etapas</dt><dd>{done} de {steps.length} concluídas{order.closed_at?` · encerrada ${fmt(order.closed_at)}`:''}</dd></div></dl>
    {data.impediments.length>0&&<div className="form-error"><ShieldAlert size={17}/><span>{(data.impediments as R[]).map(i=>`${i.tag} bloqueado (${i.kind==='nc_critica'?'NC crítica':'impedimento técnico'}): ${i.reason}`).join(' · ')}. Aguardando liberação técnica ou substituição pelo Planejamento.</span></div>}
    {order.status==='encerramento_pendente'&&<div className="notice warn"><AlertTriangle size={17}/><span>Todas as etapas terminaram. Falta concluir checklist obrigatório para encerrar a OS (aba Checklists).</span></div>}
-  </div>
-
-  <section className="n-panel"><div className="panel-heading"><div><h2>Linha do tempo</h2><p>Clique numa etapa para ver as ações e filtrar os registros. Selecionar não inicia a etapa.</p></div><button className={`chip ${!sel?'on':''}`} onClick={()=>setSelected(null)}>Todas as etapas</button></div>
-   <ol className="timeline" aria-label="Etapas da OS">{steps.map(s=><li key={s.id} className={`tl ${s.status} ${sel?.id===s.id?'selected':''} ${s.status==='nao_iniciada'&&Date.parse(s.plan.planned_start)<now?'late':''}`}>
-    <span className="tl-time">{timing(s)}</span>
-    <button className="tl-dot" aria-pressed={sel?.id===s.id} aria-label={`${s.plan.name}: ${stepNames[s.status][0]}`} onClick={()=>setSelected(sel?.id===s.id?null:s.id)}>{s.status==='concluida'?<CheckCircle2 size={18}/>:s.status==='bloqueada'?<Lock size={16}/>:s.status==='pausada'?<Pause size={16}/>:s.status==='dispensada'?<CircleSlash size={16}/>:s.status==='em_execucao'?<Play size={15}/>:null}</button>
-    <span className="tl-name">{s.plan.name}</span><small>{stepNames[s.status][0]}</small>
-   </li>)}</ol>
-  </section>
-
-  {sel&&<section className="n-panel step-panel"><div className="panel-heading"><div><h2>{sel.plan.name} <Badge tone={stepNames[sel.status][1]}>{stepNames[sel.status][0]}</Badge></h2><p>{sel.plan.description||'Sem descrição.'}</p></div>{active.length>1&&<div className="others">{active.length} etapas ativas: {active.filter(x=>x.id!==sel.id).map(x=><button key={x.id} className="chip" onClick={()=>setSelected(x.id)}>{x.plan.name}</button>)}</div>}</div>
-   <div className="step-body">
-    <div className="clock">
-     <div className="clock-main"><Timer size={20}/><div><small>Tempo efetivo</small><strong>{dur(sum(sel.intervals,'ativo'))}</strong></div></div>
-     <dl><div><dt>Decorrido</dt><dd>{sel.actual_start?dur((sel.actual_end?Date.parse(sel.actual_end):now)-Date.parse(sel.actual_start)):'—'}</dd></div><div><dt>Parado</dt><dd>{dur(sum(sel.intervals,'interrompido'))}</dd></div>
-      <div><dt>Planejado</dt><dd>{fmt(sel.plan.planned_start)} → {fmt(sel.plan.planned_end)}</dd></div>
-      {sel.actual_start&&<div><dt>Desvio de início</dt><dd>{deviation(Date.parse(sel.actual_start),Date.parse(sel.plan.planned_start),false)}</dd></div>}
-      {sel.actual_end&&<div><dt>Desvio de conclusão</dt><dd>{deviation(Date.parse(sel.actual_end),Date.parse(sel.plan.planned_end))}</dd></div>}
-      {['em_execucao','bloqueada','pausada'].includes(sel.status)&&<div><dt>Prazo restante</dt><dd>{Date.parse(sel.plan.planned_end)>=now?dur(Date.parse(sel.plan.planned_end)-now):`vencido há ${dur(now-Date.parse(sel.plan.planned_end))}`}</dd></div>}
-      {['em_execucao','bloqueada','pausada'].includes(sel.status)&&dependents(sel).length>0&&(()=>{const next=dependents(sel).sort((a,b)=>Date.parse(a.plan.planned_start)-Date.parse(b.plan.planned_start))[0];const d=Date.parse(next.plan.planned_start)-now;return <div><dt>Próximo marco</dt><dd>{d>=0?`${dur(d)} até o início de “${next.plan.name}”`:`início de “${next.plan.name}” vencido há ${dur(-d)}`}</dd></div>})()}
-     </dl>
-     {sel.status==='em_execucao'&&Date.parse(sel.plan.planned_end)>=now&&dependents(sel).length>0&&Date.parse(dependents(sel)[0].plan.planned_start)===Date.parse(sel.plan.planned_end)&&<p className="clock-hint">Restam {dh(Date.parse(sel.plan.planned_end)-now)} para concluir esta etapa e liberar a próxima no horário planejado.</p>}
-    </div>
-    <div className="step-side">
+   <OsRuler order={order} steps={rulerSteps} intervals={data.intervals as R[]} occurrences={data.occurrences as R[]} now={now} selected={sel?.id||null} onSelect={setSelected}/>
+   <div className="stepchips" role="group" aria-label="Etapas"><button type="button" aria-pressed={!sel} onClick={()=>setSelected(null)}>Todas as etapas</button>{steps.map(s=><button key={s.id} type="button" aria-pressed={sel?.id===s.id} onClick={()=>setSelected(sel?.id===s.id?null:s.id)}><span className={`st ${s.status}`}><i/></span>{s.plan.name}<small className="mono">{timing(s)}</small></button>)}</div>
+   {sel&&<section className="n-panel step-panel"><div className="panel-heading"><div><h2>{sel.plan.name} <Badge tone={stepNames[sel.status][1]}>{stepNames[sel.status][0]}</Badge></h2><p>{sel.plan.description||'Sem descrição.'}</p></div></div>
+    <div className="step-side" style={{padding:'16px 20px',display:'grid',gap:12}}>
      <div className="resources"><b><Truck size={14} className="inline"/> Equipamentos</b>{(sel.plan.equipment_ids as string[]).length?(sel.plan.equipment_ids as string[]).map(e=><span key={e} className={blockedTags.has(e)?'blocked':''}>{tags.equipment(e)}{blockedTags.has(e)&&' · bloqueado'}</span>):<span>—</span>}
       <b><Users size={14} className="inline"/> Colaboradores</b>{(sel.plan.operator_ids as string[]).length?(sel.plan.operator_ids as string[]).map(o=><span key={o}>{tags.operator(o)}</span>):<span>—</span>}</div>
      {sel.status==='nao_iniciada'&&blockers&&blockers.length>0&&<div className="notice warn"><AlertTriangle size={17}/><div><b>Pré-requisitos para iniciar</b><ul>{blockers.map((b,i)=><li key={i}>{b}</li>)}</ul></div></div>}
      {openBlocks(sel).length>0&&<div className="form-error"><Lock size={17}/><span>{openBlocks(sel).length} bloqueio(s) aberto(s): {openBlocks(sel).map(o=>o.description).join(' · ')}</span></div>}
-     {can.execute&&<div className="step-actions">
-      {sel.status==='nao_iniciada'&&<Button className="primary-action" disabled={busy||!!blockers?.length||order.status==='cancelada'} onClick={()=>void simple('ops/start',sel)}><Play size={16}/> Iniciar etapa</Button>}
-      {sel.status==='em_execucao'&&<><Button className="primary-action" disabled={busy} onClick={()=>open('finish',sel)}><Square size={15}/> Finalizar etapa</Button><Button variant="outline" onClick={()=>open('pause',sel)}><Pause size={15}/> Pausar</Button></>}
-      {['pausada','bloqueada'].includes(sel.status)&&<><Button className="primary-action" disabled={busy} onClick={()=>void simple('ops/resume',sel)}><RotateCcw size={15}/> Retomar</Button><Button variant="outline" onClick={()=>open('finish',sel)}><Square size={15}/> Finalizar</Button></>}
-      {['nao_iniciada','em_execucao','pausada','bloqueada'].includes(sel.status)&&<Button variant="outline" onClick={()=>open('block',sel)}><Ban size={15}/> Bloquear</Button>}
-      <Button variant="outline" onClick={()=>open('note',sel)}><MessageSquarePlus size={15}/> {['concluida','dispensada'].includes(sel.status)?'Apontamento tardio':'Registrar apontamento'}</Button>
-     </div>}
      {can.plan&&sel.status==='nao_iniciada'&&<button className="text-action" onClick={()=>open('dispense',sel)}>Dispensar etapa (Planejamento)</button>}
-     {!can.execute&&<p className="pending-text">Consulta: registrar execução exige o acesso “Operação”.</p>}
     </div>
-   </div>
-  </section>}
+   </section>}
 
   <Tabs defaultValue="notes"><TabsList className="n-tabs"><TabsTrigger value="notes">Apontamentos{sel?` · ${sel.plan.name}`:''}</TabsTrigger><TabsTrigger value="checklists">Checklists</TabsTrigger><TabsTrigger value="history">Histórico</TabsTrigger></TabsList>
    <TabsContent value="notes"><section className="n-panel">{occ.length?<ul className="occ-list">{occ.map(o=><li key={o.id} className={o.blocking&&o.status==='aberto'?'open':''}><div><Badge tone={o.kind==='bloqueio'?'danger':o.kind==='impacto'?'warning':'info'}>{kindNames[o.kind]}{o.kind==='impacto'&&o.blocking?' com bloqueio':''}</Badge>{o.category_name&&<Badge>{o.category_name}</Badge>}{o.late?<Badge tone="warning">Registro tardio</Badge>:null}{o.impediment_id&&<Badge tone="danger">NC crítica</Badge>}<b>{o.description}</b></div>
@@ -130,6 +111,34 @@ export default function OrderExecution({orderId,onBack}:{orderId:string,onBack:(
    <TabsContent value="checklists"><Checklists data={data} steps={steps} can={can.execute} onOpen={setChecklist} onRefresh={refresh} complementary={complementary} setComplementary={setComplementary} tags={tags}/></TabsContent>
    <TabsContent value="history"><section className="n-panel">{data.events.length?<ul className="event-list">{(data.events as R[]).filter(e=>!sel||e.os_step_id===sel.id).map(e=><li key={e.id}><History size={14}/><b>{eventNames[e.kind]}</b><span>{e.os_step_id?name(e.os_step_id):'OS'}</span><small>{fmt(e.occurred_at)} · {e.author_name}{e.detail?.reason?` · ${e.detail.reason}`:''}{e.detail?.equipment?` · ${e.detail.equipment}`:''}</small></li>)}</ul>:<Empty icon={History} title="Sem eventos ainda" description="Início, pausas, bloqueios, término e encerramento aparecem aqui."/>}</section></TabsContent>
   </Tabs>
+  </div>
+  <aside className="helm" data-st={order.status} aria-live="polite">
+   <span className="state"><i/>{orderNames[order.status][0]}</span>
+   <div style={{display:'grid',gap:10}}><span className="lab">Tempo efetivo da OS</span>
+    <div className="clockbig clock-roll" aria-label={`Tempo efetivo ${hms(eff)}`}><Digits value={hms(eff)}/></div>
+    <span className="sub">{active.length?<>{active.length} etapa(s) ativa(s) · <b>{active.filter(s=>s.status==='em_execucao').length} em execução</b></>:order.status==='programada'?`Início planejado ${fmt(order.planned_start)}`:`${done} de ${steps.length} etapas concluídas`}</span>
+   </div>
+   {['programada','em_andamento'].includes(order.status)&&<div className="gauge"><span className={`bar${now>pe?' over':''}`}><i style={{width:`${Math.max(0,Math.min(100,(now-ps)/Math.max(1,pe-ps)*100)).toFixed(1)}%`}}/></span><span className="cap"><span>{first?`real desde ${fmt(order.actual_start,true)}`:'não iniciada'}</span><span>{now<pe?`faltam ${dur(pe-now)}`:`prazo vencido há ${dur(now-pe)}`}</span></span></div>}
+   <dl><div><dt>Planejado</dt><dd>{fmt(order.planned_start,true)} {new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'}).format(ps)}–{new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'}).format(pe)}</dd></div>
+    <div><dt>Etapas concluídas</dt><dd>{done}/{steps.length}</dd></div><div><dt>Bloqueios abertos</dt><dd>{allOpenBlocks.length}</dd></div><div><dt>Apontamentos</dt><dd>{(data.occurrences as R[]).length}</dd></div></dl>
+   {sel?<div className="stepbox">
+    <span className="lab">Etapa selecionada</span><b>{sel.plan.name} · {stepNames[sel.status][0]}</b>
+    <dl style={{paddingTop:0,borderTop:0}}><div><dt>Efetivo</dt><dd>{dur(sum(sel.intervals,'ativo'))}</dd></div><div><dt>Parado</dt><dd>{dur(sum(sel.intervals,'interrompido'))}</dd></div>
+     <div><dt>Decorrido</dt><dd>{sel.actual_start?dur((sel.actual_end?Date.parse(sel.actual_end):now)-Date.parse(sel.actual_start)):'—'}</dd></div><div><dt>Prazo</dt><dd>{timing(sel)}</dd></div>
+     {['em_execucao','bloqueada','pausada'].includes(sel.status)&&dependents(sel).length>0&&(()=>{const next=dependents(sel).sort((a,b)=>Date.parse(a.plan.planned_start)-Date.parse(b.plan.planned_start))[0];const d=Date.parse(next.plan.planned_start)-now;return <div style={{gridColumn:'1/-1'}}><dt>Próximo marco</dt><dd>{d>=0?`${dur(d)} até o início de “${next.plan.name}”`:`início de “${next.plan.name}” vencido há ${dur(-d)}`}</dd></div>})()}</dl>
+    {can.execute&&<div className="acts">
+     {sel.status==='nao_iniciada'&&<button type="button" className="go" disabled={busy||!!blockers?.length||order.status==='cancelada'} onClick={()=>void simple('ops/start',sel)}><span style={{display:'inline-flex',gap:8,alignItems:'center'}}><Play size={16}/>Iniciar etapa</span><ArrowRight size={16}/></button>}
+     {sel.status==='em_execucao'&&<><button type="button" onClick={()=>open('pause',sel)}><Pause size={15}/>Pausar</button><button type="button" className="go" disabled={busy} onClick={()=>open('finish',sel)}><span style={{display:'inline-flex',gap:8,alignItems:'center'}}><Square size={15}/>Finalizar etapa</span><ArrowRight size={16}/></button></>}
+     {['pausada','bloqueada'].includes(sel.status)&&<><button type="button" className="go" disabled={busy} onClick={()=>void simple('ops/resume',sel)}><span style={{display:'inline-flex',gap:8,alignItems:'center'}}><RotateCcw size={15}/>Retomar</span><ArrowRight size={16}/></button><button type="button" onClick={()=>open('finish',sel)}><Square size={15}/>Finalizar</button></>}
+     {['nao_iniciada','em_execucao','pausada','bloqueada'].includes(sel.status)&&<button type="button" onClick={()=>open('block',sel)}><Ban size={15}/>Bloquear</button>}
+     <button type="button" onClick={()=>open('note',sel)}><MessageSquarePlus size={15}/>{['concluida','dispensada'].includes(sel.status)?'Apontamento tardio':'Registrar apontamento'}</button>
+    </div>}
+    {sel.status==='nao_iniciada'&&blockers&&blockers.length>0&&<div className="warn"><b>Pré-requisitos para iniciar</b><ul>{blockers.map((b,i)=><li key={i}>{b}</li>)}</ul></div>}
+   </div>:<div className="stepbox"><span className="lab">Etapas</span><span className="note">Escolha uma etapa na régua (passe o mouse para abrir) ou nos botões abaixo dela para iniciar, pausar, bloquear, finalizar ou registrar apontamentos.</span>
+    {active.length>0&&<div className="acts">{active.map(s=><button key={s.id} type="button" onClick={()=>setSelected(s.id)}>{s.plan.name} · {stepNames[s.status][0].toLowerCase()}</button>)}</div>}</div>}
+   {!can.execute&&<span className="note">Consulta: registrar execução exige o acesso “Operação”.</span>}
+   <div className="links"><a href={`/relatorio/${order.id}`} target="_blank" rel="noopener"><FileText size={14}/>Relatório PDF</a><a href={`/api/ops/order.xlsx?id=${encodeURIComponent(order.id)}`}><FileSpreadsheet size={14}/>Planilha Excel</a></div>
+  </aside>
 
   <Dialog open={!!action} onOpenChange={v=>{if(!busy&&!v)setAction(null)}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><Clock size={16}/> {osLabel(order.number)}{action?.step?` · ${action.step.plan.name}`:''}</div><DialogTitle>{{block:'Bloquear etapa',note:'Registrar apontamento',pause:'Pausar etapa',finish:'Finalizar etapa',resolve:'Registrar resolução',dispense:'Dispensar etapa'}[action?.kind||'block']}</DialogTitle><DialogDescription>{action?.kind==='block'?'Interrompe o tempo efetivo da etapa; o prazo continua correndo. A retomada exige resolver o bloqueio.':action?.kind==='finish'?'Registra o término real agora. Etapa bloqueada só termina informando como o impedimento foi resolvido.':action?.kind==='dispense'?'A etapa não será executada. Dependentes deixam de esperar por ela e as reservas dela são liberadas.':action?.kind==='resolve'?'A resolução fica registrada. Retomar a etapa é uma ação separada.':'O registro fica ligado à etapa e não pode ser apagado.'}</DialogDescription></DialogHeader>
    {action&&<form onSubmit={submit}><div className="form-grid">
@@ -146,7 +155,7 @@ export default function OrderExecution({orderId,onBack}:{orderId:string,onBack:(
    </div>{formError&&<div className="form-error" role="alert"><AlertTriangle size={17}/>{formError}</div>}<div className="modal-footer"><Button type="button" variant="outline" onClick={()=>setAction(null)} disabled={busy}>Voltar</Button><Button type="submit" className="primary-action" disabled={busy}>{busy?<LoaderCircle className="animate-spin" size={16}/>:null} Confirmar</Button></div></form>}
   </DialogContent></Dialog>
   {checklist&&<ChecklistFill instanceId={checklist} data={data} steps={steps} can={can.execute} tags={tags} onClose={()=>{setChecklist(null);void refresh()}} onSaved={refresh}/>}
- </div>;
+ </>;
 }
 
 function useTags(data:R|null){
