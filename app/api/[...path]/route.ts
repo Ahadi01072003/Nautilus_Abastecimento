@@ -4,6 +4,7 @@ import {state,mutate} from '@/lib/service';
 import {exportData,exportPreview} from '@/lib/exports';
 import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
+import {revisionMutate} from '@/lib/revision';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
@@ -19,7 +20,7 @@ export const runtime='nodejs';
 export const maxDuration=30;
 
 function json(value:unknown,status=200){return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});}
-const known=['Responsável sem autorização','Agendamento sem autorização','Agendamento indisponível','Acesso sem autorização','Equipamento incompatível ou inativo','Estoque insuficiente','Quantidade excede','Recebimento excede','Quantidade deve ser inteira','Operador inativo','Estoque alterado durante conferência','Mantenha ao menos um gestor ativo','Cancelamento sem autorização','Estoque sem autorização','Combustível indisponível','Registro sem agendamento exige gestor e justificativa','Solicitante sem acesso ativo','Auditoria sem autorização','Hierarquia de local inválida','Nível do local não pode ser alterado','Dependência circular entre etapas','Versão publicada é imutável','Planejamento lançado não pode ser alterado','Liberação técnica sem autorização','Impedimento técnico não pode ser alterado','Equipamento bloqueado por impedimento técnico','Equipamento reservado no período','Checklist concluído não pode ser alterado','Apontamento não pode ser alterado','Evento de execução não pode ser alterado','Intervalo de execução não pode ser alterado'];
+const known=['Etapa da OS fora do planejamento da OS','Responsável sem autorização','Agendamento sem autorização','Agendamento indisponível','Acesso sem autorização','Equipamento incompatível ou inativo','Estoque insuficiente','Quantidade excede','Recebimento excede','Quantidade deve ser inteira','Operador inativo','Estoque alterado durante conferência','Mantenha ao menos um gestor ativo','Cancelamento sem autorização','Estoque sem autorização','Combustível indisponível','Registro sem agendamento exige gestor e justificativa','Solicitante sem acesso ativo','Auditoria sem autorização','Hierarquia de local inválida','Nível do local não pode ser alterado','Dependência circular entre etapas','Versão publicada é imutável','Planejamento lançado não pode ser alterado','Liberação técnica sem autorização','Impedimento técnico não pode ser alterado','Equipamento bloqueado por impedimento técnico','Equipamento reservado no período','Checklist concluído não pode ser alterado','Apontamento não pode ser alterado','Evento de execução não pode ser alterado','Intervalo de execução não pode ser alterado'];
 function error(e:unknown){
  if(e instanceof AppError)return json({error:e.message},e.status);
  const pg=e as {code?:string;message?:string;constraint_name?:string};
@@ -30,7 +31,7 @@ function error(e:unknown){
   if(pg.constraint_name==='equipment_tag_key')return json({error:'Já existe um equipamento com esta TAG.'},409);
   if(pg.constraint_name==='fuels_name_key')return json({error:'Já existe um combustível com este nome.'},409);
   if(pg.constraint_name==='members_username_key')return json({error:'Este usuário já está em uso. Escolha outro.'},409);
-  const unique:Record<string,string>={requester_orgs_name_key:'Já existe uma organização com este nome.',requester_orgs_acronym_key:'Já existe uma organização com esta sigla.',locations_name_key:'Já existe um local com este nome no mesmo nível.',equipment_types_name_key:'Já existe um tipo de equipamento com este nome.',job_functions_name_key:'Já existe uma função com este nome.',occurrence_categories_name_key:'Já existe uma categoria com este nome neste tipo.',activity_types_code_key:'Já existe um tipo de atividade com este código.',activity_types_name_key:'Já existe um tipo de atividade com este nome.',checklist_templates_code_key:'Já existe um checklist com este código.',operators_member_key:'Este usuário já está vinculado a outro colaborador.'};
+  const unique:Record<string,string>={requester_orgs_name_key:'Já existe uma organização com este nome.',requester_orgs_acronym_key:'Já existe uma organização com esta sigla.',locations_name_key:'Já existe um local com este nome no mesmo nível.',equipment_types_name_key:'Já existe um tipo de equipamento com este nome.',job_functions_name_key:'Já existe uma função com este nome.',occurrence_categories_name_key:'Já existe uma categoria com este nome neste tipo.',activity_types_code_key:'Já existe um tipo de atividade com este código.',activity_types_name_key:'Já existe um tipo de atividade com este nome.',checklist_templates_code_key:'Já existe um checklist com este código.',operators_member_key:'Este usuário já está vinculado a outro colaborador.',plans_one_revision_draft:'Esta OS já tem uma revisão em rascunho. Atualize a tela.'};
   if(pg.constraint_name&&unique[pg.constraint_name])return json({error:unique[pg.constraint_name]},409);
   if(pg.constraint_name==='members_email_key')return json({error:'Este e-mail já pertence a outro cadastro.'},409);
   return json({error:'Este cadastro ou lançamento já existe. Atualize a tela.'},409);
@@ -117,6 +118,7 @@ export async function POST(req:Request){try{
  const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'||path==='planning/save'?262144:undefined);
  if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));
  if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
+ if(path.startsWith('planning/revision/'))return json(await revisionMutate(path,body,member));
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
  if(path.startsWith('ops/'))return json(await operationMutate(path,body,member));
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));

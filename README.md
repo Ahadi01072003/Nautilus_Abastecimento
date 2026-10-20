@@ -4,6 +4,7 @@ Sistema web da Base Açu. Módulos (menu lateral expansível):
 
 - **Abastecimento**: solicitação, agendamento e registro de abastecimentos, controle de **estoque**, **reposições** por estoque mínimo e avisos por e-mail.
 - **Planejamento**: cadastro de fluxos versionados; planejamento de atividade em rascunho (salvamento automático, reservas exclusivas de equipamentos), revisão e lançamento da OS; rascunhos; lista de OS.
+  - **Revisão de OS lançada** (programada ou em andamento): nova versão do planejamento com o **mesmo número**, preparada em rascunho enquanto a OS segue valendo; ao lançar, com motivo, troca planejamento e reservas de uma vez. Etapas concluídas/dispensadas não mudam, etapas iniciadas mantêm o início previsto e não saem da OS, etapas não iniciadas retiradas viram dispensa registrada. Histórico de versões no detalhe da OS, no relatório e na planilha.
 - **Operação**:
   - **Painel de OS**: indicadores do turno, cada OS em andamento com a **régua** (compacta; abre as etapas ao passar o mouse) e o **cronômetro do tempo efetivo**, pausa e retomada rápidas, próximas programadas, OS por solicitante (30 dias) e horas efetivas por atividade (7 dias).
   - **Apontamentos** (substitui “Ordens de serviço”): lista Em andamento / Programadas / Concluídas / Todas com busca, e a execução da OS escolhida: régua por etapa, painel lateral com o cronômetro e as ações da etapa (iniciar, pausar, retomar, bloquear, finalizar, apontar), ocorrências, impactos, bloqueios, checklists com NC crítica, histórico, **relatório PDF** e **planilha Excel** da OS.
@@ -102,6 +103,7 @@ Veja `.env.example`. Em produção ficam na Vercel (as sensíveis como *Sensitiv
 
 * `db/migrations/0001_schema.sql` – tabelas; `0002_integrity.sql` – regras (estoque nunca negativo, capacidade, autoria por perfil, agenda, estorno, último gestor); `0003_function_search_path.sql` – endurecimento.
 * `0009_exportacao.sql` – a auditoria aceita o registro de exportações (`Exportação: …`) de quem consulta OS; o acesso é conferido pelo servidor.
+* `0010_revisao_os.sql` – revisão de OS: número da revisão e motivo no planejamento, uma revisão em rascunho por OS, reserva “transportada” da versão vigente (não disputa com a própria OS nem reavalia a agenda), etapa da OS sempre ligada a um planejamento da própria OS e checklist previsto que deixa de valer sem ser apagado.
 * Em produção as tabelas ficam no schema `nautilus`, pertencente ao usuário `nautilus_app` (sem superpoderes), com RLS ativo e sem acesso para os papéis públicos da API do Supabase.
 * `scripts/import-v7.py` converte o SQLite exportado da v7. **O SQL gerado contém dados pessoais e nunca deve ser versionado.**
 

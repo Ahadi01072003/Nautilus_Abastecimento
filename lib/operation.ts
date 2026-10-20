@@ -60,7 +60,7 @@ async function stepOf(tx:Executor,stepId:string){
  if(!s)throw new AppError('Etapa não encontrada.',404);
  return s;
 }
-async function event(tx:Executor,a:Member,wo:Row,stepId:string|null,kind:string,key:string,detail:Row={},occurredAt?:string){
+export async function event(tx:Executor,a:Member,wo:Row,stepId:string|null,kind:string,key:string,detail:Row={},occurredAt?:string){
  const eid=id();
  await tx.run('INSERT INTO execution_events(id,work_order_id,os_step_id,kind,occurred_at,registered_at,author_id,author_name,operation_key,detail) VALUES(?,?,?,?,?,?,?,?,?,?::jsonb)',eid,wo.id,stepId,kind,occurredAt||now(),now(),a.id,a.name,key,JSON.stringify(detail));
  return eid;
@@ -77,11 +77,11 @@ async function interrupt(tx:Executor,s:Row,eventId:string,at:string){
 }
 
 /** Encerra a OS quando todas as etapas aplicáveis e obrigações estão atendidas (uma única vez). */
-async function checkClosure(tx:Executor,a:Member,wo:Row){
+export async function checkClosure(tx:Executor,a:Member,wo:Row){
  const steps=await tx.all('SELECT status,actual_end FROM os_steps WHERE work_order_id=?',wo.id);
  if(!steps.length||steps.some(s=>!['concluida','dispensada'].includes(s.status)))return null;
  if(await tx.first('SELECT 1 FROM step_intervals i JOIN os_steps s ON s.id=i.os_step_id WHERE s.work_order_id=? AND i.end_at IS NULL',wo.id))return null;
- const pending=await tx.all("SELECT r.id,v.title FROM checklist_requirements r JOIN checklist_versions v ON v.id=r.version_id WHERE r.work_order_id=? AND r.mandatory=1 AND NOT EXISTS (SELECT 1 FROM checklist_instances i WHERE i.requirement_id=r.id AND i.status='concluido')",wo.id);
+ const pending=await tx.all("SELECT r.id,v.title FROM checklist_requirements r JOIN checklist_versions v ON v.id=r.version_id WHERE r.work_order_id=? AND r.mandatory=1 AND r.waived_at IS NULL AND NOT EXISTS (SELECT 1 FROM checklist_instances i WHERE i.requirement_id=r.id AND i.status='concluido')",wo.id);
  const physicalEnd=steps.map(s=>s.actual_end).filter(Boolean).sort().pop()||null;
  if(pending.length){
   if(wo.status!=='encerramento_pendente'){
@@ -104,7 +104,7 @@ async function startBlockers(tx:Executor,wo:Row,s:Row){
  const siblings=await tx.all('SELECT o.step_key,o.status,p.name FROM os_steps o JOIN plan_steps p ON p.id=o.plan_step_id WHERE o.work_order_id=?',wo.id);
  for(const d of s.depends_on as string[]){const dep=siblings.find(x=>x.step_key===d);if(dep&&!['concluida','dispensada'].includes(dep.status))out.push(`Aguardando a conclusão de “${dep.name}”.`);}
  const equipment=await stepEquipment(tx,s);
- const reqs=await tx.all(`SELECT r.*,v.title FROM checklist_requirements r JOIN checklist_versions v ON v.id=r.version_id WHERE r.work_order_id=? AND r.mandatory=1 AND ((r.moment='pre_atividade' AND r.equipment_id IS NULL) OR (r.moment='pre_uso' AND r.equipment_id = ANY(?::text[])))
+ const reqs=await tx.all(`SELECT r.*,v.title FROM checklist_requirements r JOIN checklist_versions v ON v.id=r.version_id WHERE r.work_order_id=? AND r.mandatory=1 AND r.waived_at IS NULL AND ((r.moment='pre_atividade' AND r.equipment_id IS NULL) OR (r.moment='pre_uso' AND r.equipment_id = ANY(?::text[])))
   AND NOT EXISTS (SELECT 1 FROM checklist_instances i WHERE i.requirement_id=r.id AND i.status='concluido')`,wo.id,equipment.map(e=>e.equipment_id));
  for(const r of reqs)out.push(`Checklist obrigatório pendente: ${r.title}${r.equipment_id?' ('+equipment.find(e=>e.equipment_id===r.equipment_id)?.tag+')':''}.`);
  for(const e of equipment){
@@ -267,6 +267,7 @@ async function checklistMutate(path:string,b:Row,a:Actor,key:string){
    if(b.requirementId){
     const r=await tx.first('SELECT * FROM checklist_requirements WHERE id=? AND work_order_id=?',idOf(b.requirementId,'Checklist previsto'),wo.id);
     if(!r)throw new AppError('Checklist previsto não encontrado.',404);
+    if(r.waived_at)throw new AppError('Este checklist deixou de ser previsto na revisão da OS.',409);
     const existing=await tx.first('SELECT id FROM checklist_instances WHERE requirement_id=?',r.id);
     if(existing)return {id:existing.id,repeated:true};
     const iid=id();

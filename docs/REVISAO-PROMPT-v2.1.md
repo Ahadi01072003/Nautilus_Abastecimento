@@ -204,7 +204,29 @@ Entregue:
 - Zoom preservado ao abrir uma OS e ao alternar Lista/Gantt.
 - Consulta apenas o intervalo visível.
 
-## 8. Próximos passos sugeridos
-- Revisão de OS lançada (nova versão do planejamento com o mesmo número, substituindo reservas de forma atômica).
+## 8. Revisão de OS lançada (20/10/2026)
+
+Quem tem *Planejamento* (ou o gestor), no escopo de organizações, abre **Revisar OS** na Lista de OS ou em Operação › Apontamentos. Vale para OS programadas ou em andamento.
+
+- **Rascunho de revisão**: cópia da versão vigente (etapas, horários, recursos e as mesmas reservas). A OS continua valendo como está até o lançamento; descartar a revisão não muda nada na OS.
+  - Uma revisão em rascunho por OS (garantido no banco). Quem abriu, ou o gestor, edita e lança.
+  - Tipo de atividade, fluxo e organização não mudam.
+- **Travas por etapa**, conferidas na gravação e de novo no lançamento, com a OS travada:
+  - concluída ou dispensada: não muda;
+  - iniciada (em execução, pausada ou bloqueada): mantém o início previsto, que é a referência do desvio, e não sai da OS; fim, equipamentos e equipe podem mudar;
+  - não iniciada: tudo pode mudar; retirá-la a registra como **dispensada**, com o motivo da revisão.
+  - Se a execução andar enquanto a revisão é preparada, o lançamento recusa e explica o que ajustar.
+- **Reservas**: a revisão não disputa com a própria OS. Manter o mesmo equipamento na mesma etapa, dentro do intervalo vigente, é a mesma reserva: não é reavaliado, nem quando o equipamento está bloqueado (vira aviso e não pendência). O que for novo passa pelo intertravamento normal.
+- **Conferir e lançar**:
+  - Mostra "O que muda" em frases curtas, as pendências e os avisos, e exige o motivo. Revisão sem mudança não é lançada.
+  - Uma única transação faz a troca:
+    - confirma as reservas da revisão e libera as da versão anterior ("Substituída pela revisão N");
+    - a versão anterior fica como *substituída*;
+    - as etapas da OS mantêm a identidade (eventos, intervalos, apontamentos e checklists continuam ligados) e passam a apontar para a nova versão;
+    - os checklists de equipamentos novos passam a ser previstos, e os de equipamento retirado deixam de valer, ficando registrados.
+  - Se tudo já estiver concluído, a OS é encerrada.
+- **Histórico**: versões com data, autor e motivo no detalhe da OS. A revisão aparece no cabeçalho da execução, no relatório PDF, na planilha da OS e na auditoria ("Planejamento: OS revisada", com as mudanças).
+
+## 9. Próximos passos sugeridos
 - Reabertura excepcional e correção de apontamento com histórico.
 - Reaplicação de checklist por turno; calendário de turnos; painel de causas recorrentes.
