@@ -1,9 +1,11 @@
 'use client';
 import {useState,type FormEvent,type ReactNode} from 'react';
-import {Compass,Anchor,LoaderCircle,AlertTriangle,Eye,EyeOff,KeyRound,LogOut,Check,X} from 'lucide-react';
+import {Compass,LoaderCircle,AlertTriangle,Eye,EyeOff,KeyRound,LogOut,Check,X} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import './nautilus.css';
+import './sonar.css';
+import Bathy from './bathy';
 
 async function postJSON(path:string,body:unknown){
  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -18,9 +20,11 @@ export async function signOut(){
 function Shell({children}:{children:ReactNode}){
  return <main className="auth-shell">
   <section className="auth-brand" aria-hidden="true">
-   <div className="brand"><Compass size={38} strokeWidth={1.5}/><div><b>NAUTILUS</b><small>ABASTECIMENTOS</small></div></div>
-   <div className="auth-brand-copy"><span>BASE AÇU</span><h2>Solicitações, agenda, consumo e estoque em um só lugar.</h2></div>
-   <div className="sidebar-signature"><Anchor size={19}/><span>Precisão. Profundidade.<br/><b>Clareza.</b></span></div>
+   <div className="sonar-bathy"><Bathy/></div>
+   {/* eslint-disable-next-line @next/next/no-img-element -- logotipo estático pequeno */}
+   <img className="auth-logo" src="/logo-white.png" alt="" width={285} height={79}/>
+   <div className="auth-brand-copy"><span>BASE AÇU · GESTÃO OPERACIONAL</span><h2>NAUTILUS<i>.</i></h2><p>Abastecimento, planejamento, operação e cadastros. Cada período de trabalho preservado no histórico.</p></div>
+   <div className="sidebar-signature"><span>Precisão. Profundidade. <b>Clareza.</b></span></div>
   </section>
   <section className="auth-panel">{children}</section>
  </main>;

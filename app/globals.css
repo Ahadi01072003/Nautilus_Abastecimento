@@ -19,14 +19,28 @@
 }
 
 :root {
- --background:#F3F7F9; --foreground:#071D2B; --card:#fff; --card-foreground:#071D2B;
- --popover:#fff; --popover-foreground:#071D2B; --primary:#103B52; --primary-foreground:#fff;
- --secondary:#e8f0f4; --secondary-foreground:#103B52; --muted:#edf2f5; --muted-foreground:#536b78;
- --accent:#e1f7f2; --accent-foreground:#103B52; --destructive:#b53338; --border:#dce5ea; --input:#dce5ea;
- --ring:#167FA3; --chart-1:#167FA3; --chart-2:#30C4B2; --chart-3:#103B52; --chart-4:#c18528; --chart-5:#b53338;
- --radius:0.625rem; --sidebar:#071D2B; --sidebar-foreground:#c8d5df; --sidebar-primary:#30C4B2;
- --sidebar-primary-foreground:#071D2B; --sidebar-accent:#103B52; --sidebar-accent-foreground:#fff;
- --sidebar-border:#1c3c4f; --sidebar-ring:#30C4B2;
+ /* Identidade Sonar (OceanPact | CBO): moldura abissal, área de trabalho em papel frio, verde-limão para ação. */
+ --background:#e8ecea; --foreground:#0b1d25; --card:#f6f8f7; --card-foreground:#0b1d25;
+ --popover:#f6f8f7; --popover-foreground:#0b1d25; --primary:#0b1d25; --primary-foreground:#f6f8f7;
+ --secondary:#dde3e1; --secondary-foreground:#0b1d25; --muted:#dde3e1; --muted-foreground:#4b5f66;
+ --accent:#dcefe9; --accent-foreground:#0b1d25; --destructive:#d9452f; --border:#c7d0ce; --input:#c7d0ce;
+ --ring:#1fc9bc; --chart-1:#087f77; --chart-2:#1fc9bc; --chart-3:#004a64; --chart-4:#d96a00; --chart-5:#d9452f;
+ --radius:0.3rem; --sidebar:#03161f; --sidebar-foreground:#8fa8b0; --sidebar-primary:#c8f25a;
+ --sidebar-primary-foreground:#0b1d25; --sidebar-accent:#0a2531; --sidebar-accent-foreground:#e6f0f2;
+ --sidebar-border:#0d2a35; --sidebar-ring:#1fc9bc;
+ --abyss:#03161f; --abyss-2:#0a2531; --abyss-3:#103240; --abyss-line:rgba(214,238,242,.1); --on-abyss:#e6f0f2; --on-abyss-dim:#8fa8b0;
+ --paper:#e8ecea; --surface:#f6f8f7; --sunk:#dde3e1; --ink:#0b1d25; --ink-2:#4b5f66; --line:#c7d0ce;
+ --signal:#c8f25a; --signal-ink:#0b1d25; --live:#1fc9bc; --accent-ink:#087f77; --brand:#004a64; --orange:#f47a04;
+ --occ:#d9452f; --imp:#d96a00; --evt:#4f5fe0; --res:#0a7c8c; --ok:#3f7d0e; --muted-c:#6c7c82; --pausec:#8a979c;
+ --f-display:var(--font-archivo),"Arial Narrow","Helvetica Neue",Arial,sans-serif;
+ --f-body:var(--font-instrument),"Segoe UI",system-ui,sans-serif;
+ --f-mono:var(--font-jetbrains),ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+ --pat-work:var(--live);
+ --pat-pause:repeating-linear-gradient(135deg,var(--pausec) 0 2px,transparent 2px 6px);
+ --pat-occ:var(--occ);
+ --pat-imp:repeating-linear-gradient(45deg,var(--imp) 0 4px,color-mix(in srgb,var(--imp) 40%,transparent) 4px 7px);
+ --pat-block:repeating-linear-gradient(135deg,var(--occ) 0 3px,color-mix(in srgb,var(--occ) 30%,transparent) 3px 7px);
+ --pat-evt:radial-gradient(circle,var(--evt) 1.6px,transparent 1.9px) 0 0/5px 5px,color-mix(in srgb,var(--evt) 22%,transparent);
 }
 @theme inline {
   --color-background: var(--background);
@@ -64,13 +78,12 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: "Segoe UI", system-ui, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
+  --font-sans: var(--f-body);
+  --font-mono: var(--f-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: "Segoe UI", system-ui, sans-serif;
+  font-family: var(--f-body);
 }

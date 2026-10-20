@@ -4,7 +4,7 @@ import {enqueue,enqueueMinimum} from './notifications';
 import {emailSetup,sendResendEmail} from './resend';
 import {db,type Executor,type Row} from './db';
 import {defaultPassword,hashPassword,normalizeUsername,checkTemporaryPassword} from './auth';
-import {AppError,businessDeadline,email,required,text,milli,dateISO,safeCSV,isoDay} from './domain';
+import {AppError,businessDeadline,email,required,text,milli,dateISO,isoDay} from './domain';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -277,22 +277,3 @@ export async function mutate(path:string,b:Row,a:Member){
  throw new AppError('Ação não encontrada.',404);
 }
 
-export async function exportCSV(url:URL,a:Member){
- requireProfile(a,['manager']);const kind=url.searchParams.get('kind')||'supplies',start=url.searchParams.get('start'),end=url.searchParams.get('end'),fuel=url.searchParams.get('fuel');
- const defs:Record<string,{query:string,datecol:string,alias:string,headers:string[],map:(r:Row)=>unknown[]}>= {
- supplies:{query:'SELECT s.* FROM supplies s',datecol:'s.occurred_at',alias:'s',headers:['ID','Data_UTC','Data_Local','Equipamento_ID','TAG','Equipamento','Operador_ID','Operador','Combustivel_ID','Combustivel','Quantidade','Unidade','Horimetro_Inicial','Horimetro_Final','Responsavel_ID','Responsavel_Lancamento','Lancado_Em_UTC','Situacao','Observacao','Justificativa_Cancelamento','Solicitacao_Abastecimento_ID'],map:r=>[r.id,r.occurred_at,new Date(r.occurred_at).toLocaleString('sv-SE',{timeZone:'America/Sao_Paulo'}),r.equipment_id,r.equipment_tag,r.equipment_name,r.operator_id,r.operator_name,r.fuel_id,r.fuel_name,r.quantity_milli/1000,r.unit,r.hourmeter_milli===null?'':r.hourmeter_milli/1000,r.hourmeter_end_milli===null?'':r.hourmeter_end_milli/1000,r.author_id,r.author_name,r.created_at,r.status,r.notes,r.cancel_reason,r.appointment_id]},
- movements:{query:'SELECT m.*,f.name fuel_name,f.unit FROM movements m JOIN fuels f ON f.id=m.fuel_id',datecol:'m.occurred_at',alias:'m',headers:['ID','Data_UTC','Combustivel_ID','Combustivel','Tipo','Quantidade_Com_Sinal','Saldo_Apos','Unidade','Abastecimento_ID','Solicitacao_ID','Responsavel_ID','Responsavel','Justificativa'],map:r=>[r.id,r.occurred_at,r.fuel_id,r.fuel_name,r.kind,r.delta_milli/1000,r.balance_after_milli===null?'':r.balance_after_milli/1000,r.unit,r.supply_id,r.request_id,r.author_id,r.author_name,r.reason]},
- requests:{query:'SELECT r.*,f.name fuel_name,f.unit FROM requests r JOIN fuels f ON f.id=r.fuel_id',datecol:'r.opened_at',alias:'r',headers:['ID','Combustivel_ID','Combustivel','Abertura_UTC','Prazo_UTC','Quantidade_Solicitada','Quantidade_Recebida','Unidade','Situacao'],map:r=>[r.id,r.fuel_id,r.fuel_name,r.opened_at,r.deadline,r.requested_milli/1000,r.received_milli/1000,r.unit,r.status]}
- };const def=defs[kind];if(!def)throw new AppError('Tipo de exportação inválido.');
- const where:string[]=[];const values:unknown[]=[];
- if(start){where.push(def.datecol+'>=?');values.push(new Date(isoDay(start)+'T00:00:00-03:00').toISOString());}
- if(end){where.push(def.datecol+'<=?');values.push(new Date(isoDay(end)+'T23:59:59.999-03:00').toISOString());}
- if(fuel&&fuel!=='all'){where.push(def.alias+'.fuel_id=?');values.push(fuel);}
- const filter=where.length?' WHERE '+where.join(' AND '):'';
- const total=(await first('SELECT count(*) total FROM ('+def.query+filter+') x',...values))?.total||0;
- if(total>10000)throw new AppError('Selecione um período menor: limite de 10.000 registros por exportação.',413);
- const lines=[def.headers.map(safeCSV).join(';')];
- for(let offset=0;offset<total;offset+=1000){const rows=await all(def.query+filter+' ORDER BY '+def.datecol+' ASC,'+def.alias+'.id ASC LIMIT 1000 OFFSET ?',...values,offset);lines.push(...rows.map(r=>def.map(r).map(safeCSV).join(';')));if(rows.length<1000)break;}
- await requireFresh(a);
- return new Response('﻿'+lines.join('\r\n'),{headers:{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':`attachment; filename="nautilus_${kind}_${now().slice(0,10)}.csv"`,'Cache-Control':'no-store'}});
-}

@@ -19,21 +19,28 @@ export async function requireCapability(a:Member,c:Capability){
 }
 /** Basta um dos acessos. Devolve o cadastro atual, com o escopo de organizações. */
 export async function requireAny(a:Member,list:Capability[]){
+ const current=await loadAccess(a);
+ if(!isManager(current)&&!list.some(c=>current.capabilities.includes(c)))throw new AppError('Seu acesso não permite esta ação.',403);
+ return current;
+}
+/** Cadastro atual (perfil, acessos e escopo), sem exigir um acesso específico. */
+export async function loadAccess(a:Member){
  const current=await db().first('SELECT profile,active,capabilities,org_scope FROM members WHERE id=?',a.id);
  if(!current?.active)throw new AppError('Seu acesso mudou. Atualize a tela.',403);
- if(current.profile!=='manager'&&!list.some(c=>(current.capabilities||[]).includes(c)))throw new AppError('Seu acesso não permite esta ação.',403);
- return {...a,profile:current.profile,capabilities:current.capabilities||[],org_scope:current.org_scope||[]} as Member&{org_scope:string[]};
+ return {...a,profile:current.profile,capabilities:current.capabilities||[],org_scope:current.org_scope||[]} as Member&{capabilities:string[],org_scope:string[]};
 }
 export const fuelModules=['visao','solicitacoes','abastecimentos','estoque','alertas'];
 export const registryModules=['cad-solicitantes','cad-locais','cad-equipamentos','cad-colaboradores','cad-checklists','cad-categorias'];
 export const planningModules=['plan-fluxos','plan-atividade','plan-rascunhos','plan-os'];
-export const operationModules=['op-os'];
+export const operationModules=['op-painel','op-os'];
 /** Telas liberadas para o usuário. O servidor revalida cada consulta e comando. */
 export function modules(a:Member){
- const list:string[]=isManager(a)?[...fuelModules,'exportacao']:a.profile==='fueler'?['solicitacoes','abastecimentos']:a.profile==='none'?[]:['solicitacoes'];
+ const list:string[]=isManager(a)?[...fuelModules]:a.profile==='fueler'?['solicitacoes','abastecimentos']:a.profile==='none'?[]:['solicitacoes'];
  if(has(a,'planejamento'))list.push(...planningModules);
  if(has(a,'planejamento')||has(a,'acompanhamento')||has(a,'operacao'))list.push(...operationModules);
  if(has(a,'cadastros'))list.push(...registryModules);
+ // Exportação: o gestor exporta tudo; quem consulta OS exporta os dados de Operação do seu escopo.
+ if(isManager(a)||canSeeOrders(a))list.push('exportacao');
  return list;
 }
 /** Pode consultar OS lançadas (respeitando o escopo de organizações). */

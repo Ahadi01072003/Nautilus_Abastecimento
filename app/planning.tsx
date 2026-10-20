@@ -13,7 +13,6 @@ import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,type R} from './kit';
 import {layers,hhmm} from './flows';
-import OrderExecution from './execution';
 import Gantt from './gantt';
 
 /** Horário de Brasília para o campo datetime-local e de volta (com fuso explícito). */
@@ -33,7 +32,7 @@ export function locationPaths(locations:R[]){const out=new Map<string,string>();
 
 /* ───────────────────────── Planejamento (rascunhos e editor) ───────────────────────── */
 
-export default function Planning({view,planId,openPlan,navigate,refreshKey}:{view:string,planId:string|null,openPlan:(id:string|null)=>void,navigate:(v:string)=>void,refreshKey:number}){
+export default function Planning({view,planId,openPlan,navigate,openOrder,refreshKey}:{view:string,planId:string|null,openPlan:(id:string|null)=>void,navigate:(v:string)=>void,openOrder:(id:string)=>void,refreshKey:number}){
  const [data,setData]=useState<R|null>(null),[error,setError]=useState(''),[creating,setCreating]=useState(false),[typeId,setTypeId]=useState(''),[releaseFor,setReleaseFor]=useState<R|null>(null),[reason,setReason]=useState('');
  const refresh=useCallback(async()=>{try{setData(await load<R>('planning'));setError('')}catch(e){setError((e as Error).message)}},[]);
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Dados recebidos de uma consulta assíncrona ao servidor.
@@ -53,7 +52,7 @@ export default function Planning({view,planId,openPlan,navigate,refreshKey}:{vie
   {view==='plan-rascunhos'&&<section className="n-panel"><div className="panel-heading"><div><h2>Rascunhos</h2><p>{data.actor.manager?'Todos os rascunhos. Rascunhos com reservas seguram equipamentos: libere os esquecidos.':'Seus planejamentos ainda não lançados. Só você e o gestor os veem.'}</p></div>{newButton}</div>
    {data.drafts.length?<div className="table-scroll"><Table><TableHeader><TableRow><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Período previsto</TableHead><TableHead>Reservas provisórias</TableHead><TableHead>Última gravação</TableHead>{data.actor.manager&&<TableHead>Responsável</TableHead>}<TableHead/></TableRow></TableHeader><TableBody>{data.drafts.map((d:R)=><TableRow key={d.id}><TableCell><Badge tone="warning">Rascunho</Badge> <b>{d.activity_name}</b><small>{d.description||'Sem descrição'}</small></TableCell><TableCell><OrgTag org={orgs.find(o=>o.id===d.org_id)}/></TableCell><TableCell>{range(d.planned_start,d.planned_end)}</TableCell><TableCell>{d.reservations?<Badge tone="info">{d.reservations} equipamento(s)</Badge>:'—'}</TableCell><TableCell>{fmt(d.updated_at)}</TableCell>{data.actor.manager&&<TableCell>{d.author_name}</TableCell>}<TableCell><div className="access-actions"><Button size="sm" variant="outline" onClick={()=>{openPlan(d.id);navigate('plan-atividade')}}>Abrir</Button>{data.actor.manager&&d.author_id!==data.actor.id&&d.reservations>0&&<button className="icon-action" title="Liberar reservas" aria-label={`Liberar reservas do rascunho de ${d.author_name}`} onClick={()=>setReleaseFor(d)}><Unlock size={16}/></button>}</div></TableCell></TableRow>)}</TableBody></Table></div>:<Empty icon={ClipboardList} title="Nenhum rascunho" description="Rascunhos aparecem aqui até serem lançados ou descartados." action={newButton}/>}
   </section>}
-  {view==='plan-os'&&<Orders mode="planejamento" refreshKey={refreshKey}/>}
+  {view==='plan-os'&&<Orders refreshKey={refreshKey} onExec={openOrder}/>}
 
   <Dialog open={creating} onOpenChange={setCreating}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><CalendarRange size={16}/> PLANEJAMENTO</div><DialogTitle>Novo planejamento</DialogTitle><DialogDescription>As etapas do fluxo vigente do tipo escolhido são copiadas para o rascunho. Mudanças futuras no fluxo não alteram este planejamento.</DialogDescription></DialogHeader>
    <form onSubmit={create}><div className="form-grid"><Field label="Tipo de atividade *" wide><Choice value={typeId} onChange={setTypeId} options={types.map((t:R)=>({value:t.id,label:`${t.code} · ${t.name} (v${t.current_version})`}))}/></Field></div><div className="modal-footer"><Button type="button" variant="outline" onClick={()=>setCreating(false)}>Voltar</Button><Button type="submit" className="primary-action" disabled={!typeId}>Criar rascunho</Button></div></form>
@@ -184,9 +183,10 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,editable,onChange}:
  </article>;
 }
 
-/* ───────────────────────── Lista de OS (Planejamento e Operação) ───────────────────────── */
+/* ───────────────────────── Lista de OS (Planejamento) ───────────────────────── */
 
-export function Orders({mode,refreshKey}:{mode:'planejamento'|'operacao',refreshKey:number}){
+// A execução da OS fica em Operação › Apontamentos; daqui ela é aberta por onExec.
+export function Orders({refreshKey,onExec}:{refreshKey:number,onExec:(id:string)=>void}){
  const [refs,setRefs]=useState<R|null>(null),[rows,setRows]=useState<R|null>(null),[error,setError]=useState(''),[filters,setFilters]=useState<R>({from:'',to:'',org:'',type:'',location:'',status:'',number:''}),[detail,setDetail]=useState<R|null>(null),[cancel,setCancel]=useState(''),[busy,setBusy]=useState(false);
  const query=useMemo(()=>new URLSearchParams(Object.entries({...filters,from:filters.from?toISO(filters.from):'',to:filters.to?toISO(filters.to):''}).filter(([,v])=>v) as [string,string][]).toString(),[filters]);
  const refresh=useCallback(async()=>{try{const [r,o]=await Promise.all([load<R>('orders/refs'),load<R>('orders?'+query)]);setRefs(r);setRows(o);setError('')}catch(e){setError((e as Error).message)}},[query]);
@@ -195,24 +195,20 @@ export function Orders({mode,refreshKey}:{mode:'planejamento'|'operacao',refresh
  // Atualização periódica para refletir lançamentos e bloqueios de outras pessoas.
  useEffect(()=>{const t=setInterval(()=>{if(!document.hidden)void refresh()},45000);return()=>clearInterval(t)},[refresh]);
  const paths=useMemo(()=>refs?locationPaths(refs.locations):new Map(),[refs]);
- // OS aberta na tela de execução (?os=), com a lista mantida por trás para voltar com os mesmos filtros.
- const [execId,setExecId]=useState<string|null>(null);
  // Lista ou Gantt: a escolha fica na sessão (mesma fonte e mesmos filtros nos dois).
  const [display,setDisplay]=useState<'lista'|'gantt'>('lista');
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Preferência da sessão lida após montar.
  useEffect(()=>{try{if(sessionStorage.getItem('nautilus.orders.display')==='gantt')setDisplay('gantt')}catch{}},[]);
  const showAs=(d:'lista'|'gantt')=>{setDisplay(d);try{sessionStorage.setItem('nautilus.orders.display',d)}catch{}};
  const ganttQuery=useMemo(()=>new URLSearchParams(Object.entries(filters).filter(([k,v])=>v&&k!=='from'&&k!=='to') as [string,string][]).toString(),[filters]);
- useEffect(()=>{const read=()=>setExecId(new URLSearchParams(location.search).get('os'));read();window.addEventListener('popstate',read);return()=>window.removeEventListener('popstate',read)},[]);
- const openExec=(id:string|null)=>{setExecId(id);const q=new URLSearchParams(location.search);if(id)q.set('os',id);else q.delete('os');history.pushState(null,'','/?'+q.toString());window.scrollTo({top:0})};
- async function openDetail(o:R){if(mode==='operacao'){openExec(o.id);return}try{const r=await load<R>('planning/plan?id='+encodeURIComponent(o.current_plan_id));setDetail({order:o,...r})}catch(e){toast.error((e as Error).message)}}
+ async function openDetail(o:R){try{const r=await load<R>('planning/plan?id='+encodeURIComponent(o.current_plan_id));setDetail({order:o,...r})}catch(e){toast.error((e as Error).message)}}
  async function doCancel(e:FormEvent){e.preventDefault();if(!detail)return;setBusy(true);try{const r=await post('planning/cancel',{id:detail.plan.id,version:detail.order.version,reason:cancel});toast.success(r.message);setDetail(null);setCancel('');await refresh()}catch(err){toast.error((err as Error).message)}finally{setBusy(false)}}
  if(error)return <div className="error-panel"><AlertTriangle/><h2>Não foi possível carregar as OS</h2><p>{error}</p><Button onClick={()=>void refresh()}>Tentar novamente</Button></div>;
  if(!refs||!rows)return <Skeleton className="h-96 rounded-xl"/>;
  const f=(k:string,v:string)=>setFilters(x=>({...x,[k]:v}));
  const orgOf=(id:string)=>refs.orgs.find((o:R)=>o.id===id);
  const status=(o:R)=><span className="status-cell"><Badge tone={statusNames[o.status]?.[1]}>{statusNames[o.status]?.[0]}</Badge>{o.late&&<Badge tone="danger">Início vencido</Badge>}{o.blocked_resources>0&&<Badge tone="danger"><Lock size={11}/> Equipamento bloqueado</Badge>}</span>;
- return <>{execId&&<OrderExecution key={execId} orderId={execId} onBack={()=>{openExec(null);void refresh()}}/>}<div className="orders" hidden={!!execId}>
+ return <div className="orders">
   <section className="n-panel"><div className="filters order-filters"><Filter size={16} aria-hidden/>
    <label className="date-filter"><span>De</span><input type="datetime-local" aria-label="Período: de" value={filters.from} onChange={e=>f('from',e.target.value)}/></label>
    <label className="date-filter"><span>Até</span><input type="datetime-local" aria-label="Período: até" value={filters.to} onChange={e=>f('to',e.target.value)}/></label>
@@ -224,21 +220,21 @@ export function Orders({mode,refreshKey}:{mode:'planejamento'|'operacao',refresh
    {Object.values(filters).some(Boolean)&&<button className="text-action" onClick={()=>setFilters({from:'',to:'',org:'',type:'',location:'',status:'',number:''})}>Limpar</button>}
   </div>
   <div className="display-toggle"><div className="segmented" role="group" aria-label="Exibição"><button type="button" aria-pressed={display==='lista'} onClick={()=>showAs('lista')}>Lista</button><button type="button" aria-pressed={display==='gantt'} onClick={()=>showAs('gantt')}>Gantt</button></div>{display==='gantt'&&<small>O Gantt usa os mesmos filtros; o período é o intervalo visível.</small>}</div>
-  {display==='gantt'?<Gantt query={ganttQuery} orgs={refs.orgs} onOpen={id=>openExec(id)}/>:<>
+  {display==='gantt'?<Gantt query={ganttQuery} orgs={refs.orgs} onOpen={onExec}/>:<>
   <div className="org-counts" aria-label="OS por organização solicitante">{Object.entries(rows.counts as Record<string,number>).sort((a,b)=>b[1]-a[1]).map(([org,n])=><span key={org}><OrgTag org={orgOf(org)}/><b>{n}</b><small>{Math.round(100*n/Math.max(1,rows.total))}%</small></span>)}<span className="org-total">{rows.total} OS{rows.scoped?' no seu escopo':''}{filters.from||filters.to?' com programação no período':''}</span></div>
   {rows.orders.length?<>
    <div className="table-scroll orders-table"><Table><TableHeader><TableRow><TableHead>OS</TableHead><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Local</TableHead><TableHead>Período planejado</TableHead><TableHead>Real</TableHead><TableHead>Situação</TableHead><TableHead>Etapas</TableHead></TableRow></TableHeader><TableBody>{rows.orders.map((o:R)=><TableRow key={o.id} className="clickable" onClick={()=>void openDetail(o)}><TableCell><button className="tag-label" onClick={e=>{e.stopPropagation();void openDetail(o)}}>{osLabel(o.number)}</button></TableCell><TableCell><b>{o.activity_name}</b><small>{o.description||o.activity_code}</small></TableCell><TableCell><OrgTag org={orgOf(o.org_id)}/></TableCell><TableCell>{paths.get(o.location_id)||'—'}</TableCell><TableCell>{range(o.planned_start,o.planned_end)}</TableCell><TableCell>{o.actual_start?range(o.actual_start,o.actual_end||new Date().toISOString()):'—'}</TableCell><TableCell>{status(o)}</TableCell><TableCell>{o.steps_done}/{o.steps_total}</TableCell></TableRow>)}</TableBody></Table></div>
    <ul className="order-cards">{rows.orders.map((o:R)=><li key={o.id}><button type="button" onClick={()=>void openDetail(o)}><div><b>{osLabel(o.number)}</b><OrgTag org={orgOf(o.org_id)}/></div><span>{o.activity_name}</span><small><CalendarRange size={12} className="inline"/> {range(o.planned_start,o.planned_end)}</small><small><MapPin size={12} className="inline"/> {paths.get(o.location_id)||'—'}</small>{status(o)}</button></li>)}</ul>
-  </>:<Empty icon={ClipboardList} title="Nenhuma OS encontrada" description={mode==='planejamento'?'OS lançadas aparecem aqui. Rascunhos ficam em Planejamento › Rascunhos.':'As OS lançadas pelo Planejamento aparecem aqui.'}/>}
+  </>:<Empty icon={ClipboardList} title="Nenhuma OS encontrada" description="OS lançadas aparecem aqui. Rascunhos ficam em Planejamento › Rascunhos."/>}
   </>}
   </section>
 
-  <Dialog open={!!detail} onOpenChange={v=>{if(!busy&&!v){setDetail(null);setCancel('')}}}><DialogContent className="n-dialog n-dialog-wide">{detail&&<><DialogHeader><div className="modal-eyebrow"><ClipboardList size={16}/> {osLabel(detail.order.number)} · {mode==='planejamento'?'PLANEJAMENTO':'OPERAÇÃO'}</div><DialogTitle>{detail.plan.activity_name}</DialogTitle><DialogDescription>Lançada por {detail.order.launched_by_name} em {fmt(detail.order.launched_at)} · fluxo {detail.plan.activity_code} v{detail.plan.flow_version}</DialogDescription></DialogHeader>
+  <Dialog open={!!detail} onOpenChange={v=>{if(!busy&&!v){setDetail(null);setCancel('')}}}><DialogContent className="n-dialog n-dialog-wide">{detail&&<><DialogHeader><div className="modal-eyebrow"><ClipboardList size={16}/> {osLabel(detail.order.number)} · PLANEJAMENTO</div><DialogTitle>{detail.plan.activity_name}</DialogTitle><DialogDescription>Lançada por {detail.order.launched_by_name} em {fmt(detail.order.launched_at)} · fluxo {detail.plan.activity_code} v{detail.plan.flow_version}</DialogDescription></DialogHeader>
    <OrderSummary detail={detail} refs={refs} paths={paths} status={status}/>
-   <Button variant="outline" onClick={()=>{const id=detail.order.id;setDetail(null);openExec(id)}}>Abrir execução da OS</Button>
-   {mode==='planejamento'&&refs.canPlan&&detail.order.status==='programada'&&<form onSubmit={doCancel} className="cancel-box"><Field label="Cancelar OS · motivo" wide hint="Libera as reservas. A OS continua consultável como cancelada."><Textarea required maxLength={1200} value={cancel} onChange={e=>setCancel(e.target.value)}/></Field><Button type="submit" variant="outline" disabled={busy||!cancel.trim()}>Cancelar OS</Button></form>}
+   <Button variant="outline" onClick={()=>{const id=detail.order.id;setDetail(null);onExec(id)}}>Abrir em Apontamentos</Button>
+   {refs.canPlan&&detail.order.status==='programada'&&<form onSubmit={doCancel} className="cancel-box"><Field label="Cancelar OS · motivo" wide hint="Libera as reservas. A OS continua consultável como cancelada."><Textarea required maxLength={1200} value={cancel} onChange={e=>setCancel(e.target.value)}/></Field><Button type="submit" variant="outline" disabled={busy||!cancel.trim()}>Cancelar OS</Button></form>}
   </>}</DialogContent></Dialog>
- </div></>;
+ </div>;
 }
 
 function OrderSummary({detail,refs,paths,status}:{detail:R,refs:R,paths:Map<string,string>,status:(o:R)=>ReactNode}){

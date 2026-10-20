@@ -22,7 +22,7 @@ export async function orderDetail(member:Member,workOrderId:string){
  const plan=await loadPlan(wo.current_plan_id);
  const [steps,intervals,occurrences,events,requirements,instances,answers,impediments,categories]=await Promise.all([
   db().all('SELECT * FROM os_steps WHERE work_order_id=?',wo.id),
-  db().all('SELECT i.* FROM step_intervals i JOIN os_steps s ON s.id=i.os_step_id WHERE s.work_order_id=? ORDER BY i.start_at',wo.id),
+  db().all('SELECT i.*,e.kind start_kind FROM step_intervals i JOIN os_steps s ON s.id=i.os_step_id LEFT JOIN execution_events e ON e.id=i.start_event_id WHERE s.work_order_id=? ORDER BY i.start_at',wo.id),
   db().all('SELECT o.*,c.name category_name FROM occurrences o LEFT JOIN occurrence_categories c ON c.id=o.category_id WHERE o.work_order_id=? ORDER BY o.occurred_at DESC',wo.id),
   db().all('SELECT id,os_step_id,kind,occurred_at,registered_at,author_name,detail FROM execution_events WHERE work_order_id=? ORDER BY registered_at DESC LIMIT 300',wo.id),
   db().all('SELECT r.*,v.title,v.version,v.template_id,t.code FROM checklist_requirements r JOIN checklist_versions v ON v.id=r.version_id JOIN checklist_templates t ON t.id=v.template_id WHERE r.work_order_id=? ORDER BY r.moment,t.code',wo.id),
