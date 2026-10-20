@@ -37,13 +37,13 @@ async function details(ids:string[]){
 export async function opsBoard(member:Member,url:URL){
  const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
  const g=url.searchParams.get('group')||'andamento';
- if(!(g in GROUPS))throw new AppError('Filtro inválido.');
+ if(!Object.hasOwn(GROUPS,g))throw new AppError('Filtro inválido.');
  const group=g as Group;
  const q=text(url.searchParams.get('q'),60).toLowerCase();
  const where:string[]=[],values:unknown[]=[];
  const scope=scopeOf(a);if(scope){where.push('w.org_id = ANY(?::text[])');values.push(scope);}
  if(q){
-  const n=Number(q.replace(/\D/g,''));
+  const digits=q.replace(/\D/g,''),n=digits.length<=9?Number(digits):0;
   const like=`%${q.replace(/[\\%_]/g,m=>'\\'+m)}%`;
   where.push(`(lower(t.name) LIKE ? OR lower(t.code) LIKE ? OR lower(o.name) LIKE ? OR lower(o.acronym) LIKE ?${n?' OR w.number=?':''})`);
   values.push(like,like,like,like,...(n?[n]:[]));

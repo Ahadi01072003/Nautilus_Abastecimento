@@ -8,6 +8,8 @@ import {orderReport,ORDER_STATUS} from '@/lib/reports';
 import {osNumber} from '@/lib/planning';
 import {db,type Row} from '@/lib/db';
 import {audit} from '@/lib/registry';
+import {rateLimit} from '@/lib/security';
+import {AppError} from '@/lib/domain';
 import PrintButton from './print';
 export const dynamic='force-dynamic';
 export const metadata:Metadata={title:'Relatório da OS · NAUTILUS',robots:{index:false,follow:false}};
@@ -80,8 +82,9 @@ export default async function Report({params}:{params:Promise<{id:string}>}){
  const member=await sessionMember(token).catch(()=>null);
  if(!member||member.must_change_password)redirect('/');
  let r:Awaited<ReturnType<typeof orderReport>>;
- try{r=await orderReport(member,id);}
- catch{return <main className="sheet"><style>{css}</style><p>OS não encontrada ou fora do seu acesso.</p></main>;}
+ // Mesmo limite das outras exportações; erros de negócio (404, 429) aparecem com a própria mensagem.
+ try{await rateLimit(member.id,'export');r=await orderReport(member,id);}
+ catch(e){if(!(e instanceof AppError))throw e;return <main className="sheet"><style>{css}</style><p>{e.message}</p></main>;}
  await db().tx(tx=>audit(tx,member,'Exportação: relatório da OS',r.order.id,{number:r.order.number}));
  const {data,order,plan,steps,org}=r,now=ms(r.now);
  const intervals=data.intervals as Row[],occurrences=(data.occurrences as Row[]).slice().reverse();

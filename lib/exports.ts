@@ -8,7 +8,7 @@ import {osNumber} from './planning';
 import {audit} from './registry';
 import {xlsx,csv,zip,type Sheet,type Cell} from './files';
 
-const LIMIT=10000;
+const LIMIT=10000,TOTAL=30000;
 const d=(v:unknown):Cell=>v?new Date(String(v)):null;
 const min=(v:unknown)=>v===null||v===undefined?null:Math.round(Number(v)/60);
 const local=(v:unknown)=>v?new Date(String(v)).toLocaleString('sv-SE',{timeZone:'America/Sao_Paulo'}):'';
@@ -93,7 +93,7 @@ async function prepare(member:Member,url:URL){
  if(sets.some(s=>!(s in DATASETS)))throw new AppError('Conjunto de dados inválido.');
  if(sets.some(s=>!allowed.includes(s)))throw new AppError('Seu acesso não inclui um dos conjuntos escolhidos.',403);
  const start=url.searchParams.get('start'),end=url.searchParams.get('end');
- const f:Filters={start:start?isoDay(start):null,end:end?isoDay(end):null,fuel:url.searchParams.get('fuel')||null,org:url.searchParams.get('org')||null};
+ const f:Filters={start:start?isoDay(start):null,end:end?isoDay(end):null,fuel:url.searchParams.get('fuel')?.slice(0,64)||null,org:url.searchParams.get('org')?.slice(0,64)||null};
  if(f.fuel==='all')f.fuel=null;if(f.org==='all')f.org=null;
  if(f.start&&f.end&&f.start>f.end)throw new AppError('A data inicial precisa ser anterior à final.');
  const scope:Scope={orgs:isManager(a)||!a.org_scope.length?null:a.org_scope};
@@ -107,7 +107,7 @@ export async function exportPreview(member:Member,url:URL){
  const {sets,f,scope}=await prepare(member,url);
  const counts:Record<string,number>={};
  for(const k of sets){const def=DATASETS[k],c=clause(def,f,scope);counts[k]=Number((await db().first(`SELECT count(*)::int n ${def.from}${c.sql}`,...c.values))?.n||0);}
- return {counts,limit:LIMIT};
+ return {counts,limit:LIMIT,total:TOTAL};
 }
 
 /** Tempo efetivo das OS: união dos intervalos ativos de todas as etapas (paralelas não contam em dobro). */
@@ -126,11 +126,12 @@ export async function exportData(member:Member,url:URL){
  const {a,sets,f,scope}=await prepare(member,url);
  const legacy=!url.searchParams.get('sets')&&!!url.searchParams.get('kind');
  const format=legacy?'csv':url.searchParams.get('format')==='csv'?'csv':'xlsx';
- const sheets:Sheet[]=[];
+ const sheets:Sheet[]=[];let sum=0;
  for(const k of sets){
   const def=DATASETS[k],c=clause(def,f,scope);
   const total=Number((await db().first(`SELECT count(*)::int n ${def.from}${c.sql}`,...c.values))?.n||0);
   if(total>LIMIT)throw new AppError(`${def.label}: ${total.toLocaleString('pt-BR')} registros. Escolha um período menor (limite de ${LIMIT.toLocaleString('pt-BR')} por conjunto).`,413);
+  sum+=total;if(sum>TOTAL)throw new AppError(`Arquivo grande demais: mais de ${TOTAL.toLocaleString('pt-BR')} linhas somando os conjuntos. Escolha um período menor ou menos conjuntos.`,413);
   const rows=await db().all(`SELECT ${def.select} ${def.from}${c.sql} ORDER BY ${def.order} LIMIT ${LIMIT}`,...c.values);
   if(k==='os'){const eff=await effective(rows.map(r=>r.id));for(const r of rows)r.effective_s=eff.get(r.id)||0;}
   sheets.push({name:def.label,columns:def.columns,rows:rows.map(def.map),total});

@@ -252,4 +252,9 @@ test('painel de OS, planilha, relatório e exportação: escopo, tempo efetivo s
  await rejects(orderWorkbook(scoped,wo),404);
  assert.equal((await exportPreview(scoped,url('export/preview?sets=os,apontamentos'))).counts.os,0);
  await rejects(exportData(scoped,url(`export?sets=os&org=${org}`)),403);
+ // A auditoria só aceita exportação de quem consulta OS (gatilho no banco, além do servidor).
+ const fuelOnly=await addMember(db,'fueler');
+ await pgRejects(db.run("INSERT INTO audits(id,action,entity_id,author_id,author_name,created_at,detail) VALUES(?,?,?,?,?,?,?)",key(),'Exportação: forjada',wo,fuelOnly.id,'x',new Date().toISOString(),'{}'),/Auditoria sem autorização/);
+ await rejects(opsBoard(viewer,url('ops/board?group=constructor')),400);
+ assert.equal((await opsBoard(viewer,url('ops/board?group=todas&q=99999999999'))).orders.length,0);
 });

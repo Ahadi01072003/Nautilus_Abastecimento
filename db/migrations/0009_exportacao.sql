@@ -15,7 +15,8 @@ BEGIN
       OR ('manutencao' = ANY(capabilities) AND NEW.action = 'Condição técnica: liberação técnica')
       OR ('operacao' = ANY(capabilities) AND (NEW.action LIKE 'Operação:%' OR NEW.action = 'Condição técnica: NC crítica'))
       -- Exportações (planilha e relatório da OS): o acesso é conferido pelo servidor; aqui só se registra quem exportou.
-      OR (NEW.action LIKE 'Exportação:%' AND NEW.entity_id IS NOT NULL)
+      OR (NEW.action LIKE 'Exportação:%' AND NEW.entity_id IS NOT NULL
+          AND ('planejamento' = ANY(capabilities) OR 'acompanhamento' = ANY(capabilities) OR 'operacao' = ANY(capabilities)))
     )) THEN
     RAISE EXCEPTION 'Auditoria sem autorização';
   END IF;
