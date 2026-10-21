@@ -5,6 +5,7 @@ import {exportData,exportPreview} from '@/lib/exports';
 import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {revisionMutate} from '@/lib/revision';
+import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
@@ -77,6 +78,11 @@ export async function GET(req:Request){try{
  if(path==='registry/checklist-versions'){await rateLimit(member.id,'read');return json(await checklistVersions(member,url.searchParams.get('id')||''));}
  if(path==='flows'){await rateLimit(member.id,'read');return json(await flowsState(member));}
  if(path==='flows/version'){await rateLimit(member.id,'read');return json(await flowVersion(member,url.searchParams.get('id')||''));}
+ if(path==='maint/panel'){await rateLimit(member.id,'read');return json(await maintenancePanel(member,url));}
+ if(path==='maint/criteria'){await rateLimit(member.id,'read');return json(await maintenanceCriteria(member));}
+ if(path==='maint/record'){await rateLimit(member.id,'read');return json(await maintenanceRecord(member,url.searchParams.get('id')||''));}
+ if(path==='maint/records'){await rateLimit(member.id,'read');return json(await maintenanceRecords(member,url));}
+ if(path==='maint/readings'){await rateLimit(member.id,'read');return json(await maintenanceReadings(member,url));}
  if(path==='planning'){await rateLimit(member.id,'read');return json(await planningState(member));}
  if(path==='planning/plan'){await rateLimit(member.id,'read');return json(await planDetail(member,url.searchParams.get('id')||''));}
  if(path==='planning/availability'){await rateLimit(member.id,'read');return json(await availability(member,url));}
@@ -115,9 +121,10 @@ export async function POST(req:Request){try{
  const {member}=await session();
  await rateLimit(member.id,'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
  // Fluxos e checklists levam várias etapas/perguntas por envio.
- const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'||path==='planning/save'?262144:undefined);
+ const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'||path==='planning/save'||path==='maint/plan'?262144:undefined);
  if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));
  if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
+ if(path.startsWith('maint/'))return json(await maintenanceMutate(path,body,member));
  if(path.startsWith('planning/revision/'))return json(await revisionMutate(path,body,member));
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
  if(path.startsWith('ops/'))return json(await operationMutate(path,body,member));
