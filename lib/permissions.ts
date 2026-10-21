@@ -33,12 +33,17 @@ export const fuelModules=['visao','solicitacoes','abastecimentos','estoque','ale
 export const registryModules=['cad-solicitantes','cad-locais','cad-equipamentos','cad-colaboradores','cad-checklists','cad-categorias'];
 export const planningModules=['plan-fluxos','plan-atividade','plan-rascunhos','plan-os'];
 export const operationModules=['op-painel','op-os'];
+export const maintenanceModules=['man-painel','man-criterios','man-corretivas','man-leituras'];
 /** Telas liberadas para o usuário. O servidor revalida cada consulta e comando. */
 export function modules(a:Member){
- const list:string[]=isManager(a)?[...fuelModules]:a.profile==='fueler'?['solicitacoes','abastecimentos']:a.profile==='none'?[]:['solicitacoes'];
+ // Painel central: tela inicial de todos (o conteúdo segue o acesso de cada pessoa).
+ const list:string[]=['painel',...(isManager(a)?fuelModules:a.profile==='fueler'?['solicitacoes','abastecimentos']:a.profile==='none'?[]:['solicitacoes'])];
  if(has(a,'planejamento'))list.push(...planningModules);
  if(has(a,'planejamento')||has(a,'acompanhamento')||has(a,'operacao'))list.push(...operationModules);
  if(has(a,'cadastros'))list.push(...registryModules);
+ // Manutenção: quem tem o acesso registra tudo; Planejamento e Operação consultam o painel; Operação registra leituras.
+ if(has(a,'manutencao'))list.push(...maintenanceModules);
+ else{if(has(a,'planejamento')||has(a,'operacao'))list.push('man-painel');if(has(a,'operacao'))list.push('man-leituras');}
  // Exportação: o gestor exporta tudo; quem consulta OS exporta os dados de Operação do seu escopo.
  if(isManager(a)||canSeeOrders(a))list.push('exportacao');
  return list;

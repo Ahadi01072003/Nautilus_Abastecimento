@@ -5,7 +5,6 @@ import {db,type Executor,type Row} from './db';
 import {AppError,required,text,isoDay} from './domain';
 import {type Member,isManager,requireAny} from './permissions';
 import {audit} from './registry';
-import {instant} from './planning';
 import {computeCycle,usageRate,localDay,dateOf,markLabel,unitOf,previewMarks,type CyclePlan,type CycleRecord,type CycleStatus,type Method} from './maintenance-cycle';
 
 const id=()=>crypto.randomUUID();
@@ -103,12 +102,12 @@ const periodDays=(v:string|null)=>v==='todos'?null:[7,30,90,365].includes(Number
 export async function maintenancePanel(member:Member,url:URL){
  const a=await requireAny(member,[...VIEW]) as Actor;
  const days=periodDays(url.searchParams.get('periodo'));
- const [rows,hours,types]=await Promise.all([preventiveRows(),hoursOf('preventiva',days),all('SELECT id,name FROM equipment_types WHERE active=1 ORDER BY name')]);
+ const [rows,hours,types,operators]=await Promise.all([preventiveRows(),hoursOf('preventiva',days),all('SELECT id,name FROM equipment_types WHERE active=1 ORDER BY name'),all('SELECT id,name FROM operators WHERE active=1 ORDER BY name')]);
  // Cartões por equipamento: vale a pior situação entre os critérios dele.
  const worst=new Map<string,CycleStatus>();
  for(const r of rows){const w=worst.get(r.equipmentId);if(!w||RANK[r.status]>RANK[w])worst.set(r.equipmentId,r.status);}
  const count=(s:CycleStatus)=>[...worst.values()].filter(v=>v===s).length;
- return {rows,types,cards:{equipment:worst.size,emDia:count('em_dia'),pendentes:count('pendente'),atrasados:count('atrasada'),semLeitura:count('sem_leitura'),hours},
+ return {rows,types,operators,cards:{equipment:worst.size,emDia:count('em_dia'),pendentes:count('pendente'),atrasados:count('atrasada'),semLeitura:count('sem_leitura'),hours},
   period:days,canEdit:canMaintain(a),today:dateOf(localDay(Date.now())),generatedAt:now()};
 }
 
@@ -181,6 +180,13 @@ async function operatorsOf(ids:unknown,label:string){
 async function responsibleOf(b:Row){
  if(b.responsibleId){const r=await first('SELECT id,name,active FROM operators WHERE id=?',idOf(b.responsibleId,'Responsável'));if(!r)throw new AppError('Responsável não encontrado.',404);if(!r.active)throw new AppError('Responsável inativo.');return {id:r.id as string,name:r.name as string};}
  return {id:null,name:required(b.responsibleName,'Responsável',120)};
+}
+/** Data e hora completas com fuso (mesma regra do planejamento). */
+function instant(value:unknown,label:string){
+ if(value==null||value==='')return null;
+ if(typeof value!=='string'||value.length>40||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)||!/(Z|[+-]\d{2}:\d{2})$/.test(value))throw new AppError(`${label}: informe data e hora completas.`);
+ const d=new Date(value);if(!Number.isFinite(d.valueOf()))throw new AppError(`${label}: data inválida.`);
+ return d.toISOString();
 }
 const when=(value:unknown,label:string)=>{const v=instant(value,label);if(!v)throw new AppError(`${label}: informe data e hora.`);if(Date.parse(v)>Date.now()+5*60000)throw new AppError(`${label}: não pode estar no futuro.`);return v;};
 

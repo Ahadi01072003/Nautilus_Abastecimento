@@ -5,6 +5,7 @@ import {exportData,exportPreview} from '@/lib/exports';
 import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {revisionMutate} from '@/lib/revision';
+import {centralState} from '@/lib/central';
 import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
@@ -78,6 +79,7 @@ export async function GET(req:Request){try{
  if(path==='registry/checklist-versions'){await rateLimit(member.id,'read');return json(await checklistVersions(member,url.searchParams.get('id')||''));}
  if(path==='flows'){await rateLimit(member.id,'read');return json(await flowsState(member));}
  if(path==='flows/version'){await rateLimit(member.id,'read');return json(await flowVersion(member,url.searchParams.get('id')||''));}
+ if(path==='central'){await rateLimit(member.id,'read');return json(await centralState(member));}
  if(path==='maint/panel'){await rateLimit(member.id,'read');return json(await maintenancePanel(member,url));}
  if(path==='maint/criteria'){await rateLimit(member.id,'read');return json(await maintenanceCriteria(member));}
  if(path==='maint/record'){await rateLimit(member.id,'read');return json(await maintenanceRecord(member,url.searchParams.get('id')||''));}

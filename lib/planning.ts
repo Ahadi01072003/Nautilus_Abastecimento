@@ -5,6 +5,7 @@ import {db,type Executor,type Row} from './db';
 import {AppError,required,text} from './domain';
 import {type Member,isManager,requireAny,canSeeOrders} from './permissions';
 import {audit,idList} from './registry';
+import {preventiveRows} from './maintenance';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -203,6 +204,10 @@ export async function validation(plan:Plan){
   all('SELECT id,active FROM requester_orgs'),all('SELECT id,active FROM locations'),
  ]);
  const result=validatePlan(plan,{equipment,operators,impediments,orgs,locations,frozen:revision?.frozen,carried:revision?.carried});
+ // Manutenção: equipamento com preventiva vencida é aviso (o bloqueio, quando existe, já é pendência).
+ const used=new Set(plan.steps.filter(s=>s.included&&!revision?.frozen.has(s.step_key)).flatMap(s=>s.equipment_ids as string[]));
+ if(used.size)for(const r of (await preventiveRows()).filter(x=>used.has(x.equipmentId)&&(x.status==='atrasada'||x.status==='pendente')))
+  result.warnings.push({message:`Equipamento ${r.tag}: preventiva “${r.name}” ${r.status==='atrasada'?'atrasada':'pendente'} (marco ${r.firstOpenLabel}). Combine com a Manutenção antes da atividade.`});
  // Colaborador em etapas sobrepostas: aviso (não há reserva exclusiva de pessoas).
  for(const s of plan.steps.filter(x=>x.included&&x.planned_start&&x.planned_end&&x.operator_ids.length&&!revision?.frozen.has(x.step_key))){
   const clash=await all(`SELECT DISTINCT o.name FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id JOIN plans p ON p.id=pp.plan_id JOIN operators o ON o.id=pp.operator_id
