@@ -23,7 +23,7 @@ import {Navigation,moduleOf,screenOf} from './navigation';
 import {Choice,Badge,Empty,Field,fmt,post,type R} from './kit';
 import Registry from './registry';
 import Flows from './flows';
-import Planning from './planning';
+import Planning,{RealizedActivities} from './planning';
 import OpsBoard from './ops-board';
 import Apontamentos from './ops-apontamentos';
 import ExportCenter from './export-center';
@@ -105,6 +105,7 @@ export default function Workspace({identity}:{identity:Identity}){
  {view==='man-criterios'&&<MaintenanceCriteria refreshKey={registryTick}/>}
  {view==='man-corretivas'&&<Correctives refreshKey={registryTick}/>}
  {view==='man-leituras'&&<Readings refreshKey={registryTick}/>}
+ {view==='op-registro'&&<RealizedActivities refreshKey={registryTick} openOrder={openOrder}/>}
  {view==='op-os'&&<Apontamentos refreshKey={registryTick} onRevise={data?.actor.modules.includes('plan-atividade')?revisePlan:undefined}/>}
  {view==='exportacao'&&<ExportCenter manager={manage} operation={data.actor.modules.includes('op-os')} fuels={data.fuels}/>}
  </>}

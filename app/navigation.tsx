@@ -2,7 +2,7 @@
 // Configuração central de módulos e telas. Uma tela só aparece quando existe e quando o
 // servidor a libera em actor.modules; o servidor revalida cada consulta e comando.
 import {useEffect,useState} from 'react';
-import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,FilePen,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,type LucideIcon} from 'lucide-react';
+import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,FilePen,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon} from 'lucide-react';
 import {Sidebar,SidebarContent,SidebarHeader,SidebarFooter,SidebarGroup,SidebarGroupLabel,SidebarMenu,SidebarMenuItem,SidebarMenuButton,SidebarMenuSub,SidebarMenuSubItem,SidebarMenuSubButton,useSidebar} from '@/components/ui/sidebar';
 import {signOut} from './login';
 import Bathy from './bathy';
@@ -29,6 +29,7 @@ export const MODULES:Module[]=[
  {id:'operacao',label:'Operação',icon:HardHat,screens:[
   {id:'op-painel',label:'Painel de OS',icon:Gauge,subtitle:'Cada OS em andamento com a régua e o cronômetro do tempo efetivo.'},
   {id:'op-os',label:'Apontamentos',icon:ClipboardList,subtitle:'Execução das etapas, ocorrências, impactos, bloqueios e checklists de cada OS.'},
+  {id:'op-registro',label:'Registrar atividade realizada',icon:ClipboardPlus,subtitle:'Atividade feita sem planejamento (urgência): mesmo formulário da OS sem fluxo, já com início e fim reais.'},
  ]},
  {id:'manutencao',label:'Manutenção',icon:Wrench,screens:[
   {id:'man-painel',label:'Painel de preventivas',icon:Activity,subtitle:'Linha do tempo de cada equipamento com os marcos do ciclo e quanto falta para o próximo.'},

@@ -5,6 +5,7 @@ import {exportData,exportPreview} from '@/lib/exports';
 import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {revisionMutate} from '@/lib/revision';
+import {realizeActivity} from '@/lib/realized';
 import {centralState} from '@/lib/central';
 import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps} from '@/lib/planning';
@@ -85,7 +86,7 @@ export async function GET(req:Request){try{
  if(path==='maint/record'){await rateLimit(member.id,'read');return json(await maintenanceRecord(member,url.searchParams.get('id')||''));}
  if(path==='maint/records'){await rateLimit(member.id,'read');return json(await maintenanceRecords(member,url));}
  if(path==='maint/readings'){await rateLimit(member.id,'read');return json(await maintenanceReadings(member,url));}
- if(path==='planning'){await rateLimit(member.id,'read');return json(await planningState(member));}
+ if(path==='planning'){await rateLimit(member.id,'read');return json(await planningState(member,url.searchParams.get('mode')==='realizada'?'realizada':'planejada'));}
  if(path==='planning/plan'){await rateLimit(member.id,'read');return json(await planDetail(member,url.searchParams.get('id')||''));}
  if(path==='planning/availability'){await rateLimit(member.id,'read');return json(await availability(member,url));}
  if(path==='planning/validate'){await rateLimit(member.id,'read');return json(await validateDraft(member,url.searchParams.get('id')||''));}
@@ -127,6 +128,7 @@ export async function POST(req:Request){try{
  if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));
  if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
  if(path.startsWith('maint/'))return json(await maintenanceMutate(path,body,member));
+ if(path==='planning/realize')return json(await realizeActivity(body,member));
  if(path.startsWith('planning/revision/'))return json(await revisionMutate(path,body,member));
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
  if(path.startsWith('ops/'))return json(await operationMutate(path,body,member));

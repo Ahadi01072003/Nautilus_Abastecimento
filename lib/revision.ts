@@ -34,8 +34,8 @@ async function start(tx:Executor,a:Actor,workOrderId:string){
  }
  const base=(await loadPlan(wo.current_plan_id,tx))!;
  const pid=id(),t=now();
- await tx.run(`INSERT INTO plans(id,work_order_id,status,activity_type_id,flow_version_id,title,description,org_id,requester_person_id,location_id,planned_start,planned_end,author_id,author_name,created_at,updated_at,revision,base_plan_id)
-  VALUES(?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,pid,wo.id,base.activity_type_id,base.flow_version_id,base.title??null,base.description,base.org_id,base.requester_person_id,base.location_id,base.planned_start,base.planned_end,a.id,a.name,t,t,wo.revision+1,base.id);
+ await tx.run(`INSERT INTO plans(id,work_order_id,status,activity_type_id,flow_version_id,title,code,description,org_id,requester_person_id,location_id,planned_start,planned_end,author_id,author_name,created_at,updated_at,revision,base_plan_id)
+  VALUES(?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,pid,wo.id,base.activity_type_id,base.flow_version_id,base.title??null,base.code??null,base.description,base.org_id,base.requester_person_id,base.location_id,base.planned_start,base.planned_end,a.id,a.name,t,t,wo.revision+1,base.id);
  for(const s of base.steps){
   const sid=id();
   await tx.run('INSERT INTO plan_steps(id,plan_id,step_key,position,name,description,required,included,default_minutes,depends_on,planned_start,planned_end,location_id) VALUES(?,?,?,?,?,?,?,?,?,?::text[],?,?,?)',sid,pid,s.step_key,s.position,s.name,s.description,s.required,s.included,s.default_minutes,s.depends_on,s.planned_start,s.planned_end,s.location_id);
@@ -110,7 +110,7 @@ async function launch(a:Actor,b:Row){
      dispensed++;
     }
    }
-   await tx.run('UPDATE work_orders SET current_plan_id=?,location_id=?,planned_start=?,planned_end=?,revision=?,title=?,version=version+1 WHERE id=?',draft.id,draft.location_id,draft.planned_start,draft.planned_end,n,draft.free?draft.title:null,wo.id);
+   await tx.run('UPDATE work_orders SET current_plan_id=?,location_id=?,planned_start=?,planned_end=?,revision=?,title=?,code=?,version=version+1 WHERE id=?',draft.id,draft.location_id,draft.planned_start,draft.planned_end,n,draft.free?draft.title:null,draft.free?draft.code||null:null,wo.id);
    // Checklists previstos: novos para equipamentos incluídos; os de equipamento retirado deixam de valer (sem apagar).
    const required=await createRequirements(tx,wo.id,draft);
    const used=[...new Set(draft.steps.filter(s=>s.included).flatMap(s=>s.equipment_ids))];

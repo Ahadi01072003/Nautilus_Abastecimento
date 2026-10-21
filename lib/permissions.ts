@@ -40,6 +40,8 @@ export function modules(a:Member){
  const list:string[]=['painel',...(isManager(a)?fuelModules:a.profile==='fueler'?['solicitacoes','abastecimentos']:a.profile==='none'?[]:['solicitacoes'])];
  if(has(a,'planejamento'))list.push(...planningModules);
  if(has(a,'planejamento')||has(a,'acompanhamento')||has(a,'operacao'))list.push(...operationModules);
+ // Registrar atividade realizada sem planejamento (urgência): quem executa ou planeja.
+ if(has(a,'planejamento')||has(a,'operacao'))list.push('op-registro');
  if(has(a,'cadastros'))list.push(...registryModules);
  // Manutenção: quem tem o acesso registra tudo; Planejamento e Operação consultam o painel; Operação registra leituras.
  if(has(a,'manutencao'))list.push(...maintenanceModules);
