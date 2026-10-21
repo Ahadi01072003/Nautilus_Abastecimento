@@ -17,7 +17,7 @@ const inScope=(a:Actor,orgId:string)=>isManager(a)||!a.org_scope.length||a.org_s
 /** Detalhe completo da OS para a tela da Operação (planejamento vigente + execução autoritativa). */
 export async function orderDetail(member:Member,workOrderId:string){
  const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
- const wo=await db().first('SELECT w.*,t.code activity_code,coalesce(nullif(w.title,\'\'),t.name) activity_name,t.system free FROM work_orders w JOIN activity_types t ON t.id=w.activity_type_id WHERE w.id=?',idOf(workOrderId,'OS'));
+ const wo=await db().first('SELECT w.*,coalesce(nullif(w.code,\'\'),CASE WHEN t.system=1 THEN \'\' ELSE t.code END) activity_code,coalesce(nullif(w.title,\'\'),t.name) activity_name,t.system free FROM work_orders w JOIN activity_types t ON t.id=w.activity_type_id WHERE w.id=?',idOf(workOrderId,'OS'));
  if(!wo||!inScope(a,wo.org_id))throw new AppError('OS não encontrada ou fora do seu acesso.',404);
  const plan=await loadPlan(wo.current_plan_id);
  const [steps,intervals,occurrences,events,requirements,instances,answers,impediments,categories]=await Promise.all([

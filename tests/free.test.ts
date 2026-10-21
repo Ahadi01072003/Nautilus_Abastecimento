@@ -48,7 +48,8 @@ test('OS sem fluxo: título, início e fim pelas datas macro, recursos com mater
  const mat=await planningMutate('planning/resource',{kind:'material',name:'Cinta de amarração 5 t',unit:'un'},planner) as Row;
  await rejects(planningMutate('planning/resource',{kind:'material',name:'Óleo'},planner),400,/Unidade de medida/);
  await rejects(planningMutate('planning/resource',{kind:'outro',name:'X'},planner),400);
- await rejects(planningMutate('planning/resource',{kind:'material',name:'Óleo',unit:'L'},operator),403);
+ // Operação também cadastra recurso na hora (registro de atividade realizada usa o mesmo formulário).
+ assert.ok((await planningMutate('planning/resource',{kind:'material',name:'Óleo',unit:'L'},operator) as Row).id);
  const type=(await db.first("SELECT id FROM equipment_types WHERE name='Empilhadeira'"))!.id;
  await db.run('INSERT INTO operator_functions(operator_id,function_id) VALUES(?,?)','op1',fn.id);
  // Validação: falta título.

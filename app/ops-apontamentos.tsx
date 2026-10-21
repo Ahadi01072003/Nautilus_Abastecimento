@@ -30,7 +30,7 @@ export default function Apontamentos({refreshKey,onRevise}:{refreshKey:number,on
    <div className="tiles" role="group" aria-label="Situação das OS">{TILES.map(([k,label,hint,c])=><button key={k} type="button" className="tile" aria-pressed={group===k} style={{'--c':c} as React.CSSProperties} onClick={()=>setGroup(k)}><b>{data?.counts[k]??'–'}</b><span>{label}</span><small>{hint}</small></button>)}</div>
    <label className="ap-search"><Search size={15} aria-hidden/><input type="search" placeholder="Nº, atividade ou solicitante" aria-label="Buscar OS" value={q} maxLength={60} onChange={e=>setQ(e.target.value)}/></label></div>
    {error?<p className="sn-empty" role="alert">{error}</p>:!data?<Skeleton className="h-64 rounded"/>:data.orders.length?<div className="mlist">
-    {data.orders.map((o:R)=><button key={o.id} type="button" className="mitem" aria-current={o.id===current} onClick={()=>open(o.id)}><span className="id">{osLabel(o.number)} · {o.org_acronym}</span><span className="t">{o.activity_name}</span><span className="e">{o.location_name||o.activity_code}</span><Status s={o.status}/></button>)}
+    {data.orders.map((o:R)=><button key={o.id} type="button" className="mitem" aria-current={o.id===current} onClick={()=>open(o.id)}><span className="id">{osLabel(o.number)} · {o.org_acronym}</span><span className="t">{o.activity_name}</span><span className="e">{[o.activity_code,o.location_name].filter(Boolean).join(' · ')||'—'}</span><Status s={o.status}/></button>)}
     {data.more&&<p className="sn-empty">Mostrando as 100 primeiras. Use a busca para encontrar outras.</p>}
    </div>:<p className="sn-empty">{q?'Nenhuma OS encontrada para a busca.':'Nenhuma OS neste grupo.'}</p>}
   </aside>

@@ -110,7 +110,7 @@ export default async function Report({params}:{params:Promise<{id:string}>}){
   {/* eslint-disable-next-line @next/next/no-img-element -- Logo estático, mesmo arquivo na impressão. */}
   <div className="rtop"><img src="/logo-color.png" alt="OceanPact | CBO" width={285} height={79}/><div className="id">NAUTILUS · relatório de OS<b>{osNumber(order.number)}</b>{ORDER_STATUS[order.status]}</div></div>
   <h1>{order.activity_name}<i>.</i></h1>
-  <p className="lead">{plan.free?'OS sem fluxo':`${order.activity_code} · fluxo v${plan.flow_version}`} · lançada por {order.launched_by_name||'—'} em {dt(order.launched_at)}{order.revision?` · revisão ${order.revision}${plan.revision_reason?` (${plan.revision_reason})`:''}`:''}</p>
+  <p className="lead">{plan.free?`${order.activity_code?order.activity_code+' · ':''}OS sem fluxo`:`${order.activity_code} · fluxo v${plan.flow_version}`}{order.origin==='realizada'?' · realizada sem planejamento (registro posterior)':''} · lançada por {order.launched_by_name||'—'} em {dt(order.launched_at)}{order.revision?` · revisão ${order.revision}${plan.revision_reason?` (${plan.revision_reason})`:''}`:''}</p>
   <dl className="facts">
    <div><dt>Solicitante</dt><dd>{org?`${org.acronym} · ${org.name}`:'—'}</dd></div>
    <div><dt>Pessoa solicitante</dt><dd>{r.requester||'—'}</dd></div>

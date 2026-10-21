@@ -85,7 +85,7 @@ export default function OrderExecution({orderId,onChanged,onRevise}:{orderId:str
  return <>
   <div className="ap-center">
    <div className="oshead">
-    <div className="row"><span className="id">{osLabel(order.number)} · {plan.free?'sem fluxo':`${plan.activity_code} v${plan.flow_version}`}{order.revision?` · revisão ${order.revision}`:''}</span><span className="row" style={{gap:10}}>{active.some(s=>s.status==='bloqueada')&&<span className="st bloqueada"><i/>Etapa bloqueada</span>}<span className={`st ${order.status}`}><i/>{orderNames[order.status][0]}</span></span></div>
+    <div className="row"><span className="id">{osLabel(order.number)} · {plan.free?(order.activity_code||'sem fluxo'):`${plan.activity_code} v${plan.flow_version}`}{order.origin==='realizada'?' · realizada sem planejamento':''}{order.revision?` · revisão ${order.revision}`:''}</span><span className="row" style={{gap:10}}>{active.some(s=>s.status==='bloqueada')&&<span className="st bloqueada"><i/>Etapa bloqueada</span>}<span className={`st ${order.status}`}><i/>{orderNames[order.status][0]}</span></span></div>
     <h2>{order.activity_name}</h2>
    </div>
    <dl className="facts"><div><dt>Solicitante</dt><dd><OrgOf data={data}/></dd></div><div><dt>Planejado</dt><dd>{fmt(order.planned_start)} → {fmt(order.planned_end)}</dd></div><div><dt>Real</dt><dd>{order.actual_start?`${fmt(order.actual_start)} → ${order.actual_end?fmt(order.actual_end):'em curso'}`:'Não iniciada'}</dd></div><div><dt>Etapas</dt><dd>{done} de {steps.length} concluídas{order.closed_at?` · encerrada ${fmt(order.closed_at)}`:''}</dd></div></dl>
