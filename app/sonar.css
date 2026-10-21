@@ -312,3 +312,13 @@ body{font-family:var(--f-body)}
 @media(max-width:1080px){.xp{grid-template-columns:1fr}}
 @media(max-width:560px){.xp-main{padding:18px}.xp-format{grid-template-columns:1fr}.xp-set{grid-template-columns:auto 1fr}.xp-set em{grid-column:2}}
 .bi-note{background:var(--sunk,#dfe5e3)!important;border:1px solid var(--line)!important;border-radius:6px!important;color:var(--ink-2)!important}.bi-note h3{color:var(--ink)}.bi-note svg{color:var(--accent-ink)}
+
+/* ---------- revisão de OS ---------- */
+.revision-changes,.revision-history{border:1px solid var(--line);border-left:3px solid var(--live);border-radius:6px;padding:12px 14px;display:grid;gap:8px;background:var(--card)}
+.revision-changes b,.revision-history b{font:600 11px/1 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+.revision-changes ul{margin:0;padding-left:18px;display:grid;gap:4px;font-size:.84rem;color:var(--ink)}
+.revision-changes p{margin:0;font-size:.84rem;color:var(--muted-c)}
+.revision-history ol{margin:0;padding:0;list-style:none;display:grid;gap:8px}
+.revision-history li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:.82rem;color:var(--ink)}
+.revision-history li span{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.revision-history li small{flex-basis:100%;color:var(--muted-c)}
