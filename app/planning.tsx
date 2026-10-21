@@ -2,7 +2,7 @@
 // Planejamento de atividade (rascunho com salvamento automático, reservas, documentos,
 // revisão e lançamento), Rascunhos e Lista de OS (também usada na Operação).
 import {useCallback,useEffect,useMemo,useRef,useState,FormEvent,ReactNode} from 'react';
-import {History,Plus,AlertTriangle,LoaderCircle,CheckCircle2,CircleDashed,CloudOff,Rocket,Trash2,X,Wand2,ClipboardList,CalendarRange,Lock,Info,Unlock,Filter,Clock,Users,Truck,MapPin} from 'lucide-react';
+import {History,Package,PackagePlus,Shapes,Plus,AlertTriangle,LoaderCircle,CheckCircle2,CircleDashed,CloudOff,Rocket,Trash2,X,Wand2,ClipboardList,CalendarRange,Lock,Info,Unlock,Filter,Clock,Users,Truck,MapPin} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Table,TableHeader,TableRow,TableHead,TableBody,TableCell} from '@/components/ui/table';
@@ -11,7 +11,7 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
-import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,type R} from './kit';
+import {Choice,Badge,Empty,Field,Toggle,OrgTag,UNITS,fmt,post,load,type R} from './kit';
 import {layers,hhmm} from './flows';
 import Gantt from './gantt';
 
@@ -23,16 +23,17 @@ export const osLabel=(n:number)=>'OS '+String(n).padStart(6,'0');
 const statusNames:Record<string,[string,string]>={programada:['Programada','info'],em_andamento:['Em andamento','success'],encerramento_pendente:['Encerramento pendente','warning'],concluida:['Concluída','muted'],cancelada:['Cancelada','danger']};
 const range=(a?:string|null,b?:string|null)=>a&&b?`${fmt(a)} → ${fmt(b)}`:'—';
 
-type Step={key:string,id:string,name:string,description:string,required:boolean,included:boolean,dependsOn:string[],defaultMinutes:number|null,start:string,end:string,locationId:string,needs:{equipmentTypeId:string|null,functionId:string|null,quantity:number}[],equipmentIds:string[],operatorIds:string[]};
-type Form={description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[]};
-const fromPlan=(p:R):Form=>({description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:toLocal(p.planned_start),end:toLocal(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:toLocal(s.planned_start),end:toLocal(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,quantity:n.quantity})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids}))});
-const toBody=(f:Form)=>({description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,plannedStart:toISO(f.start),plannedEnd:toISO(f.end),steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:toISO(s.start),plannedEnd:toISO(s.end),locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[]}))});
+type Need={equipmentTypeId:string|null,functionId:string|null,materialId:string|null,quantity:number|null,amount:number|null,unit:string|null};
+type Step={key:string,id:string,name:string,description:string,required:boolean,included:boolean,dependsOn:string[],defaultMinutes:number|null,start:string,end:string,locationId:string,needs:Need[],equipmentIds:string[],operatorIds:string[]};
+type Form={title:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[]};
+const fromPlan=(p:R):Form=>({title:p.title||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:toLocal(p.planned_start),end:toLocal(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:toLocal(s.planned_start),end:toLocal(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids}))});
+const toBody=(f:Form)=>({title:f.title,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,plannedStart:toISO(f.start),plannedEnd:toISO(f.end),steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:toISO(s.start),plannedEnd:toISO(s.end),locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[]}))});
 
 /** Abre a revisão da OS (ou reabre a que já está em rascunho) e leva ao editor. */
 export async function startRevision(workOrderId:string,open:(planId:string)=>void){
  try{const r=await post('planning/revision/start',{workOrderId});toast.success(r.message);open(r.id)}catch(e){toast.error((e as Error).message)}
 }
-const draftLabel=(d:R)=>d.work_order_id?<Badge tone="info">Revisão {d.revision} · {osLabel(d.os_number)}</Badge>:<Badge tone="warning">Rascunho</Badge>;
+const draftLabel=(d:R)=><>{d.work_order_id?<Badge tone="info">Revisão {d.revision} · {osLabel(d.os_number)}</Badge>:<Badge tone="warning">Rascunho</Badge>}{d.free?<Badge>Sem fluxo</Badge>:null}</>;
 const osStepNames:Record<string,string>={concluida:'Concluída',dispensada:'Dispensada',em_execucao:'Em execução',pausada:'Pausada',bloqueada:'Bloqueada'};
 
 export function locationPaths(locations:R[]){const out=new Map<string,string>();const path=(l:R,d=0):string=>{if(out.has(l.id))return out.get(l.id)!;const p=l.parent_id&&d<5?locations.find(x=>x.id===l.parent_id):null;const v=p?path(p,d+1)+' › '+l.name:l.name;out.set(l.id,v);return v};locations.forEach(l=>path(l));return out}
@@ -44,17 +45,18 @@ export default function Planning({view,planId,openPlan,navigate,openOrder,refres
  const refresh=useCallback(async()=>{try{setData(await load<R>('planning'));setError('')}catch(e){setError((e as Error).message)}},[]);
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Dados recebidos de uma consulta assíncrona ao servidor.
  useEffect(()=>{void refresh()},[refresh,refreshKey,view]);
+ async function createFree(){try{const r=await post('planning/create-free',{});openPlan(r.id);navigate('plan-atividade');await refresh()}catch(err){toast.error((err as Error).message)}}
  async function create(e:FormEvent){e.preventDefault();try{const r=await post('planning/create',{activityTypeId:typeId});setCreating(false);openPlan(r.id);navigate('plan-atividade');await refresh()}catch(err){toast.error((err as Error).message)}}
  async function release(e:FormEvent){e.preventDefault();if(!releaseFor)return;try{const r=await post('planning/release',{id:releaseFor.id,reason});toast.success(r.message);setReleaseFor(null);setReason('');await refresh()}catch(err){toast.error((err as Error).message)}}
  if(error)return <div className="error-panel"><AlertTriangle/><h2>Não foi possível abrir o planejamento</h2><p>{error}</p><Button onClick={()=>void refresh()}>Tentar novamente</Button></div>;
  if(!data)return <div className="loading-grid"><Skeleton className="h-64 rounded-xl"/><Skeleton className="h-64 rounded-xl"/></div>;
- const types=data.activityTypes.filter((t:R)=>t.active);
- const newButton=<Button onClick={()=>{setTypeId(types[0]?.id||'');setCreating(true)}} disabled={!types.length}><Plus size={16}/> Novo planejamento</Button>;
+ const types=data.activityTypes.filter((t:R)=>t.active&&!t.system);
+ const newButton=<div className="access-actions"><Button variant="outline" onClick={()=>void createFree()} title="Título próprio, início e fim pelas datas da OS e recursos livres"><Shapes size={16}/> OS sem fluxo</Button><Button onClick={()=>{setTypeId(types[0]?.id||'');setCreating(true)}} disabled={!types.length}><Plus size={16}/> Novo planejamento</Button></div>;
  const orgs=data.orgs as R[];
  return <>
-  {view==='plan-atividade'&&(planId?<PlanEditor key={planId} planId={planId} refs={data} onClose={()=>{openPlan(null);void refresh()}} onReplaced={id=>openPlan(id)} onLaunched={()=>{openPlan(null);navigate('plan-os')}}/>:
-   <section className="n-panel"><div className="panel-heading"><div><h2>Planejar uma atividade</h2><p>Escolha o tipo de atividade: as etapas, dependências e necessidades do fluxo vigente são carregadas no rascunho.</p></div>{newButton}</div>
-    {data.drafts.length?<div className="draft-quick">{data.drafts.slice(0,6).map((d:R)=><button key={d.id} type="button" onClick={()=>openPlan(d.id)}>{draftLabel(d)}<b>{d.activity_name}</b><span>{d.description||'Sem descrição'}</span><small>Salvo em {fmt(d.updated_at)}</small></button>)}</div>:<Empty icon={ClipboardList} title="Nenhum rascunho em andamento" description={types.length?'Comece um planejamento novo. Ele fica salvo como rascunho até você revisar e lançar a OS.':'Cadastre primeiro um fluxo em Planejamento › Cadastro de fluxo.'} action={types.length?newButton:undefined}/>}
+  {view==='plan-atividade'&&(planId?<PlanEditor key={planId} planId={planId} refs={data} onRefs={refresh} onClose={()=>{openPlan(null);void refresh()}} onReplaced={id=>openPlan(id)} onLaunched={()=>{openPlan(null);navigate('plan-os')}}/>:
+   <section className="n-panel"><div className="panel-heading"><div><h2>Planejar uma atividade</h2><p>Escolha o tipo de atividade (as etapas, dependências e necessidades do fluxo vigente são carregadas no rascunho) ou planeje uma OS sem fluxo, só com título, início, fim e recursos.</p></div>{newButton}</div>
+    {data.drafts.length?<div className="draft-quick">{data.drafts.slice(0,6).map((d:R)=><button key={d.id} type="button" onClick={()=>openPlan(d.id)}>{draftLabel(d)}<b>{d.activity_name}</b><span>{d.description||'Sem descrição'}</span><small>Salvo em {fmt(d.updated_at)}</small></button>)}</div>:<Empty icon={ClipboardList} title="Nenhum rascunho em andamento" description={types.length?'Comece um planejamento novo. Ele fica salvo como rascunho até você revisar e lançar a OS.':'Sem fluxo cadastrado ainda: planeje uma OS sem fluxo ou cadastre um fluxo em Planejamento › Cadastro de fluxo.'} action={newButton}/>}
    </section>)}
   {view==='plan-rascunhos'&&<section className="n-panel"><div className="panel-heading"><div><h2>Rascunhos</h2><p>{data.actor.manager?'Todos os rascunhos. Rascunhos com reservas seguram equipamentos: libere os esquecidos.':'Seus planejamentos ainda não lançados. Só você e o gestor os veem.'}</p></div>{newButton}</div>
    {data.drafts.length?<div className="table-scroll"><Table><TableHeader><TableRow><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Período previsto</TableHead><TableHead>Reservas provisórias</TableHead><TableHead>Última gravação</TableHead>{data.actor.manager&&<TableHead>Responsável</TableHead>}<TableHead/></TableRow></TableHeader><TableBody>{data.drafts.map((d:R)=><TableRow key={d.id}><TableCell>{draftLabel(d)} <b>{d.activity_name}</b><small>{d.description||'Sem descrição'}</small></TableCell><TableCell><OrgTag org={orgs.find(o=>o.id===d.org_id)}/></TableCell><TableCell>{range(d.planned_start,d.planned_end)}</TableCell><TableCell>{d.reservations?<Badge tone="info">{d.reservations} equipamento(s)</Badge>:'—'}</TableCell><TableCell>{fmt(d.updated_at)}</TableCell>{data.actor.manager&&<TableCell>{d.author_name}</TableCell>}<TableCell><div className="access-actions"><Button size="sm" variant="outline" onClick={()=>{openPlan(d.id);navigate('plan-atividade')}}>Abrir</Button>{data.actor.manager&&d.author_id!==data.actor.id&&d.reservations>0&&<button className="icon-action" title="Liberar reservas" aria-label={`Liberar reservas do rascunho de ${d.author_name}`} onClick={()=>setReleaseFor(d)}><Unlock size={16}/></button>}</div></TableCell></TableRow>)}</TableBody></Table></div>:<Empty icon={ClipboardList} title="Nenhum rascunho" description="Rascunhos aparecem aqui até serem lançados ou descartados." action={newButton}/>}
@@ -78,7 +80,7 @@ function SaveBadge({state,at,message}:{state:SaveState,at:string|null,message:st
  return <span className="save-state saved" role="status"><CheckCircle2 size={15}/> Salvo{at?` às ${new Date(at).toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'})}`:''}</span>;
 }
 
-function PlanEditor({planId,refs,onClose,onReplaced,onLaunched}:{planId:string,refs:R,onClose:()=>void,onReplaced:(id:string)=>void,onLaunched:()=>void}){
+function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched}:{planId:string,refs:R,onRefs:()=>Promise<void>,onClose:()=>void,onReplaced:(id:string)=>void,onLaunched:()=>void}){
  const [plan,setPlan]=useState<R|null>(null),[form,setForm]=useState<Form|null>(null),[editable,setEditable]=useState(false),[loadError,setLoadError]=useState('');
  const [saveState,setSaveState]=useState<SaveState>('saved'),[savedAt,setSavedAt]=useState<string|null>(null),[saveError,setSaveError]=useState('');
  const [osSteps,setOsSteps]=useState<R[]|null>(null),[revisionReason,setRevisionReason]=useState('');
@@ -101,10 +103,13 @@ function PlanEditor({planId,refs,onClose,onReplaced,onLaunched}:{planId:string,r
 
  if(loadError)return <div className="error-panel"><AlertTriangle/><h2>Rascunho indisponível</h2><p>{loadError}</p><Button onClick={onClose}>Voltar</Button></div>;
  if(!plan||!form)return <Skeleton className="h-96 rounded-xl"/>;
+ const free=!!plan.free;
+ // OS sem fluxo: a etapa única acompanha as datas macro (início e fim) da OS.
+ const steps=free?form.steps.map(s=>({...s,start:form.start,end:form.end})):form.steps;
  const org=refs.orgs.find((o:R)=>o.id===form.orgId);
  const people=refs.people.filter((p:R)=>p.org_id===form.orgId&&(p.active||p.id===form.personId));
- const order=layers(form.steps.filter(s=>s.included).map(s=>({key:s.key,dependsOn:s.dependsOn.filter(d=>form.steps.find(x=>x.key===d)?.included)})));
- const reserved=form.steps.reduce((n,s)=>n+(s.included?s.equipmentIds.length:0),0);
+ const order=layers(steps.filter(s=>s.included).map(s=>({key:s.key,dependsOn:s.dependsOn.filter(d=>form.steps.find(x=>x.key===d)?.included)})));
+ const reserved=steps.reduce((n,s)=>n+(s.included?s.equipmentIds.length:0),0);
 
  async function openReview(){if(!form)return;if(saveState!=='saved'&&!(await save(form)))return;try{const v=await load<R>('planning/validate?id='+encodeURIComponent(planId));launchKey.current=crypto.randomUUID();setReview(v)}catch(e){toast.error((e as Error).message)}}
  const revision=!!plan?.work_order_id&&plan.status==='draft';
@@ -119,8 +124,8 @@ function PlanEditor({planId,refs,onClose,onReplaced,onLaunched}:{planId:string,r
   setSuggest(out);
  }
 
- return <div className="plan-editor">
-  <div className="plan-bar"><div><Badge tone={plan.status==='draft'&&!revision?'warning':'info'}>{revision?`Revisão ${plan.revision} · ${osLabel(plan.os_number)}`:plan.status==='draft'?'Rascunho':plan.os_number?osLabel(plan.os_number):plan.status}</Badge><b>{plan.activity_code} · {plan.activity_name}</b><small>Fluxo v{plan.flow_version} · responsável {plan.author_name}</small></div>
+ return <div className="plan-editor"><datalist id="units">{UNITS.map(u=><option key={u} value={u}/>)}</datalist>
+  <div className="plan-bar"><div><Badge tone={plan.status==='draft'&&!revision?'warning':'info'}>{revision?`Revisão ${plan.revision} · ${osLabel(plan.os_number)}`:plan.status==='draft'?'Rascunho':plan.os_number?osLabel(plan.os_number):plan.status}</Badge><b>{free?(form.title||'Atividade sem título'):`${plan.activity_code} · ${plan.activity_name}`}</b><small>{free?'OS sem fluxo':`Fluxo v${plan.flow_version}`} · responsável {plan.author_name}</small></div>
    <div className="plan-bar-actions">{editable&&<SaveBadge state={saveState} at={savedAt} message={saveError}/>}<Button variant="outline" onClick={onClose}>Fechar</Button>{editable&&<Button className="primary-action" onClick={()=>void openReview()} disabled={saveState==='saving'}><Rocket size={16}/> {revision?'Conferir e lançar revisão':'Revisar e lançar OS'}</Button>}</div></div>
   {revision&&editable&&<div className="notice"><Info size={17}/><span>Revisão da {osLabel(plan.os_number)}: a OS segue valendo como está até você lançar a revisão, e as reservas atuais continuam garantidas. Etapas concluídas ou dispensadas não mudam; etapas iniciadas mantêm o início previsto e não saem da OS; etapas não iniciadas retiradas ficam registradas como dispensadas.</span></div>}
   {saveState==='error'&&<div className="form-error" role="alert"><AlertTriangle size={17}/><span>{saveError} <button className="text-action" onClick={()=>form&&void save(form)}>Tentar de novo</button> · <button className="text-action" onClick={()=>void reload()}>Recarregar o rascunho salvo</button></span></div>}
@@ -128,18 +133,18 @@ function PlanEditor({planId,refs,onClose,onReplaced,onLaunched}:{planId:string,r
   <fieldset disabled={!editable} className="plan-fieldset">
   <section className="n-panel plan-section"><div className="panel-heading"><div><h2>Dados da atividade</h2><p>O rascunho pode ficar incompleto; só o lançamento exige tudo preenchido.</p></div></div>
    <div className="form-grid plan-grid">
-    <Field label="Tipo de atividade" hint={revision?'Não muda na revisão: o fluxo da OS é mantido.':'Trocar o tipo substitui etapas, horários e alocações.'}><Choice disabled={revision} value={plan.activity_type_id} onChange={v=>{if(v!==plan.activity_type_id)setChangeType(v)}} options={refs.activityTypes.filter((t:R)=>t.active||t.id===plan.activity_type_id).map((t:R)=>({value:t.id,label:`${t.code} · ${t.name}`}))}/></Field>
+    {free?<Field label="Título da atividade *" wide hint="Aparece na lista de OS, na Operação, no relatório e na planilha."><Input maxLength={160} value={form.title} onChange={e=>update(f=>({...f,title:e.target.value}))} placeholder="Ex.: Remoção de sucata do pátio 3"/></Field>:<Field label="Tipo de atividade" hint={revision?'Não muda na revisão: o fluxo da OS é mantido.':'Trocar o tipo substitui etapas, horários e alocações.'}><Choice disabled={revision} value={plan.activity_type_id} onChange={v=>{if(v!==plan.activity_type_id)setChangeType(v)}} options={refs.activityTypes.filter((t:R)=>(t.active&&!t.system)||t.id===plan.activity_type_id).map((t:R)=>({value:t.id,label:`${t.code} · ${t.name}`}))}/></Field>}
     <Field label="Organização solicitante *" hint={revision?'A organização da OS não muda na revisão.':undefined}><Choice disabled={revision} value={form.orgId} onChange={v=>update(f=>({...f,orgId:v,personId:''}))} options={refs.orgs.filter((o:R)=>o.active||o.id===form.orgId).map((o:R)=>({value:o.id,label:`${o.acronym} · ${o.name}`}))}/></Field>
     <Field label="Pessoa solicitante"><Choice disabled={!form.orgId} value={form.personId||'none'} onChange={v=>update(f=>({...f,personId:v==='none'?'':v}))} options={[{value:'none',label:'Não informada'},...people.map((p:R)=>({value:p.id,label:p.name}))]}/></Field>
     <Field label="Local *"><Choice value={form.locationId} onChange={v=>update(f=>({...f,locationId:v}))} options={refs.locations.filter((l:R)=>l.active||l.id===form.locationId).map((l:R)=>({value:l.id,label:paths.get(l.id)!}))}/></Field>
-    <Field label="Início previsto (Brasília) *"><Input type="datetime-local" value={form.start} onChange={e=>update(f=>({...f,start:e.target.value}))}/></Field>
-    <Field label="Fim previsto (Brasília) *" hint={form.start&&form.end?`Janela de ${hhmm(minutesBetween(toISO(form.start),toISO(form.end)))}`:undefined}><Input type="datetime-local" value={form.end} onChange={e=>update(f=>({...f,end:e.target.value}))}/></Field>
+    <Field label={free?'Início (Brasília) *':'Início previsto (Brasília) *'} hint={free?'Marco de início da OS.':undefined}><Input type="datetime-local" value={form.start} onChange={e=>update(f=>({...f,start:e.target.value}))}/></Field>
+    <Field label={free?'Fim (Brasília) *':'Fim previsto (Brasília) *'} hint={form.start&&form.end?`${free?'Marco de fim · duração':'Janela de'} ${hhmm(minutesBetween(toISO(form.start),toISO(form.end)))}`:undefined}><Input type="datetime-local" value={form.end} onChange={e=>update(f=>({...f,end:e.target.value}))}/></Field>
     <Field label="Descrição" wide><Textarea maxLength={2000} value={form.description} onChange={e=>update(f=>({...f,description:e.target.value}))} placeholder="O que será feito, observações para a operação"/></Field>
     {org&&<div className="n-field"><label>Etiqueta</label><OrgTag org={org}/></div>}
    </div>
   </section>
-  <section className="n-panel plan-section"><div className="panel-heading"><div><h2>Etapas, horários e recursos</h2><p>{order.cyclic.length?'':`${form.steps.filter(s=>s.included).length} etapa(s) incluída(s) · ${reserved} equipamento(s) reservado(s) provisoriamente.`} Etapas sem dependência podem ocorrer em paralelo.</p></div>{editable&&<Button variant="outline" onClick={proposeTimes}><Wand2 size={16}/> Sugerir horários</Button>}</div>
-   <div className="plan-steps">{form.steps.map(s=><StepCard key={s.key} step={s} steps={form.steps} refs={refs} paths={paths} planId={planId} serverStep={plan.steps.find((x:R)=>x.step_key===s.key)} osStatus={osSteps?.find(o=>o.step_key===s.key)?.status} editable={editable} onChange={patch=>setStep(s.key,patch)}/>)}</div>
+  <section className="n-panel plan-section"><div className="panel-heading"><div><h2>{free?'Recursos':'Etapas, horários e recursos'}</h2><p>{free?`A OS sem fluxo tem os marcos Início e Fim, iguais às datas acima; na Operação, registra-se o início e o fim da execução. ${reserved} equipamento(s) reservado(s) provisoriamente.`:<>{order.cyclic.length?'':`${steps.filter(s=>s.included).length} etapa(s) incluída(s) · ${reserved} equipamento(s) reservado(s) provisoriamente.`} Etapas sem dependência podem ocorrer em paralelo.</>}</p></div>{editable&&!free&&<Button variant="outline" onClick={proposeTimes}><Wand2 size={16}/> Sugerir horários</Button>}</div>
+   <div className="plan-steps">{steps.map(s=><StepCard key={s.key} free={free} onRefs={onRefs} step={s} steps={steps} refs={refs} paths={paths} planId={planId} serverStep={plan.steps.find((x:R)=>x.step_key===s.key)} osStatus={osSteps?.find(o=>o.step_key===s.key)?.status} editable={editable} onChange={patch=>setStep(s.key,patch)}/>)}</div>
   </section>
   </fieldset>
   {editable&&<div className="plan-footer"><button className="text-action danger-text" onClick={()=>setConfirmDiscard(true)}><Trash2 size={14} className="inline"/> {revision?'Descartar revisão':'Descartar rascunho'}</button><Button variant="outline" onClick={()=>void save(form)} disabled={saveState==='saving'}>Salvar agora</Button></div>}
@@ -150,10 +155,10 @@ function PlanEditor({planId,refs,onClose,onReplaced,onLaunched}:{planId:string,r
    <ul className="suggest-list">{suggest?.filter(s=>s.included).map(s=><li key={s.key}><b>{s.name}</b><span>{s.start.replace('T',' ')} → {s.end.replace('T',' ')}</span></li>)}</ul>
    <div className="modal-footer"><Button variant="outline" onClick={()=>setSuggest(null)}>Cancelar</Button><Button className="primary-action" onClick={()=>{const s=suggest!;update(f=>({...f,steps:f.steps.map(x=>{const n=s.find(y=>y.key===x.key)!;return x.included?{...x,start:n.start,end:n.end}:x})}));setSuggest(null)}}>Aplicar horários</Button></div>
   </DialogContent></Dialog>
-  <Dialog open={!!review} onOpenChange={v=>{if(!launching&&!v)setReview(null)}}><DialogContent className="n-dialog n-dialog-wide"><DialogHeader><div className="modal-eyebrow"><Rocket size={16}/> {revision?`REVISÃO ${plan.revision} · ${osLabel(plan.os_number)}`:'REVISAR E LANÇAR'}</div><DialogTitle>{plan.activity_name}{org?` · ${org.acronym}`:''}</DialogTitle><DialogDescription>{revision?'O lançamento troca, de uma vez, o planejamento e as reservas da OS pelos desta revisão. O número da OS, a execução registrada e os apontamentos são mantidos; a versão anterior fica no histórico.':'Você mesmo revisa e lança; não há aprovação de terceiro. O lançamento cria o número da OS, congela este planejamento, confirma as reservas e publica a OS na Operação.'}</DialogDescription></DialogHeader>
+  <Dialog open={!!review} onOpenChange={v=>{if(!launching&&!v)setReview(null)}}><DialogContent className="n-dialog n-dialog-wide"><DialogHeader><div className="modal-eyebrow"><Rocket size={16}/> {revision?`REVISÃO ${plan.revision} · ${osLabel(plan.os_number)}`:'REVISAR E LANÇAR'}</div><DialogTitle>{free?(form.title||'Atividade sem título'):plan.activity_name}{org?` · ${org.acronym}`:''}</DialogTitle><DialogDescription>{revision?'O lançamento troca, de uma vez, o planejamento e as reservas da OS pelos desta revisão. O número da OS, a execução registrada e os apontamentos são mantidos; a versão anterior fica no histórico.':'Você mesmo revisa e lança; não há aprovação de terceiro. O lançamento cria o número da OS, congela este planejamento, confirma as reservas e publica a OS na Operação.'}</DialogDescription></DialogHeader>
    {review&&<div className="review">
     <div className="review-grid"><div><small>Solicitante</small><OrgTag org={org}/></div><div><small>Local</small><b>{paths.get(form.locationId)||'—'}</b></div><div><small>Janela prevista</small><b>{range(toISO(form.start),toISO(form.end))}</b></div></div>
-    <ol className="review-steps">{form.steps.filter(s=>s.included).map(s=><li key={s.key}><b>{s.name}</b><span>{range(toISO(s.start),toISO(s.end))}</span><small>{[...s.equipmentIds.map(e=>refs.equipment.find((x:R)=>x.id===e)?.tag),...s.operatorIds.map(o=>refs.operators.find((x:R)=>x.id===o)?.name)].filter(Boolean).join(' · ')||'Sem recursos identificados'}</small></li>)}</ol>
+    <ol className="review-steps">{steps.filter(s=>s.included).map(s=><li key={s.key}><b>{free?'Início → Fim':s.name}</b><span>{range(toISO(s.start),toISO(s.end))}</span><small>{[...s.equipmentIds.map(e=>refs.equipment.find((x:R)=>x.id===e)?.tag),...s.operatorIds.map(o=>refs.operators.find((x:R)=>x.id===o)?.name)].filter(Boolean).join(' · ')||'Sem recursos identificados'}</small>{s.needs.length>0&&<small>Necessidades: {s.needs.map(n=>needLabel(n,refs)).join(' · ')}</small>}</li>)}</ol>
     {revision&&<div className="revision-changes"><b>O que muda</b>{review.changes?.length?<ul>{review.changes.map((c:string,i:number)=><li key={i}>{c}</li>)}</ul>:<p>Nenhuma diferença em relação à versão vigente.</p>}</div>}
     {review.errors.length?<div className="form-error"><AlertTriangle size={17}/><div><b>{review.errors.length} pendência(s) impedem o lançamento</b><ul>{review.errors.map((e:R,i:number)=><li key={i}>{e.message}</li>)}</ul></div></div>:<div className="notice"><CheckCircle2 size={17}/><span>Sem pendências. Pronto para lançar.</span></div>}
     {review.warnings.length>0&&<div className="notice warn"><Info size={17}/><div><b>Avisos</b><ul>{review.warnings.map((e:R,i:number)=><li key={i}>{e.message}</li>)}</ul></div></div>}
@@ -164,7 +169,15 @@ function PlanEditor({planId,refs,onClose,onReplaced,onLaunched}:{planId:string,r
  </div>;
 }
 
-function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,editable:canEdit,onChange}:{step:Step,steps:Step[],refs:R,paths:Map<string,string>,planId:string,serverStep:R,osStatus?:string,editable:boolean,onChange:(p:Partial<Step>)=>void}){
+/** Necessidade legível: “2× Empilhadeira”, “3× Operador”, “12,5 L Óleo hidráulico”. */
+export function needLabel(n:R,refs:R){
+ const name=(list:string,id:string|null)=>(refs[list] as R[]|undefined)?.find(x=>x.id===id)?.name||'—';
+ const material=n.materialId??n.material_id,type=n.equipmentTypeId??n.equipment_type_id,fn=n.functionId??n.function_id;
+ if(material)return `${Number(n.amount).toLocaleString('pt-BR',{maximumFractionDigits:3})} ${n.unit} ${name('materials',material)}`;
+ return `${n.quantity}× ${type?name('equipmentTypes',type):name('functions',fn)}`;
+}
+
+function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false,onRefs,editable:canEdit,onChange}:{step:Step,steps:Step[],refs:R,paths:Map<string,string>,planId:string,serverStep:R,osStatus?:string,free?:boolean,onRefs:()=>Promise<void>,editable:boolean,onChange:(p:Partial<Step>)=>void}){
  // Revisão de OS: etapa concluída/dispensada não muda; etapa iniciada mantém início e não sai da OS.
  const frozen=osStatus==='concluida'||osStatus==='dispensada',started=!!osStatus&&osStatus!=='nao_iniciada'&&!frozen;
  const editable=canEdit&&!frozen;
@@ -180,13 +193,15 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,editable:c
  const name=(list:string,id:string|null)=>(refs[list] as R[]).find(x=>x.id===id)?.name||'—';
  const dur=minutesBetween(startISO,endISO);
  return <article className={`step-card ${s.included?'':'excluded'}`}>
-  <header><div><b>{s.name}</b>{!s.required&&<Badge>Opcional</Badge>}{osStatus&&osStatus!=='nao_iniciada'&&<Badge tone={frozen?'muted':'success'}>{osStepNames[osStatus]}{frozen?' · não muda':''}</Badge>}{deps.length>0&&<small>Após: {deps.map(d=>d.name+(d.included?'':' (não incluída — ignorada)')).join(', ')}</small>}{s.defaultMinutes!=null&&<small><Clock size={12} className="inline"/> Duração padrão {hhmm(s.defaultMinutes)}</small>}</div>
+  <header><div><b>{free?'Início → Fim da OS':s.name}</b>{!s.required&&<Badge>Opcional</Badge>}{osStatus&&osStatus!=='nao_iniciada'&&<Badge tone={frozen?'muted':'success'}>{osStepNames[osStatus]}{frozen?' · não muda':''}</Badge>}{deps.length>0&&<small>Após: {deps.map(d=>d.name+(d.included?'':' (não incluída — ignorada)')).join(', ')}</small>}{s.defaultMinutes!=null&&<small><Clock size={12} className="inline"/> Duração padrão {hhmm(s.defaultMinutes)}</small>}</div>
    {!s.required&&!frozen&&!started&&<Toggle title="Incluir etapa" checked={s.included} onChange={v=>onChange({included:v})}/>}</header>
   {s.included&&<fieldset disabled={frozen} className="plan-fieldset"><div className="form-grid">
+   {free?<div className="n-field wide"><label>Marcos</label><small>Início {s.start?s.start.replace('T',' '):'—'} · Fim {s.end?s.end.replace('T',' '):'—'}{dur!=null&&dur>0?` · duração ${hhmm(dur)}`:''}. Ajuste nas datas da atividade, acima.</small></div>:<>
    <Field label="Início (Brasília)" hint={started?'Etapa iniciada: o início previsto é a referência do desvio e não muda.':undefined}><Input type="datetime-local" disabled={started} value={s.start} onChange={e=>onChange({start:e.target.value})}/></Field>
-   <Field label="Fim (Brasília)" hint={dur!=null?(dur>0?`Duração ${hhmm(dur)}`:'O fim deve ser depois do início'):undefined}><Input type="datetime-local" value={s.end} onChange={e=>onChange({end:e.target.value})}/></Field>
+   <Field label="Fim (Brasília)" hint={dur!=null?(dur>0?`Duração ${hhmm(dur)}`:'O fim deve ser depois do início'):undefined}><Input type="datetime-local" value={s.end} onChange={e=>onChange({end:e.target.value})}/></Field></>}
    <Field label="Local específico da etapa"><Choice value={s.locationId||'none'} onChange={v=>onChange({locationId:v==='none'?'':v})} options={[{value:'none',label:'Mesmo local da atividade'},...(refs.locations as R[]).filter(l=>l.active||l.id===s.locationId).map(l=>({value:l.id,label:paths.get(l.id)!}))]}/></Field>
-   <div className="n-field"><label>Necessidades</label><div className="need-chips">{s.needs.length?s.needs.map((n,i)=><span key={i} className="need-chip">{n.equipmentTypeId?<Truck size={13}/>:<Users size={13}/>}<input type="number" min={1} max={99} aria-label="Quantidade" value={n.quantity} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,quantity:Math.max(1,Number(e.target.value)||1)}:x)})}/>× {n.equipmentTypeId?name('equipmentTypes',n.equipmentTypeId):name('functions',n.functionId)}<button type="button" aria-label="Remover necessidade" onClick={()=>onChange({needs:s.needs.filter((_,j)=>j!==i)})}><X size={12}/></button></span>):<small>Sem necessidades padrão.</small>}</div></div>
+   <div className="n-field wide"><label>Necessidades de recursos</label><div className="need-chips">{s.needs.length?s.needs.map((n,i)=><span key={i} className="need-chip">{n.materialId?<Package size={13}/>:n.equipmentTypeId?<Truck size={13}/>:<Users size={13}/>}{n.materialId?<><input type="number" min={0.001} step="any" aria-label="Quantidade" className="amount" value={n.amount??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,amount:Number(e.target.value)||0}:x)})}/><input aria-label="Unidade de medida" className="unit" maxLength={12} list="units" value={n.unit??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,unit:e.target.value}:x)})}/>{name('materials',n.materialId)}</>:<><input type="number" min={1} max={99} aria-label="Quantidade" value={n.quantity??1} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,quantity:Math.min(99,Math.max(1,Number(e.target.value)||1))}:x)})}/>× {n.equipmentTypeId?name('equipmentTypes',n.equipmentTypeId):name('functions',n.functionId)}</>}<button type="button" aria-label="Remover necessidade" onClick={()=>onChange({needs:s.needs.filter((_,j)=>j!==i)})}><X size={12}/></button></span>):<small>Nenhuma necessidade informada.</small>}</div>
+    {editable&&<NeedAdder refs={refs} needs={s.needs} onRefs={onRefs} onAdd={n=>onChange({needs:[...s.needs,n]})}/>}</div>
    <fieldset className="n-field wide"><legend>Equipamentos identificados {typeNeeds.length>0&&<small>({typeNeeds.map(n=>`${n.quantity}× ${name('equipmentTypes',n.equipmentTypeId)}`).join(', ')})</small>}</legend>
     {!valid?<small className="pending-text">Informe início e fim da etapa para consultar a agenda e reservar equipamentos.</small>:<div className="resource-list">{equipment.map(e=>{const a=avail[e.id];const chosen=s.equipmentIds.includes(e.id);const blocked=a&&a.status!=='livre'&&!chosen;return <label key={e.id} className={`resource ${a?.status||''} ${chosen?'chosen':''}`}><Checkbox checked={chosen} disabled={!!blocked} onCheckedChange={v=>onChange({equipmentIds:v?[...s.equipmentIds,e.id]:s.equipmentIds.filter(x=>x!==e.id)})}/><span><b>{e.tag}</b><small>{name('equipmentTypes',e.type_id)}{e.capacity?` · ${e.capacity}`:''}</small>{a&&a.status!=='livre'&&<em>{a.detail}</em>}</span><Badge tone={!a?'muted':a.status==='livre'?'success':a.status==='bloqueado'?'danger':'warning'}>{!a?(editable?'Consultando…':chosen?'Reservado aqui':'—'):a.status==='livre'?'Livre':a.status==='bloqueado'?'Bloqueado':chosen?'Reservado aqui':'Reservado'}</Badge></label>})}{neededTypes.length>0&&<button type="button" className="text-action" onClick={()=>setShowAll(v=>!v)}>{showAll?'Mostrar só os tipos necessários':'Mostrar todos os equipamentos'}</button>}</div>}
     {valid&&<small>A reserva provisória começa quando o rascunho é salvo; antes disso, a seleção não garante exclusividade.</small>}
@@ -196,6 +211,39 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,editable:c
    </fieldset>
   </div></fieldset>}
  </article>;
+}
+
+const KINDS:[string,string,string][]=[['equipment_type','Equipamento (tipo)','equipmentTypes'],['function','Função','functions'],['material','Material','materials']];
+/** Adiciona uma necessidade (tipo de equipamento, função ou material). Se o recurso não existe,
+ * é cadastrado na hora (o servidor devolve o cadastro existente quando o nome já existe). */
+function NeedAdder({refs,needs,onRefs,onAdd}:{refs:R,needs:Need[],onRefs:()=>Promise<void>,onAdd:(n:Need)=>void}){
+ const [open,setOpen]=useState(false),[kind,setKind]=useState('equipment_type'),[item,setItem]=useState(''),[qty,setQty]=useState('1'),[unit,setUnit]=useState(''),[name,setName]=useState(''),[busy,setBusy]=useState(false);
+ const list=KINDS.find(k=>k[0]===kind)![2];
+ const taken=(id:string)=>needs.some(n=>(kind==='material'?n.materialId:kind==='function'?n.functionId:n.equipmentTypeId)===id);
+ const options=(refs[list] as R[]||[]).filter(x=>x.active&&!taken(x.id));
+ const creating=item==='__new';
+ const reset=()=>{setItem('');setQty('1');setUnit('');setName('')};
+ async function add(){
+  setBusy(true);
+  try{
+   let id=item,u=unit;
+   if(creating){const r=await post('planning/resource',{kind,name,unit:kind==='material'?unit:undefined});toast.success(r.message);await onRefs();id=r.id;u=unit||r.unit||'';}
+   if(!id)return;
+   if(kind==='material'){const amount=Number(String(qty).replace(',','.'));if(!(amount>0)){toast.error('Informe a quantidade do material.');return}if(!u.trim()){toast.error('Informe a unidade de medida.');return}onAdd({equipmentTypeId:null,functionId:null,materialId:id,quantity:null,amount,unit:u.trim()})}
+   else{const q=Math.min(99,Math.max(1,Math.round(Number(qty))||1));onAdd({equipmentTypeId:kind==='equipment_type'?id:null,functionId:kind==='function'?id:null,materialId:null,quantity:q,amount:null,unit:null})}
+   reset();setOpen(false);
+  }catch(e){toast.error((e as Error).message)}finally{setBusy(false)}
+ }
+ if(!open)return <button type="button" className="text-action" onClick={()=>setOpen(true)}><PackagePlus size={14} className="inline"/> Adicionar recurso</button>;
+ return <div className="need-adder">
+  <Choice label="Tipo de recurso" value={kind} onChange={v=>{setKind(v);reset()}} options={KINDS.map(([value,label])=>({value,label}))}/>
+  <Choice label="Recurso" value={item} onChange={v=>{setItem(v);if(kind==='material'&&v!=='__new')setUnit((refs.materials as R[]).find(m=>m.id===v)?.unit||'')}} placeholder="Escolha" options={[...options.map(x=>({value:x.id,label:kind==='material'?`${x.name} (${x.unit})`:x.name})),{value:'__new',label:'+ Cadastrar novo…'}]}/>
+  {creating&&<Input aria-label="Nome do novo recurso" maxLength={100} placeholder={kind==='material'?'Nome do material':kind==='function'?'Nome da função':'Nome do tipo de equipamento'} value={name} onChange={e=>setName(e.target.value)}/>}
+  <Input aria-label="Quantidade" className="qty" inputMode="decimal" value={qty} onChange={e=>setQty(e.target.value)}/>
+  {kind==='material'?<Input aria-label="Unidade de medida" className="unit" list="units" maxLength={12} placeholder="un" value={unit} onChange={e=>setUnit(e.target.value)}/>:<span className="unit-fixed">{kind==='function'?'pessoa(s)':'equipamento(s)'}</span>}
+  <Button type="button" size="sm" disabled={busy||!item||(creating&&!name.trim())} onClick={()=>void add()}>{busy?<LoaderCircle size={14} className="animate-spin"/>:<Plus size={14}/>} {creating?'Cadastrar e adicionar':'Adicionar'}</Button>
+  <button type="button" className="text-action" onClick={()=>{reset();setOpen(false)}}>Cancelar</button>
+ </div>;
 }
 
 /* ───────────────────────── Lista de OS (Planejamento) ───────────────────────── */
@@ -244,7 +292,7 @@ export function Orders({refreshKey,onExec,onRevise}:{refreshKey:number,onExec:(i
   </>}
   </section>
 
-  <Dialog open={!!detail} onOpenChange={v=>{if(!busy&&!v){setDetail(null);setCancel('')}}}><DialogContent className="n-dialog n-dialog-wide">{detail&&<><DialogHeader><div className="modal-eyebrow"><ClipboardList size={16}/> {osLabel(detail.order.number)} · PLANEJAMENTO</div><DialogTitle>{detail.plan.activity_name}</DialogTitle><DialogDescription>Lançada por {detail.order.launched_by_name} em {fmt(detail.order.launched_at)} · fluxo {detail.plan.activity_code} v{detail.plan.flow_version}{detail.order.revision?` · revisão ${detail.order.revision}`:''}</DialogDescription></DialogHeader>
+  <Dialog open={!!detail} onOpenChange={v=>{if(!busy&&!v){setDetail(null);setCancel('')}}}><DialogContent className="n-dialog n-dialog-wide">{detail&&<><DialogHeader><div className="modal-eyebrow"><ClipboardList size={16}/> {osLabel(detail.order.number)} · PLANEJAMENTO</div><DialogTitle>{detail.plan.activity_name}</DialogTitle><DialogDescription>Lançada por {detail.order.launched_by_name} em {fmt(detail.order.launched_at)} · {detail.plan.free?'OS sem fluxo':`fluxo ${detail.plan.activity_code} v${detail.plan.flow_version}`}{detail.order.revision?` · revisão ${detail.order.revision}`:''}</DialogDescription></DialogHeader>
    <OrderSummary detail={detail} refs={refs} paths={paths} status={status}/>
    <div className="access-actions"><Button variant="outline" onClick={()=>{const id=detail.order.id;setDetail(null);onExec(id)}}>Abrir em Apontamentos</Button>{refs.canPlan&&['programada','em_andamento'].includes(detail.order.status)&&<Button variant="outline" onClick={()=>{const id=detail.order.id;setDetail(null);void startRevision(id,onRevise)}}><History size={15}/> Revisar OS</Button>}</div>
    {refs.canPlan&&detail.order.status==='programada'&&<form onSubmit={doCancel} className="cancel-box"><Field label="Cancelar OS · motivo" wide hint="Libera as reservas. A OS continua consultável como cancelada."><Textarea required maxLength={1200} value={cancel} onChange={e=>setCancel(e.target.value)}/></Field><Button type="submit" variant="outline" disabled={busy||!cancel.trim()}>Cancelar OS</Button></form>}
@@ -261,6 +309,6 @@ function OrderSummary({detail,refs,paths,status}:{detail:R,refs:R,paths:Map<stri
   {plan.description&&<p className="flow-description">{plan.description}</p>}
   {order.cancel_reason&&<div className="notice warn"><Info size={17}/><span>Cancelada: {order.cancel_reason}</span></div>}
   {detail.revisions?.length>1&&<div className="revision-history"><b>Histórico de versões</b><ol>{(detail.revisions as R[]).map(r=><li key={r.id}><Badge tone={r.status==='launched'?'info':'muted'}>{r.revision?`Revisão ${r.revision}`:'Original'}</Badge><span>{fmt(r.launched_at)}{r.launched_by_name?` · ${r.launched_by_name}`:''}</span>{r.revision_reason&&<small>{r.revision_reason}</small>}</li>)}</ol></div>}
-  <ol className="review-steps">{plan.steps.filter((s:R)=>s.included).map((s:R)=><li key={s.id}><b>{s.name}</b><span>{range(s.planned_start,s.planned_end)}{s.location_id?` · ${paths.get(s.location_id)}`:''}</span><small>{s.equipment_ids.map((e:string)=>{const blocked=impediments.find((i:R)=>i.equipment_id===e);return (name('equipment',e)?.tag||'')+(blocked?` (bloqueado: ${blocked.reason})`:'')}).join(' · ')}{s.equipment_ids.length&&s.operator_ids.length?' · ':''}{s.operator_ids.map((o:string)=>name('operators',o)?.name).join(' · ')}</small></li>)}</ol>
+  <ol className="review-steps">{plan.steps.filter((s:R)=>s.included).map((s:R)=><li key={s.id}><b>{s.name}</b><span>{range(s.planned_start,s.planned_end)}{s.location_id?` · ${paths.get(s.location_id)}`:''}</span><small>{s.equipment_ids.map((e:string)=>{const blocked=impediments.find((i:R)=>i.equipment_id===e);return (name('equipment',e)?.tag||'')+(blocked?` (bloqueado: ${blocked.reason})`:'')}).join(' · ')}{s.equipment_ids.length&&s.operator_ids.length?' · ':''}{s.operator_ids.map((o:string)=>name('operators',o)?.name).join(' · ')}</small>{s.needs.length>0&&<small>Necessidades: {s.needs.map((n:R)=>needLabel(n,refs)).join(' · ')}</small>}</li>)}</ol>
  </div>;
 }

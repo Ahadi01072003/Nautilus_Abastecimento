@@ -52,7 +52,7 @@ export async function orderWorkbook(member:Member,id:string){
  const sheets:Sheet[]=[
   {name:'Resumo',columns:['Campo','Valor'],rows:[
    ['OS',osNumber(order.number)],['Atividade',`${order.activity_code} · ${order.activity_name}`],['Situação',ORDER_STATUS[order.status]],['Solicitante',org?`${org.acronym} · ${org.name}`:''],
-   ['Pessoa solicitante',r.requester||''],['Local',r.location||''],['Fluxo',`${plan.activity_code} v${plan.flow_version}`],['Revisão do planejamento',order.revision?`${order.revision}${plan.revision_reason?' · '+plan.revision_reason:''}`:'Original'],['Início planejado',d(order.planned_start)],['Fim planejado',d(order.planned_end)],
+   ['Pessoa solicitante',r.requester||''],['Local',r.location||''],['Fluxo',plan.free?'Sem fluxo':`${plan.activity_code} v${plan.flow_version}`],['Revisão do planejamento',order.revision?`${order.revision}${plan.revision_reason?' · '+plan.revision_reason:''}`:'Original'],['Início planejado',d(order.planned_start)],['Fim planejado',d(order.planned_end)],
    ['Início real',d(order.actual_start)],['Fim real',d(order.actual_end)],['Encerramento administrativo',d(order.closed_at)],['Tempo efetivo (min)',minutes(r.effective)],
    ['Etapas concluídas',`${steps.filter(s=>['concluida','dispensada'].includes(s.status)).length} de ${steps.length}`],['Apontamentos',(data.occurrences as Row[]).length],['Emitido em',d(r.now)],['Emitido por',member.name],
   ]},

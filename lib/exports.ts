@@ -52,7 +52,7 @@ export const DATASETS:Record<string,Def>={
  os:{label:'OS',group:'operacao',
   from:`FROM work_orders w JOIN activity_types t ON t.id=w.activity_type_id JOIN requester_orgs o ON o.id=w.org_id LEFT JOIN locations l ON l.id=w.location_id
    LEFT JOIN plans p ON p.id=w.current_plan_id LEFT JOIN requester_people rp ON rp.id=p.requester_person_id`,order:'w.planned_start,w.number',
-  select:`w.*,t.code activity_code,t.name activity_name,o.acronym org_acronym,o.name org_name,l.name location_name,rp.name requester_name,p.description,
+  select:`w.*,t.code activity_code,coalesce(nullif(w.title,''),t.name) activity_name,o.acronym org_acronym,o.name org_name,l.name location_name,rp.name requester_name,p.description,
    (SELECT count(*) FROM os_steps s WHERE s.work_order_id=w.id)::int steps_total,(SELECT count(*) FROM os_steps s WHERE s.work_order_id=w.id AND s.status IN ('concluida','dispensada'))::int steps_done,
    (SELECT count(*) FROM occurrences x WHERE x.work_order_id=w.id)::int occurrences,(SELECT count(*) FROM occurrences x WHERE x.work_order_id=w.id AND x.blocking=1 AND x.status='aberto')::int open_blocks,
    (SELECT coalesce(sum(extract(epoch FROM (coalesce(i.end_at::timestamptz,now())-i.start_at::timestamptz))),0) FROM step_intervals i JOIN os_steps s ON s.id=i.os_step_id WHERE s.work_order_id=w.id AND i.kind='interrompido')::float8 stopped_s`,
@@ -60,7 +60,7 @@ export const DATASETS:Record<string,Def>={
   columns:['OS','Atividade (código)','Atividade','Situação','Solicitante (sigla)','Solicitante','Pessoa solicitante','Local','Descrição','Início planejado','Fim planejado','Início real','Fim real','Encerramento','Tempo efetivo (min)','Tempo parado (min)','Etapas concluídas','Etapas','Apontamentos','Bloqueios abertos','Lançada por','Lançada em','Motivo do cancelamento','ID'],
   map:r=>[osNumber(r.number),r.activity_code,r.activity_name,ORDER[r.status],r.org_acronym,r.org_name,r.requester_name,r.location_name,r.description,d(r.planned_start),d(r.planned_end),d(r.actual_start),d(r.actual_end),d(r.closed_at),min(r.effective_s),min(r.stopped_s),r.steps_done,r.steps_total,r.occurrences,r.open_blocks,r.launched_by_name,d(r.launched_at),r.cancel_reason,r.id]},
  etapas:{label:'Etapas',group:'operacao',from:`FROM os_steps s JOIN plan_steps p ON p.id=s.plan_step_id ${OS_JOIN}s.work_order_id JOIN activity_types t ON t.id=w.activity_type_id`,order:'w.number,p.position',
-  select:`s.*,p.name,p.position,p.planned_start,p.planned_end,w.number,t.name activity_name,
+  select:`s.*,p.name,p.position,p.planned_start,p.planned_end,w.number,coalesce(nullif(w.title,''),t.name) activity_name,
    (SELECT coalesce(sum(extract(epoch FROM (coalesce(i.end_at::timestamptz,now())-i.start_at::timestamptz))),0) FROM step_intervals i WHERE i.os_step_id=s.id AND i.kind='ativo')::float8 active_s,
    (SELECT coalesce(sum(extract(epoch FROM (coalesce(i.end_at::timestamptz,now())-i.start_at::timestamptz))),0) FROM step_intervals i WHERE i.os_step_id=s.id AND i.kind='interrompido')::float8 stopped_s,
    extract(epoch FROM (s.actual_start::timestamptz-p.planned_start::timestamptz))::float8 start_dev_s,extract(epoch FROM (s.actual_end::timestamptz-p.planned_end::timestamptz))::float8 end_dev_s`,

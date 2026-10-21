@@ -50,7 +50,7 @@ Além do perfil, o gestor pode dar **acessos adicionais** acumuláveis:
 - *Planejamento*.
 - *Operação*: executa as etapas das OS.
 - *Acompanhamento de OS*.
-- *Liberação técnica*.
+- *Manutenção*: módulo de manutenção (critérios, preventivas, corretivas, leituras) e liberação técnica.
 
 Clientes usam o perfil *Sem acesso ao abastecimento* com *Organizações visíveis* marcadas: eles veem só as OS da sua organização.
 

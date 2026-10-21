@@ -322,3 +322,11 @@ body{font-family:var(--f-body)}
 .revision-history li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:.82rem;color:var(--ink)}
 .revision-history li span{font-family:var(--f-mono);font-variant-numeric:tabular-nums;color:var(--ink-2)}
 .revision-history li small{flex-basis:100%;color:var(--muted-c)}
+
+/* ---------- planejamento: recursos (materiais e cadastro na hora) ---------- */
+.need-chip input.amount{width:72px}.need-chip input.unit{width:52px}
+.need-adder{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;padding:10px;border:1px dashed var(--line);border-radius:6px;background:var(--card)}
+.need-adder .choice{min-width:170px}.need-adder input{width:auto;min-width:0}
+.need-adder input.qty{width:90px}.need-adder input.unit{width:80px}
+.need-adder .unit-fixed{font-size:.78rem;color:var(--muted-c)}
+@media(max-width:640px){.need-adder>*{flex:1 1 100%}.need-adder input.qty,.need-adder input.unit{width:100%}}
