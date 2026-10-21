@@ -28,7 +28,7 @@ async function versionSteps(versionIds:string[]){
 export async function flowsState(member:Member){
  await requireCapability(member,'planejamento');
  const [types,versions,equipmentTypes,functions]=await Promise.all([
-  all('SELECT * FROM activity_types ORDER BY name'),
+  all('SELECT * FROM activity_types WHERE system=0 ORDER BY name'),
   all('SELECT id,activity_type_id,version,name,description,notes,created_at,created_by_name FROM flow_versions ORDER BY version DESC'),
   all('SELECT id,name,active FROM equipment_types ORDER BY name'),
   all('SELECT id,name,active FROM job_functions ORDER BY name'),
@@ -116,7 +116,7 @@ export async function flowsMutate(path:string,b:Row,member:Member){
  const t=now();
 
  if(path==='flows/save'){
-  const old=b.id?await first('SELECT * FROM activity_types WHERE id=?',idOf(b.id,'Tipo de atividade')):null;
+  const old=b.id?await first('SELECT * FROM activity_types WHERE id=? AND system=0',idOf(b.id,'Tipo de atividade')):null;
   if(b.id&&!old)throw new AppError('Tipo de atividade não encontrado.',404);
   const name=required(b.name,'Nome',120),description=text(b.description,1000),notes=text(b.notes,500);
   const steps=normalizeSteps(b.steps);
@@ -130,6 +130,7 @@ export async function flowsMutate(path:string,b:Row,member:Member){
   await checkNeeds(steps,previous);
   const code=old?.code||required(b.code,'Código',20).toUpperCase();
   if(!CODE.test(code))throw new AppError('Código deve ter de 2 a 20 letras, números, ponto, hífen ou sublinhado.');
+  if(code.startsWith('SYS.'))throw new AppError('Códigos iniciados por SYS. são reservados ao sistema.');
   const tid=old?.id||id(),version=(old?.current_version||0)+1;
   await db().tx(async tx=>{
    if(old){
@@ -143,10 +144,11 @@ export async function flowsMutate(path:string,b:Row,member:Member){
  }
 
  if(path==='flows/duplicate'){
-  const source=await first('SELECT * FROM activity_types WHERE id=?',idOf(b.id,'Tipo de atividade'));
+  const source=await first('SELECT * FROM activity_types WHERE id=? AND system=0',idOf(b.id,'Tipo de atividade'));
   if(!source)throw new AppError('Tipo de atividade não encontrado.',404);
   const code=required(b.code,'Código',20).toUpperCase(),name=required(b.name,'Nome',120);
   if(!CODE.test(code))throw new AppError('Código deve ter de 2 a 20 letras, números, ponto, hífen ou sublinhado.');
+  if(code.startsWith('SYS.'))throw new AppError('Códigos iniciados por SYS. são reservados ao sistema.');
   const v=await first('SELECT * FROM flow_versions WHERE activity_type_id=? AND version=?',source.id,source.current_version);
   const steps=asSteps(await versionSteps([v!.id]));
   await checkNeeds(steps);
@@ -160,7 +162,7 @@ export async function flowsMutate(path:string,b:Row,member:Member){
  }
 
  if(path==='flows/status'){
-  const old=await first('SELECT * FROM activity_types WHERE id=?',idOf(b.id,'Tipo de atividade'));
+  const old=await first('SELECT * FROM activity_types WHERE id=? AND system=0',idOf(b.id,'Tipo de atividade'));
   if(!old)throw new AppError('Tipo de atividade não encontrado.',404);
   if(b.updatedAt!==old.updated_at)throw new AppError('Este fluxo foi alterado por outra pessoa. Atualize a tela.',409);
   const active=b.active===false?0:1;

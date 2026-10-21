@@ -45,13 +45,13 @@ export async function opsBoard(member:Member,url:URL){
  if(q){
   const digits=q.replace(/\D/g,''),n=digits.length<=9?Number(digits):0;
   const like=`%${q.replace(/[\\%_]/g,m=>'\\'+m)}%`;
-  where.push(`(lower(t.name) LIKE ? OR lower(t.code) LIKE ? OR lower(o.name) LIKE ? OR lower(o.acronym) LIKE ?${n?' OR w.number=?':''})`);
+  where.push(`(lower(coalesce(nullif(w.title,''),t.name)) LIKE ? OR lower(t.code) LIKE ? OR lower(o.name) LIKE ? OR lower(o.acronym) LIKE ?${n?' OR w.number=?':''})`);
   values.push(like,like,like,like,...(n?[n]:[]));
  }
  const base=`FROM work_orders w JOIN activity_types t ON t.id=w.activity_type_id JOIN requester_orgs o ON o.id=w.org_id LEFT JOIN locations l ON l.id=w.location_id`;
  const filter=where.length?' AND '+where.join(' AND '):'';
  const [rows,counts]=await Promise.all([
-  db().all(`SELECT w.id,w.number,w.status,w.org_id,w.planned_start,w.planned_end,w.actual_start,w.actual_end,w.closed_at,t.code activity_code,t.name activity_name,
+  db().all(`SELECT w.id,w.number,w.status,w.org_id,w.planned_start,w.planned_end,w.actual_start,w.actual_end,w.closed_at,t.code activity_code,coalesce(nullif(w.title,''),t.name) activity_name,
    o.acronym org_acronym,o.name org_name,o.color org_color,l.name location_name ${base}
    WHERE ${GROUPS[group]}${filter}
    ORDER BY CASE w.status WHEN 'em_andamento' THEN 0 WHEN 'encerramento_pendente' THEN 1 WHEN 'programada' THEN 2 WHEN 'concluida' THEN 3 ELSE 4 END,

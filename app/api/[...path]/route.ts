@@ -5,6 +5,8 @@ import {exportData,exportPreview} from '@/lib/exports';
 import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {revisionMutate} from '@/lib/revision';
+import {centralState} from '@/lib/central';
+import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
@@ -31,7 +33,7 @@ function error(e:unknown){
   if(pg.constraint_name==='equipment_tag_key')return json({error:'Já existe um equipamento com esta TAG.'},409);
   if(pg.constraint_name==='fuels_name_key')return json({error:'Já existe um combustível com este nome.'},409);
   if(pg.constraint_name==='members_username_key')return json({error:'Este usuário já está em uso. Escolha outro.'},409);
-  const unique:Record<string,string>={requester_orgs_name_key:'Já existe uma organização com este nome.',requester_orgs_acronym_key:'Já existe uma organização com esta sigla.',locations_name_key:'Já existe um local com este nome no mesmo nível.',equipment_types_name_key:'Já existe um tipo de equipamento com este nome.',job_functions_name_key:'Já existe uma função com este nome.',occurrence_categories_name_key:'Já existe uma categoria com este nome neste tipo.',activity_types_code_key:'Já existe um tipo de atividade com este código.',activity_types_name_key:'Já existe um tipo de atividade com este nome.',checklist_templates_code_key:'Já existe um checklist com este código.',operators_member_key:'Este usuário já está vinculado a outro colaborador.',plans_one_revision_draft:'Esta OS já tem uma revisão em rascunho. Atualize a tela.'};
+  const unique:Record<string,string>={requester_orgs_name_key:'Já existe uma organização com este nome.',requester_orgs_acronym_key:'Já existe uma organização com esta sigla.',locations_name_key:'Já existe um local com este nome no mesmo nível.',equipment_types_name_key:'Já existe um tipo de equipamento com este nome.',job_functions_name_key:'Já existe uma função com este nome.',occurrence_categories_name_key:'Já existe uma categoria com este nome neste tipo.',activity_types_code_key:'Já existe um tipo de atividade com este código.',activity_types_name_key:'Já existe um tipo de atividade com este nome.',checklist_templates_code_key:'Já existe um checklist com este código.',operators_member_key:'Este usuário já está vinculado a outro colaborador.',materials_name_key:'Já existe um material com este nome.',plans_one_revision_draft:'Esta OS já tem uma revisão em rascunho. Atualize a tela.'};
   if(pg.constraint_name&&unique[pg.constraint_name])return json({error:unique[pg.constraint_name]},409);
   if(pg.constraint_name==='members_email_key')return json({error:'Este e-mail já pertence a outro cadastro.'},409);
   return json({error:'Este cadastro ou lançamento já existe. Atualize a tela.'},409);
@@ -77,6 +79,12 @@ export async function GET(req:Request){try{
  if(path==='registry/checklist-versions'){await rateLimit(member.id,'read');return json(await checklistVersions(member,url.searchParams.get('id')||''));}
  if(path==='flows'){await rateLimit(member.id,'read');return json(await flowsState(member));}
  if(path==='flows/version'){await rateLimit(member.id,'read');return json(await flowVersion(member,url.searchParams.get('id')||''));}
+ if(path==='central'){await rateLimit(member.id,'read');return json(await centralState(member));}
+ if(path==='maint/panel'){await rateLimit(member.id,'read');return json(await maintenancePanel(member,url));}
+ if(path==='maint/criteria'){await rateLimit(member.id,'read');return json(await maintenanceCriteria(member));}
+ if(path==='maint/record'){await rateLimit(member.id,'read');return json(await maintenanceRecord(member,url.searchParams.get('id')||''));}
+ if(path==='maint/records'){await rateLimit(member.id,'read');return json(await maintenanceRecords(member,url));}
+ if(path==='maint/readings'){await rateLimit(member.id,'read');return json(await maintenanceReadings(member,url));}
  if(path==='planning'){await rateLimit(member.id,'read');return json(await planningState(member));}
  if(path==='planning/plan'){await rateLimit(member.id,'read');return json(await planDetail(member,url.searchParams.get('id')||''));}
  if(path==='planning/availability'){await rateLimit(member.id,'read');return json(await availability(member,url));}
@@ -115,9 +123,10 @@ export async function POST(req:Request){try{
  const {member}=await session();
  await rateLimit(member.id,'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
  // Fluxos e checklists levam várias etapas/perguntas por envio.
- const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'||path==='planning/save'?262144:undefined);
+ const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'||path==='planning/save'||path==='maint/plan'?262144:undefined);
  if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));
  if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
+ if(path.startsWith('maint/'))return json(await maintenanceMutate(path,body,member));
  if(path.startsWith('planning/revision/'))return json(await revisionMutate(path,body,member));
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
  if(path.startsWith('ops/'))return json(await operationMutate(path,body,member));

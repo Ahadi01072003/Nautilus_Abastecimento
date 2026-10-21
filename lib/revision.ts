@@ -34,12 +34,12 @@ async function start(tx:Executor,a:Actor,workOrderId:string){
  }
  const base=(await loadPlan(wo.current_plan_id,tx))!;
  const pid=id(),t=now();
- await tx.run(`INSERT INTO plans(id,work_order_id,status,activity_type_id,flow_version_id,description,org_id,requester_person_id,location_id,planned_start,planned_end,author_id,author_name,created_at,updated_at,revision,base_plan_id)
-  VALUES(?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,pid,wo.id,base.activity_type_id,base.flow_version_id,base.description,base.org_id,base.requester_person_id,base.location_id,base.planned_start,base.planned_end,a.id,a.name,t,t,wo.revision+1,base.id);
+ await tx.run(`INSERT INTO plans(id,work_order_id,status,activity_type_id,flow_version_id,title,description,org_id,requester_person_id,location_id,planned_start,planned_end,author_id,author_name,created_at,updated_at,revision,base_plan_id)
+  VALUES(?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,pid,wo.id,base.activity_type_id,base.flow_version_id,base.title??null,base.description,base.org_id,base.requester_person_id,base.location_id,base.planned_start,base.planned_end,a.id,a.name,t,t,wo.revision+1,base.id);
  for(const s of base.steps){
   const sid=id();
   await tx.run('INSERT INTO plan_steps(id,plan_id,step_key,position,name,description,required,included,default_minutes,depends_on,planned_start,planned_end,location_id) VALUES(?,?,?,?,?,?,?,?,?,?::text[],?,?,?)',sid,pid,s.step_key,s.position,s.name,s.description,s.required,s.included,s.default_minutes,s.depends_on,s.planned_start,s.planned_end,s.location_id);
-  for(const n of s.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,quantity) VALUES(?,?,?,?,?,?)',id(),pid,sid,n.equipment_type_id,n.function_id,n.quantity);
+  for(const n of s.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit) VALUES(?,?,?,?,?,?,?,?,?)',id(),pid,sid,n.equipment_type_id,n.function_id,n.material_id,n.quantity,n.amount,n.unit);
   for(const o of s.operator_ids)await tx.run('INSERT INTO plan_step_people(plan_id,plan_step_id,operator_id) VALUES(?,?,?)',pid,sid,o);
   // Mesma reserva, agora também no rascunho: o banco a reconhece como transportada (não é compromisso novo).
   for(const r of s.reservations)await tx.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,status,created_at) VALUES(?,?,?,?,?,?,'provisoria',?)",id(),pid,sid,r.equipment_id,r.start_at,r.end_at,t);
@@ -110,7 +110,7 @@ async function launch(a:Actor,b:Row){
      dispensed++;
     }
    }
-   await tx.run('UPDATE work_orders SET current_plan_id=?,location_id=?,planned_start=?,planned_end=?,revision=?,version=version+1 WHERE id=?',draft.id,draft.location_id,draft.planned_start,draft.planned_end,n,wo.id);
+   await tx.run('UPDATE work_orders SET current_plan_id=?,location_id=?,planned_start=?,planned_end=?,revision=?,title=?,version=version+1 WHERE id=?',draft.id,draft.location_id,draft.planned_start,draft.planned_end,n,draft.free?draft.title:null,wo.id);
    // Checklists previstos: novos para equipamentos incluídos; os de equipamento retirado deixam de valer (sem apagar).
    const required=await createRequirements(tx,wo.id,draft);
    const used=[...new Set(draft.steps.filter(s=>s.included).flatMap(s=>s.equipment_ids))];

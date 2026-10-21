@@ -17,14 +17,15 @@ const inScope=(a:Actor,orgId:string)=>isManager(a)||!a.org_scope.length||a.org_s
 /** Detalhe completo da OS para a tela da Operação (planejamento vigente + execução autoritativa). */
 export async function orderDetail(member:Member,workOrderId:string){
  const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
- const wo=await db().first('SELECT w.*,t.code activity_code,t.name activity_name FROM work_orders w JOIN activity_types t ON t.id=w.activity_type_id WHERE w.id=?',idOf(workOrderId,'OS'));
+ const wo=await db().first('SELECT w.*,t.code activity_code,coalesce(nullif(w.title,\'\'),t.name) activity_name,t.system free FROM work_orders w JOIN activity_types t ON t.id=w.activity_type_id WHERE w.id=?',idOf(workOrderId,'OS'));
  if(!wo||!inScope(a,wo.org_id))throw new AppError('OS não encontrada ou fora do seu acesso.',404);
  const plan=await loadPlan(wo.current_plan_id);
  const [steps,intervals,occurrences,events,requirements,instances,answers,impediments,categories]=await Promise.all([
   db().all('SELECT * FROM os_steps WHERE work_order_id=?',wo.id),
   db().all('SELECT i.*,e.kind start_kind FROM step_intervals i JOIN os_steps s ON s.id=i.os_step_id LEFT JOIN execution_events e ON e.id=i.start_event_id WHERE s.work_order_id=? ORDER BY i.start_at',wo.id),
   db().all('SELECT o.*,c.name category_name FROM occurrences o LEFT JOIN occurrence_categories c ON c.id=o.category_id WHERE o.work_order_id=? ORDER BY o.occurred_at DESC',wo.id),
-  db().all('SELECT id,os_step_id,kind,occurred_at,registered_at,author_name,detail FROM execution_events WHERE work_order_id=? ORDER BY registered_at DESC LIMIT 300',wo.id),
+  // Eventos antigos guardaram o detalhe como texto JSON: normaliza na leitura (o histórico não é reescrito).
+  db().all("SELECT id,os_step_id,kind,occurred_at,registered_at,author_name,CASE WHEN jsonb_typeof(detail)='string' THEN (detail#>>'{}')::jsonb ELSE detail END detail FROM execution_events WHERE work_order_id=? ORDER BY registered_at DESC LIMIT 300",wo.id),
   db().all('SELECT r.*,v.title,v.version,v.template_id,t.code FROM checklist_requirements r JOIN checklist_versions v ON v.id=r.version_id JOIN checklist_templates t ON t.id=v.template_id WHERE r.work_order_id=? ORDER BY r.moment,t.code',wo.id),
   db().all('SELECT i.*,v.title,v.version,v.moment,t.code FROM checklist_instances i JOIN checklist_versions v ON v.id=i.version_id JOIN checklist_templates t ON t.id=v.template_id WHERE i.work_order_id=? ORDER BY i.created_at',wo.id),
   db().all('SELECT a.* FROM checklist_answers a JOIN checklist_instances i ON i.id=a.instance_id WHERE i.work_order_id=?',wo.id),
@@ -62,7 +63,7 @@ async function stepOf(tx:Executor,stepId:string){
 }
 export async function event(tx:Executor,a:Member,wo:Row,stepId:string|null,kind:string,key:string,detail:Row={},occurredAt?:string){
  const eid=id();
- await tx.run('INSERT INTO execution_events(id,work_order_id,os_step_id,kind,occurred_at,registered_at,author_id,author_name,operation_key,detail) VALUES(?,?,?,?,?,?,?,?,?,?::jsonb)',eid,wo.id,stepId,kind,occurredAt||now(),now(),a.id,a.name,key,JSON.stringify(detail));
+ await tx.run('INSERT INTO execution_events(id,work_order_id,os_step_id,kind,occurred_at,registered_at,author_id,author_name,operation_key,detail) VALUES(?,?,?,?,?,?,?,?,?,?::text::jsonb)',eid,wo.id,stepId,kind,occurredAt||now(),now(),a.id,a.name,key,JSON.stringify(detail));
  return eid;
 }
 async function openInterval(tx:Executor,stepId:string,kind:'ativo'|'interrompido',eventId:string,at:string){await tx.run('INSERT INTO step_intervals(id,os_step_id,kind,start_at,start_event_id) VALUES(?,?,?,?,?)',id(),stepId,kind,at,eventId);}

@@ -5,6 +5,7 @@ import {db,type Executor,type Row} from './db';
 import {AppError,required,text} from './domain';
 import {type Member,isManager,requireAny,canSeeOrders} from './permissions';
 import {audit,idList} from './registry';
+import {preventiveRows} from './maintenance';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -33,8 +34,8 @@ const scopeOf=(a:Actor)=>isManager(a)||!a.org_scope.length?null:a.org_scope;
 const inScope=(a:Actor,orgId:string|null)=>{const s=scopeOf(a);return !s||(!!orgId&&s.includes(orgId));};
 
 async function refs(){
- const [activityTypes,orgs,people,locations,equipment,equipmentTypes,operators,functions,impediments]=await Promise.all([
-  all('SELECT t.id,t.code,t.name,t.active,t.current_version,v.id flow_version_id FROM activity_types t JOIN flow_versions v ON v.activity_type_id=t.id AND v.version=t.current_version ORDER BY t.name'),
+ const [activityTypes,orgs,people,locations,equipment,equipmentTypes,operators,functions,impediments,materials]=await Promise.all([
+  all('SELECT t.id,t.code,t.name,t.active,t.system,t.current_version,v.id flow_version_id FROM activity_types t JOIN flow_versions v ON v.activity_type_id=t.id AND v.version=t.current_version ORDER BY t.name'),
   all('SELECT id,name,acronym,category,color,active FROM requester_orgs ORDER BY name'),
   all('SELECT id,org_id,name,role,active FROM requester_people ORDER BY name'),
   all('SELECT id,parent_id,kind,name,code,active FROM locations ORDER BY name'),
@@ -43,15 +44,16 @@ async function refs(){
   all("SELECT o.id,o.name,o.badge,o.active,coalesce(array_agg(f.function_id) FILTER (WHERE f.function_id IS NOT NULL),'{}') function_ids FROM operators o LEFT JOIN operator_functions f ON f.operator_id=o.id GROUP BY o.id ORDER BY o.name"),
   all('SELECT id,name,active FROM job_functions ORDER BY name'),
   all('SELECT id,equipment_id,kind,reason,opened_at,opened_by_name FROM equipment_impediments WHERE released_at IS NULL ORDER BY opened_at'),
+  all('SELECT id,name,unit,active FROM materials ORDER BY name'),
  ]);
- return {activityTypes,orgs,people,locations,equipment,equipmentTypes,operators,functions,impediments};
+ return {activityTypes,orgs,people,locations,equipment,equipmentTypes,operators,functions,impediments,materials};
 }
 
 /** Planejamento completo: etapas, necessidades, pessoas, reservas ativas e documentos. */
 export type PlanStep=Row&{needs:Row[],operator_ids:string[],equipment_ids:string[],reservations:Row[]};
 export type Plan=Row&{steps:PlanStep[]};
 export async function loadPlan(planId:string,ex:Executor=db()):Promise<Plan|null>{
- const plan=await ex.first('SELECT p.*,t.code activity_code,t.name activity_name,v.version flow_version,w.number os_number,w.status os_status FROM plans p JOIN activity_types t ON t.id=p.activity_type_id JOIN flow_versions v ON v.id=p.flow_version_id LEFT JOIN work_orders w ON w.id=p.work_order_id WHERE p.id=?',planId);
+ const plan=await ex.first('SELECT p.*,t.code activity_code,coalesce(nullif(p.title,\'\'),t.name) activity_name,t.system free,v.version flow_version,w.number os_number,w.status os_status FROM plans p JOIN activity_types t ON t.id=p.activity_type_id JOIN flow_versions v ON v.id=p.flow_version_id LEFT JOIN work_orders w ON w.id=p.work_order_id WHERE p.id=?',planId);
  if(!plan)return null;
  const [steps,needs,people,reservations]=await Promise.all([
   ex.all('SELECT * FROM plan_steps WHERE plan_id=? ORDER BY position',planId),
@@ -59,7 +61,7 @@ export async function loadPlan(planId:string,ex:Executor=db()):Promise<Plan|null
   ex.all('SELECT * FROM plan_step_people WHERE plan_id=?',planId),
   ex.all("SELECT * FROM reservations WHERE plan_id=? AND status<>'liberada'",planId),
  ]);
- return {...plan,steps:steps.map(s=>({...s,needs:needs.filter(n=>n.plan_step_id===s.id).map(n=>({equipment_type_id:n.equipment_type_id,function_id:n.function_id,quantity:n.quantity})),operator_ids:people.filter(p=>p.plan_step_id===s.id).map(p=>p.operator_id),equipment_ids:reservations.filter(r=>r.plan_step_id===s.id).map(r=>r.equipment_id),reservations:reservations.filter(r=>r.plan_step_id===s.id)}))};
+ return {...plan,steps:steps.map(s=>({...s,needs:needs.filter(n=>n.plan_step_id===s.id).map(n=>({equipment_type_id:n.equipment_type_id,function_id:n.function_id,material_id:n.material_id,quantity:n.quantity,amount:n.amount==null?null:Number(n.amount),unit:n.unit})),operator_ids:people.filter(p=>p.plan_step_id===s.id).map(p=>p.operator_id),equipment_ids:reservations.filter(r=>r.plan_step_id===s.id).map(r=>r.equipment_id),reservations:reservations.filter(r=>r.plan_step_id===s.id)}))};
 }
 
 /** Quem vê o planejamento: rascunho só o autor e o gestor; lançado, quem consulta OS no escopo. */
@@ -89,7 +91,7 @@ export async function planningState(member:Member){
  const a=await requireAny(member,['planejamento']);
  const [data,drafts]=await Promise.all([
   refs(),
-  all(`SELECT p.id,p.description,p.org_id,p.planned_start,p.planned_end,p.updated_at,p.created_at,p.author_id,p.author_name,p.version,p.revision,p.work_order_id,(SELECT number FROM work_orders w WHERE w.id=p.work_order_id) os_number,t.code activity_code,t.name activity_name,
+  all(`SELECT p.id,p.description,p.org_id,p.planned_start,p.planned_end,p.updated_at,p.created_at,p.author_id,p.author_name,p.version,p.revision,p.work_order_id,(SELECT number FROM work_orders w WHERE w.id=p.work_order_id) os_number,t.code activity_code,coalesce(nullif(p.title,''),t.name) activity_name,t.system free,
    (SELECT count(*) FROM reservations r WHERE r.plan_id=p.id AND r.status='provisoria') reservations
    FROM plans p JOIN activity_types t ON t.id=p.activity_type_id WHERE p.status='draft'${isManager(a)?'':' AND p.author_id=?'} ORDER BY p.updated_at DESC`,...(isManager(a)?[]:[a.id])),
  ]);
@@ -136,6 +138,7 @@ export async function availability(member:Member,url:URL){
 /** Pendências (impedem o lançamento) e avisos. Só depende dos dados carregados. */
 export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impediments:Row[],orgs:Row[],locations:Row[],frozen?:Set<string>,carried?:(stepKey:string,equipmentId:string)=>boolean}){
  const errors:{step?:string,message:string}[]=[],warnings:{step?:string,message:string}[]=[];
+ if(plan.free&&!String(plan.title||'').trim())errors.push({message:'Informe o título da atividade.'});
  if(!plan.org_id)errors.push({message:'Informe a organização solicitante.'});
  else if(!ctx.orgs.find(o=>o.id===plan.org_id)?.active)errors.push({message:'A organização solicitante está inativa.'});
  if(!plan.location_id)errors.push({message:'Informe o local da atividade.'});
@@ -156,6 +159,7 @@ export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impe
    if(p.planned_end&&ms(s.planned_start)<ms(p.planned_end))errors.push({step:s.step_key,message:`${name}: começa antes do fim de “${p.name}” (dependência término → início).`});
   }
   for(const n of s.needs as Row[]){
+   if(n.material_id)continue;
    if(n.equipment_type_id){
     const have=s.equipment_ids.filter((e:string)=>ctx.equipment.find(x=>x.id===e)?.type_id===n.equipment_type_id).length;
     if(have<n.quantity)errors.push({step:s.step_key,message:`${name}: faltam ${n.quantity-have} equipamento(s) do tipo exigido.`});
@@ -200,6 +204,10 @@ export async function validation(plan:Plan){
   all('SELECT id,active FROM requester_orgs'),all('SELECT id,active FROM locations'),
  ]);
  const result=validatePlan(plan,{equipment,operators,impediments,orgs,locations,frozen:revision?.frozen,carried:revision?.carried});
+ // Manutenção: equipamento com preventiva vencida é aviso (o bloqueio, quando existe, já é pendência).
+ const used=new Set(plan.steps.filter(s=>s.included&&!revision?.frozen.has(s.step_key)).flatMap(s=>s.equipment_ids as string[]));
+ if(used.size)for(const r of (await preventiveRows()).filter(x=>used.has(x.equipmentId)&&(x.status==='atrasada'||x.status==='pendente')))
+  result.warnings.push({message:`Equipamento ${r.tag}: preventiva “${r.name}” ${r.status==='atrasada'?'atrasada':'pendente'} (marco ${r.firstOpenLabel}). Combine com a Manutenção antes da atividade.`});
  // Colaborador em etapas sobrepostas: aviso (não há reserva exclusiva de pessoas).
  for(const s of plan.steps.filter(x=>x.included&&x.planned_start&&x.planned_end&&x.operator_ids.length&&!revision?.frozen.has(x.step_key))){
   const clash=await all(`SELECT DISTINCT o.name FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id JOIN plans p ON p.id=pp.plan_id JOIN operators o ON o.id=pp.operator_id
@@ -236,6 +244,7 @@ export async function revisionChanges(base:Plan,draft:Plan,ex:Executor=db()){
  if(base.planned_start!==draft.planned_start||base.planned_end!==draft.planned_end)out.push(`Janela prevista: ${when(base.planned_start,base.planned_end)} → ${when(draft.planned_start,draft.planned_end)}.`);
  if(base.location_id!==draft.location_id)out.push(`Local: ${nameOf(locations,base.location_id)} → ${nameOf(locations,draft.location_id)}.`);
  if(base.requester_person_id!==draft.requester_person_id)out.push(`Pessoa solicitante: ${nameOf(people,base.requester_person_id)} → ${nameOf(people,draft.requester_person_id)}.`);
+ if((base.title||'')!==(draft.title||''))out.push(`Título: ${base.title||'—'} → ${draft.title||'—'}.`);
  if(base.description!==draft.description)out.push('Descrição alterada.');
  for(const d of draft.steps){
   const b=base.steps.find(x=>x.step_key===d.step_key);if(!b)continue;
@@ -250,7 +259,7 @@ export async function revisionChanges(base:Plan,draft:Plan,ex:Executor=db()){
    if(added.length)out.push(`${label}: ${what} incluído(s): ${added.map(x=>nameOf(list,x)).join(', ')}.`);
    if(removed.length)out.push(`${label}: ${what} retirado(s): ${removed.map(x=>nameOf(list,x)).join(', ')}.`);
   };
-  const needs=(x:PlanStep)=>JSON.stringify((x.needs as Row[]).map(n=>[n.equipment_type_id,n.function_id,n.quantity]).sort());
+  const needs=(x:PlanStep)=>JSON.stringify((x.needs as Row[]).map(n=>[n.equipment_type_id,n.function_id,n.material_id,n.quantity,n.amount,n.unit]).sort());
   if(b.included&&needs(b)!==needs(d))out.push(`${label}: necessidades de recursos alteradas.`);
   diff(equipment,b.included?b.equipment_ids:[],d.equipment_ids,'equipamento');
   diff(operators,b.included?b.operator_ids:[],d.operator_ids,'colaborador');
@@ -270,7 +279,7 @@ export async function ordersList(member:Member,url:URL){
  const status=url.searchParams.get('status');
  if(status&&status!=='todas'){where.push('w.status=?');values.push(status);}else if(!status)where.push("w.status<>'cancelada'");
  const number=url.searchParams.get('number');if(number){const n=Number(number.replace(/\D/g,''));if(n)where.push('w.number='+n);}
- const rows=await all(`SELECT w.*,p.description,p.requester_person_id,t.code activity_code,t.name activity_name,
+ const rows=await all(`SELECT w.*,p.description,p.requester_person_id,t.code activity_code,coalesce(nullif(w.title,''),t.name) activity_name,t.system free,
   (SELECT count(*) FROM os_steps s WHERE s.work_order_id=w.id) steps_total,(SELECT count(*) FROM os_steps s WHERE s.work_order_id=w.id AND s.status IN ('concluida','dispensada')) steps_done,
   (SELECT count(*) FROM reservations r JOIN equipment_impediments i ON i.equipment_id=r.equipment_id AND i.released_at IS NULL WHERE r.plan_id=w.current_plan_id AND r.status='confirmada') blocked_resources
   FROM work_orders w JOIN plans p ON p.id=w.current_plan_id JOIN activity_types t ON t.id=w.activity_type_id${where.length?' WHERE '+where.join(' AND '):''} ORDER BY w.number DESC LIMIT 1000`,...values);
@@ -286,7 +295,23 @@ export async function ordersRefs(member:Member){
  const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
  const scope=scopeOf(a);
  const data=await refs();
- return {orgs:data.orgs.filter(o=>!scope||scope.includes(o.id)),people:data.people.filter(p=>!scope||scope.includes(p.org_id)),locations:data.locations,activityTypes:data.activityTypes,equipment:data.equipment,equipmentTypes:data.equipmentTypes,operators:data.operators,functions:data.functions,scoped:!!scope,canPlan:isManager(a)||(a.capabilities||[]).includes('planejamento')};
+ return {orgs:data.orgs.filter(o=>!scope||scope.includes(o.id)),people:data.people.filter(p=>!scope||scope.includes(p.org_id)),locations:data.locations,activityTypes:data.activityTypes,equipment:data.equipment,equipmentTypes:data.equipmentTypes,operators:data.operators,functions:data.functions,materials:data.materials,scoped:!!scope,canPlan:isManager(a)||(a.capabilities||[]).includes('planejamento')};
+}
+
+/** Tipo de atividade de sistema da OS sem fluxo: criado na primeira vez, com uma etapa de execução
+ * cujo início e fim acompanham as datas macro da OS. Não aparece no Cadastro de fluxo. */
+export const FREE_CODE='SYS.SEM-FLUXO';
+async function freeType(tx:Executor,a:Member){
+ const find=()=>tx.first("SELECT t.*,v.id flow_version_id FROM activity_types t JOIN flow_versions v ON v.activity_type_id=t.id AND v.version=t.current_version WHERE t.code=? AND t.system=1",FREE_CODE);
+ const found=await find();if(found)return found;
+ const tid=id(),vid=id(),t=now();
+ const made=await tx.first("INSERT INTO activity_types(id,code,name,description,active,current_version,created_at,created_by,updated_at,system) VALUES(?,?,?,?,1,1,?,?,?,1) ON CONFLICT DO NOTHING RETURNING id",tid,FREE_CODE,'Atividade sem fluxo','OS planejada sem fluxo cadastrado: título próprio, início e fim pelas datas macro da OS.',t,a.id,t);
+ if(made){
+  await tx.run('INSERT INTO flow_versions(id,activity_type_id,version,name,description,notes,created_at,created_by,created_by_name) VALUES(?,?,1,?,?,?,?,?,?)',vid,tid,'Atividade sem fluxo','','Criado pelo sistema',t,a.id,a.name);
+  await tx.run('INSERT INTO flow_steps(id,flow_version_id,step_key,position,name,description,default_minutes,required) VALUES(?,?,?,1,?,?,NULL,1)',id(),vid,'execucao','Execução','Início e fim acompanham as datas macro da OS.');
+ }
+ const r=await find();if(!r)throw new AppError('Não foi possível preparar a OS sem fluxo. Tente de novo.',409);
+ return r;
 }
 
 async function createDraftFrom(tx:Executor,a:Member,activityTypeId:string,header:Row={}){
@@ -332,6 +357,12 @@ async function releaseAll(tx:Executor,planId:string,reason:string,statuses=['pro
 export async function planningMutate(path:string,b:Row,member:Member){
  const a=await requireAny(member,['planejamento']);
 
+ if(path==='planning/create-free'){
+  const res=await db().tx(async tx=>{const type=await freeType(tx,a);const r=await createDraftFrom(tx,a,type.id);await tx.run('UPDATE plans SET title=? WHERE id=?','',r.pid);await audit(tx,a,'Planejamento: rascunho criado',r.pid,{activity:FREE_CODE,free:true});return r;});
+  return {id:res.pid};
+ }
+ if(path==='planning/resource')return createResource(a,b);
+
  if(path==='planning/create'){
   const res=await db().tx(async tx=>{const r=await createDraftFrom(tx,a,idOf(b.activityTypeId,'Tipo de atividade'));await audit(tx,a,'Planejamento: rascunho criado',r.pid,{activity:r.type.code,version:r.type.current_version});return r;});
   return {id:res.pid};
@@ -354,7 +385,7 @@ export async function planningMutate(path:string,b:Row,member:Member){
    if(locked!.status!=='draft'){const w=await tx.first('SELECT w.id,w.number FROM work_orders w JOIN plans p ON p.work_order_id=w.id WHERE p.id=?',plan.id);return {workOrderId:w!.id,number:w!.number,repeated:true};}
    if(locked!.version!==plan.version)throw new AppError('O rascunho mudou desde a sua revisão. Revise novamente antes de lançar.',409);
    const wid=id(),t=now();
-   const w=await tx.first('INSERT INTO work_orders(id,current_plan_id,original_plan_id,activity_type_id,org_id,location_id,planned_start,planned_end,launched_at,launched_by,launched_by_name) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING number',wid,plan.id,plan.id,plan.activity_type_id,plan.org_id,plan.location_id,plan.planned_start,plan.planned_end,t,a.id,a.name);
+   const w=await tx.first('INSERT INTO work_orders(id,current_plan_id,original_plan_id,activity_type_id,org_id,location_id,planned_start,planned_end,launched_at,launched_by,launched_by_name,title) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING number',wid,plan.id,plan.id,plan.activity_type_id,plan.org_id,plan.location_id,plan.planned_start,plan.planned_end,t,a.id,a.name,plan.free?plan.title:null);
    await tx.run("UPDATE plans SET status='launched',work_order_id=?,launch_key=?,launched_at=?,launched_by=?,updated_at=?,version=version+1 WHERE id=?",wid,key,t,a.id,t,plan.id);
    // Promove as reservas provisórias (o banco revalida conflito e condição técnica).
    await tx.run("UPDATE reservations SET status='confirmada' WHERE plan_id=? AND status='provisoria'",plan.id);
@@ -406,6 +437,7 @@ export async function planningMutate(path:string,b:Row,member:Member){
 
  if(path==='planning/change-type'){
   if(plan.work_order_id)throw new AppError('O tipo de atividade de uma OS lançada não muda na revisão.',409);
+  if(plan.free)throw new AppError('A OS sem fluxo não troca de tipo. Descarte o rascunho e comece um planejamento com fluxo.',409);
   // Troca de tipo: novo rascunho com os dados gerais; etapas, horários e alocações do anterior são descartados.
   const res=await db().tx(async tx=>{
    const changed=await tx.run("UPDATE plans SET status='discarded',updated_at=?,version=version+1 WHERE id=? AND version=? AND status='draft'",now(),plan.id,plan.version);
@@ -420,6 +452,27 @@ export async function planningMutate(path:string,b:Row,member:Member){
 
  if(path==='planning/save')return saveDraft(a,plan,b);
  throw new AppError('Ação não encontrada.',404);
+}
+
+/** Recurso cadastrado na hora pelo planejamento (tipo de equipamento, função ou material).
+ * Nome já existente devolve o cadastro atual em vez de duplicar. */
+async function createResource(a:Actor,b:Row){
+ const kind=b.kind as string;
+ const table=({equipment_type:'equipment_types',function:'job_functions',material:'materials'} as Record<string,string>)[kind];
+ if(!table)throw new AppError('Tipo de recurso inválido.');
+ const name=required(b.name,'Nome do recurso',100),unit=kind==='material'?required(b.unit,'Unidade de medida',12):null;
+ const found=await first(`SELECT * FROM ${table} WHERE lower(name)=lower(?)`,name);
+ if(found){
+  if(!found.active)throw new AppError(`“${found.name}” já existe, mas está inativo. Peça a quem cuida dos Cadastros gerais para reativá-lo.`,409);
+  return {id:found.id,kind,name:found.name,unit:found.unit||null,existing:true,message:`“${found.name}” já estava cadastrado e foi selecionado.`};
+ }
+ const rid=id(),t=now();
+ await db().tx(async tx=>{
+  if(kind==='material')await tx.run('INSERT INTO materials(id,name,unit,description,active,created_at,updated_at) VALUES(?,?,?,?,1,?,?)',rid,name,unit,'',t,t);
+  else await tx.run(`INSERT INTO ${table}(id,name,description,active,created_at,updated_at) VALUES(?,?,?,1,?,?)`,rid,name,'',t,t);
+  await audit(tx,a,'Planejamento: recurso cadastrado',rid,{kind,name,unit});
+ });
+ return {id:rid,kind,name,unit,message:`“${name}” cadastrado. Ele também aparece em Cadastros gerais.`};
 }
 
 async function activeOr(table:string,value:unknown,label:string,keep:unknown){
@@ -442,15 +495,17 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
  const start=instant(b.plannedStart,'Início previsto'),end=instant(b.plannedEnd,'Fim previsto');
  if(start&&end&&ms(end)<=ms(start))throw new AppError('O fim previsto deve ser depois do início.');
  if(!Array.isArray(b.steps)||b.steps.length!==plan.steps.length)throw new AppError('Etapas inválidas. Atualize a tela.');
- const [equipment,operators,types,functions]=await Promise.all([all('SELECT id,tag,active,type_id FROM equipment'),all('SELECT id,active FROM operators'),all('SELECT id,active FROM equipment_types'),all('SELECT id,active FROM job_functions')]);
+ const [equipment,operators,types,functions,materials]=await Promise.all([all('SELECT id,tag,active,type_id FROM equipment'),all('SELECT id,active FROM operators'),all('SELECT id,active FROM equipment_types'),all('SELECT id,active FROM job_functions'),all('SELECT id,active FROM materials')]);
+ // OS sem fluxo: título próprio; a etapa única acompanha as datas macro da OS.
+ const title=plan.free?text(b.title,160):null;
  const steps=plan.steps.map(s=>{
   const raw=(b.steps as Row[]).find(x=>x?.key===s.step_key);if(!raw)throw new AppError('Etapas inválidas. Atualize a tela.');
   const label=`Etapa “${s.name}”`;
   const os=revision?.osSteps.find(o=>o.step_key===s.step_key);
   // Revisão: etapa concluída ou dispensada fica como está (o que vier da tela é ignorado).
-  if(os&&revision!.frozen.has(s.step_key))return {s,included:s.included,ps:s.planned_start,pe:s.planned_end,loc:s.location_id,equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,needs:(s.needs as Row[]).map(n=>({et:n.equipment_type_id,fn:n.function_id,q:n.quantity})),label,frozen:true};
+  if(os&&revision!.frozen.has(s.step_key))return {s,included:s.included,ps:s.planned_start,pe:s.planned_end,loc:s.location_id,equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,needs:(s.needs as Row[]).map(n=>({et:n.equipment_type_id,fn:n.function_id,mt:n.material_id,q:n.quantity,amount:n.amount,unit:n.unit})),label,frozen:true};
   const included=s.required?1:raw.included===false?0:1;
-  const ps=instant(raw.plannedStart,`${label} · início`),pe=instant(raw.plannedEnd,`${label} · fim`);
+  const ps=plan.free?start:instant(raw.plannedStart,`${label} · início`),pe=plan.free?end:instant(raw.plannedEnd,`${label} · fim`);
   if(os&&os.status!=='nao_iniciada'){
    if(!included)throw new AppError(`${label}: etapa já iniciada não pode ser retirada da OS.`);
    if(ps!==revision!.baseStart(s.step_key))throw new AppError(`${label}: etapa já iniciada mantém o início previsto (é a referência do desvio).`);
@@ -464,13 +519,22 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
   if(equipmentIds.length&&(!ps||!pe))throw new AppError(`${label}: informe início e fim antes de alocar equipamento identificado (é o intervalo que fica reservado).`);
   if(raw.needs!=null&&(!Array.isArray(raw.needs)||raw.needs.length>30))throw new AppError(`${label}: necessidades inválidas.`);
   const needs=((raw.needs||[]) as Row[]).map(n=>{
-   const et=n?.equipmentTypeId?idOf(n.equipmentTypeId,'Tipo'):null,fn=n?.functionId?idOf(n.functionId,'Função'):null,q=Number(n?.quantity);
-   if((et?1:0)+(fn?1:0)!==1||!Number.isInteger(q)||q<1||q>99)throw new AppError(`${label}: necessidade inválida.`);
+   const et=n?.equipmentTypeId?idOf(n.equipmentTypeId,'Tipo'):null,fn=n?.functionId?idOf(n.functionId,'Função'):null,mt=n?.materialId?idOf(n.materialId,'Material'):null;
+   if((et?1:0)+(fn?1:0)+(mt?1:0)!==1)throw new AppError(`${label}: necessidade inválida.`);
+   if(mt){
+    // Material: quantidade decimal (até 3 casas) e unidade de medida.
+    const amount=Number(n.amount),unit=required(n.unit,`${label} · unidade de medida`,12);
+    if(!Number.isFinite(amount)||amount<=0||amount>99999999||Math.round(amount*1000)!==amount*1000)throw new AppError(`${label}: quantidade do material inválida (maior que zero, até 3 casas decimais).`);
+    if(!materials.some(x=>x.id===mt))throw new AppError(`${label}: material inexistente.`);
+    return {et,fn,mt,q:null,amount,unit};
+   }
+   const q=Number(n?.quantity);
+   if(!Number.isInteger(q)||q<1||q>99)throw new AppError(`${label}: quantidade deve ser de 1 a 99.`);
    if(et&&!types.some(x=>x.id===et))throw new AppError(`${label}: tipo de equipamento inexistente.`);
    if(fn&&!functions.some(x=>x.id===fn))throw new AppError(`${label}: função inexistente.`);
-   return {et,fn,q};
+   return {et,fn,mt:null,q,amount:null,unit:null};
   });
-  if(new Set(needs.map(n=>(n.et||'')+'|'+(n.fn||''))).size!==needs.length)throw new AppError(`${label}: necessidade repetida.`);
+  if(new Set(needs.map(n=>(n.et||'')+'|'+(n.fn||'')+'|'+(n.mt||''))).size!==needs.length)throw new AppError(`${label}: recurso repetido.`);
   return {s,included,ps,pe,loc,equipmentIds,operatorIds,needs,label,frozen:false};
  });
  if(steps.some(x=>x.loc)){const locs=await all('SELECT id,active FROM locations WHERE id = ANY(?::text[])',steps.map(x=>x.loc).filter(Boolean));for(const x of steps)if(x.loc){const l=locs.find(y=>y.id===x.loc);if(!l||(!l.active&&x.loc!==x.s.location_id))throw new AppError(`${x.label}: local inativo ou inexistente.`);}}
@@ -489,13 +553,13 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
  const t=now();let reservationChanges=0;
  try{
   await db().tx(async tx=>{
-   const changed=await tx.run('UPDATE plans SET description=?,org_id=?,requester_person_id=?,location_id=?,planned_start=?,planned_end=?,updated_at=?,version=version+1 WHERE id=? AND version=? AND status=\'draft\'',description,org?.id||null,person?.id||null,location?.id||null,start,end,t,plan.id,plan.version);
+   const changed=await tx.run('UPDATE plans SET description=?,org_id=?,requester_person_id=?,location_id=?,planned_start=?,planned_end=?,title=coalesce(?,title),updated_at=?,version=version+1 WHERE id=? AND version=? AND status=\'draft\'',description,org?.id||null,person?.id||null,location?.id||null,start,end,title,t,plan.id,plan.version);
    if(!changed)throw new AppError('Este rascunho foi alterado em outra tela. Atualize para continuar.',409);
    for(const x of steps){
     if(x.frozen)continue;
     await tx.run('UPDATE plan_steps SET included=?,planned_start=?,planned_end=?,location_id=? WHERE id=?',x.included,x.ps,x.pe,x.loc,x.s.id);
     await tx.run('DELETE FROM plan_step_needs WHERE plan_step_id=?',x.s.id);
-    for(const n of x.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,quantity) VALUES(?,?,?,?,?,?)',id(),plan.id,x.s.id,n.et,n.fn,n.q);
+    for(const n of x.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit) VALUES(?,?,?,?,?,?,?,?,?)',id(),plan.id,x.s.id,n.et,n.fn,n.mt,n.q,n.amount,n.unit);
     await tx.run('DELETE FROM plan_step_people WHERE plan_step_id=?',x.s.id);
     for(const o of x.operatorIds)await tx.run('INSERT INTO plan_step_people(plan_id,plan_step_id,operator_id) VALUES(?,?,?)',plan.id,x.s.id,o);
     // Reservas: retira as que saíram, ajusta intervalo das que ficaram e cria as novas.

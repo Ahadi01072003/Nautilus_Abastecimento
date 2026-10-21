@@ -48,7 +48,7 @@ export async function registryState(member:Member){
  const a=await requireCapability(member,'cadastros');
  const manager=isManager(a);
  const none=Promise.resolve([] as Row[]);
- const [orgs,people,locations,equipmentTypes,equipment,fuels,functions,operators,categories,templates,versions,questions,links,activityTypes,members,audits]=await Promise.all([
+ const [orgs,people,locations,equipmentTypes,equipment,fuels,functions,materials,operators,categories,templates,versions,questions,links,activityTypes,members,audits]=await Promise.all([
   all('SELECT * FROM requester_orgs ORDER BY name'),
   all('SELECT * FROM requester_people ORDER BY name'),
   all('SELECT * FROM locations ORDER BY name'),
@@ -56,6 +56,7 @@ export async function registryState(member:Member){
   all('SELECT * FROM equipment ORDER BY tag'),
   all('SELECT id,name,active FROM fuels ORDER BY name'),
   all('SELECT * FROM job_functions ORDER BY name'),
+  all('SELECT * FROM materials ORDER BY name'),
   all("SELECT o.*,coalesce(array_agg(f.function_id) FILTER (WHERE f.function_id IS NOT NULL),'{}') function_ids,m.name member_name,m.username member_username FROM operators o LEFT JOIN operator_functions f ON f.operator_id=o.id LEFT JOIN members m ON m.id=o.member_id GROUP BY o.id,m.name,m.username ORDER BY o.name"),
   all('SELECT * FROM occurrence_categories ORDER BY kind,name'),
   all('SELECT * FROM checklist_templates ORDER BY code'),
@@ -75,7 +76,7 @@ export async function registryState(member:Member){
  if(manager){try{standard=defaultPassword();}catch{standard=null;}}
  return {
   actor:{id:a.id,manager},
-  orgs,people,locations,equipmentTypes,equipment,fuels,functions,operators,categories,checklists,activityTypes,
+  orgs,people,locations,equipmentTypes,equipment,fuels,functions,materials,operators,categories,checklists,activityTypes,
   members,audits,...(manager?{access:{defaultPassword:standard,temporaryPasswordDays:TEMPORARY_PASSWORD_DAYS}}:{}),
   generatedAt:now(),
  };
@@ -160,6 +161,16 @@ export async function registryMutate(path:string,b:Row,member:Member){
    await audit(tx,a,old?'Cadastros gerais: equipamento atualizado':'Cadastros gerais: equipamento cadastrado',eid,{before:old,after:{tag,description,typeId:type!.id,locationId:location?.id||null,capacity,fuelIds,active}});
   });
   return {id:eid};
+ }
+
+ if(path==='registry/materials'){
+  const old=await existing('materials',b.id,'Material');fresh(old,b);
+  const name=required(b.name,'Nome',100),unit=required(b.unit,'Unidade de medida',12),description=text(b.description,500),mid=old?.id||id(),active=flag(b.active);
+  await db().tx(async tx=>{
+   await tx.run('INSERT INTO materials(id,name,unit,description,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,unit=excluded.unit,description=excluded.description,active=excluded.active,updated_at=excluded.updated_at',mid,name,unit,description,active,old?.created_at||t,t);
+   await audit(tx,a,old?'Cadastros gerais: material atualizado':'Cadastros gerais: material cadastrado',mid,{before:old,after:{name,unit,description,active}});
+  });
+  return {id:mid};
  }
 
  if(path==='registry/functions'){

@@ -2,7 +2,7 @@
 // Configuração central de módulos e telas. Uma tela só aparece quando existe e quando o
 // servidor a libera em actor.modules; o servidor revalida cada consulta e comando.
 import {useEffect,useState} from 'react';
-import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,FilePen,ListOrdered,HardHat,ClipboardList,Gauge,type LucideIcon} from 'lucide-react';
+import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,FilePen,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,type LucideIcon} from 'lucide-react';
 import {Sidebar,SidebarContent,SidebarHeader,SidebarFooter,SidebarGroup,SidebarGroupLabel,SidebarMenu,SidebarMenuItem,SidebarMenuButton,SidebarMenuSub,SidebarMenuSubItem,SidebarMenuSubButton,useSidebar} from '@/components/ui/sidebar';
 import {signOut} from './login';
 import Bathy from './bathy';
@@ -10,6 +10,8 @@ import Bathy from './bathy';
 export type Screen={id:string;label:string;icon:LucideIcon;subtitle:string};
 export type Module={id:string;label:string;icon:LucideIcon;screens:Screen[]};
 
+/** Tela inicial, acima dos módulos. */
+export const HOME:Screen={id:'painel',label:'Painel central',icon:Radar,subtitle:'Resumo de cada módulo e os avisos que pedem atenção, conforme o seu acesso.'};
 export const MODULES:Module[]=[
  {id:'abastecimento',label:'Abastecimento',icon:Droplets,screens:[
   {id:'visao',label:'Visão geral',icon:LayoutDashboard,subtitle:'Estoque, registros e reposições da sua operação.'},
@@ -28,6 +30,12 @@ export const MODULES:Module[]=[
   {id:'op-painel',label:'Painel de OS',icon:Gauge,subtitle:'Cada OS em andamento com a régua e o cronômetro do tempo efetivo.'},
   {id:'op-os',label:'Apontamentos',icon:ClipboardList,subtitle:'Execução das etapas, ocorrências, impactos, bloqueios e checklists de cada OS.'},
  ]},
+ {id:'manutencao',label:'Manutenção',icon:Wrench,screens:[
+  {id:'man-painel',label:'Painel de preventivas',icon:Activity,subtitle:'Linha do tempo de cada equipamento com os marcos do ciclo e quanto falta para o próximo.'},
+  {id:'man-criterios',label:'Critérios de manutenção',icon:ClipboardCheck,subtitle:'Planos, pontos de atenção, inconformidades e o método de cada equipamento: dias, horímetro ou odômetro.'},
+  {id:'man-corretivas',label:'Corretivas',icon:Wrench,subtitle:'Manutenções não programadas: pontos manutenidos, horas e observações.'},
+  {id:'man-leituras',label:'Leituras',icon:Timer,subtitle:'Horímetro e odômetro dos equipamentos, base dos critérios por leitura.'},
+ ]},
  {id:'cadastros',label:'Cadastros gerais',icon:Database,screens:[
   {id:'cad-solicitantes',label:'Solicitantes e clientes',icon:Building2,subtitle:'Organizações solicitantes, etiquetas visuais e pessoas de contato.'},
   {id:'cad-locais',label:'Locais',icon:MapPin,subtitle:'Unidades, áreas e locais onde as atividades acontecem.'},
@@ -41,7 +49,7 @@ export const MODULES:Module[]=[
 export const STANDALONE:Screen[]=[
  {id:'exportacao',label:'Exportação',icon:Download,subtitle:'OS, etapas, apontamentos e abastecimentos em Excel ou CSV, com prévia antes de gerar.'},
 ];
-export const ALL_SCREENS=[...MODULES.flatMap(m=>m.screens),...STANDALONE];
+export const ALL_SCREENS=[HOME,...MODULES.flatMap(m=>m.screens),...STANDALONE];
 export const moduleOf=(view:string)=>MODULES.find(m=>m.screens.some(s=>s.id===view));
 export const screenOf=(view:string)=>ALL_SCREENS.find(s=>s.id===view);
 
@@ -68,6 +76,7 @@ export function Navigation({view,setView,allowed,counts,person,onAccount}:{view:
   <SidebarHeader className="n-sidebar-header"><div className="brand sonar-brand">{/* eslint-disable-next-line @next/next/no-img-element -- logotipo estático pequeno */}
    <img src="/logo-white.png" alt="OceanPact | CBO" width={285} height={79}/><div className="sonar-sys">NAUTILUS</div></div></SidebarHeader>
   <SidebarContent>
+   <SidebarGroup><SidebarMenu>{visible(HOME)&&<SidebarMenuItem className="nav-standalone nav-home"><SidebarMenuButton isActive={view===HOME.id} aria-current={view===HOME.id?'page':undefined} onClick={()=>go(HOME.id)} className="nav-item"><HOME.icon/><span>{HOME.label}</span>{!!counts.painel&&<span className="nav-count" aria-label={`${counts.painel} avisos críticos`}>{counts.painel}</span>}</SidebarMenuButton></SidebarMenuItem>}</SidebarMenu></SidebarGroup>
    <SidebarGroup><SidebarGroupLabel>MÓDULOS</SidebarGroupLabel><SidebarMenu>
     {MODULES.map(m=>{const screens=m.screens.filter(visible);if(!screens.length)return null;const open=expanded.includes(m.id),current=active===m.id,total=screens.reduce((n,s)=>n+(counts[s.id]||0),0);
      return <SidebarMenuItem key={m.id} className="nav-module">
