@@ -117,3 +117,28 @@ Migração `0014_setores_agenda.sql`:
 - etapa `cancelada`;
 - evento `cancelamento`;
 - coluna `plans.realized_notes`.
+
+## 6. Revisão de 23/10/2026: cronograma e régua
+
+Pedido: "a visualização do cronograma ficou confusa; mostrar a OS toda, com as datas no eixo X e as OS no eixo Y; melhorar a forma de mostrar o planejamento na régua da OS".
+
+**Agenda (cronograma)**
+
+- Cada linha é uma OS inteira, sem trechos por dia.
+  - À esquerda: número, setor, situação, período (data e horas), título, solicitante, local e recursos.
+  - À direita: uma barra contínua do início ao fim planejado.
+- **Eixo X** são as datas do período:
+  - fim de semana sombreado;
+  - hoje destacado, com linha vermelha no momento da emissão;
+  - em períodos de até 3 dias, aparecem também as horas.
+- **OS fora do período**: a que começa ou termina fora dele tem a ponta tracejada (◂ ▸).
+- **Folhas**: continuam com 10 OS por folha.
+
+**Régua da OS**
+
+- Saem a janela pontilhada, as linhas dupla e tracejada e as bandeiras.
+- Cada faixa tem duas trilhas:
+  - em cima, **Planejado**: barra contornada com as horas de início e fim escritas;
+  - embaixo, **Executado**: trabalho, pausas, bloqueios e apontamentos.
+- A comparação planejado × real é direta e funciona em cor e em preto e branco.
+- **Relatório da OS**: mostra só a OS inteira, em duas linhas (Planejado e Executado). O detalhe por etapa continua na tabela de etapas.

@@ -59,16 +59,15 @@ td.late{color:#b42318}
 .rlane{position:relative;height:14px;background:repeating-linear-gradient(90deg,transparent 0 calc(var(--t) - 1px),#e5eae8 calc(var(--t) - 1px) var(--t))}
 .rrow.os .rlane{height:18px}
 .rlane b{position:absolute;top:2px;bottom:2px;border-radius:1px}
-.rlane b.plan{top:0;bottom:0;background:radial-gradient(circle,#7d96a0 .7px,transparent 1px) 0 0/4px 4px,#f3f6f5;border-top:1px dotted #4b5f66;border-bottom:1px dotted #4b5f66;border-left:3px double #004a64;border-right:2px dashed #004a64}
-.rscale em{position:absolute;bottom:0;width:max-content;font:700 9px/1 var(--f-mono);font-style:normal;padding:2px 4px;border-radius:2px;white-space:nowrap;z-index:2}
-.rscale em.ps{background:#004a64;color:#fff}.rscale em.pe{background:#fff;color:#004a64;border:1px dashed #004a64;translate:-100% 0}
-.ruler{position:relative}
+.rlane b.plan{top:1px;bottom:1px;box-sizing:border-box;border:1.5px solid #004a64;background:#e6eef1;border-radius:2px;display:flex;justify-content:space-between;align-items:center;overflow:hidden}
+.rlane b.plan em{font:700 9px/1 var(--f-mono);font-style:normal;color:#004a64;padding:0 4px;white-space:nowrap}
+.rrow.os .rlane{height:20px}
 .rlane b.work{background:#087f77}
 .rlane b.pausa{background:repeating-linear-gradient(135deg,#9aa6aa 0 2px,#e5eae8 2px 5px)}
 .rlane b.bloqueio{background:repeating-linear-gradient(135deg,#d92d20 0 2px,#fde4e1 2px 5px)}
 .rlane b.occ{width:2px;top:-2px;bottom:-2px;background:#d92d20}
 .rlane b.imp{top:auto;bottom:0;height:3px;background:repeating-linear-gradient(90deg,#f47a04 0 4px,transparent 4px 6px)}
-.rscale{position:relative;height:30px;margin-left:150px;font:500 9.5px/16px var(--f-mono);color:#6c7c82}
+.rscale{position:relative;height:16px;margin-left:150px;font:500 9.5px/16px var(--f-mono);color:#6c7c82}
 .rscale span{position:absolute;translate:-50% 0;white-space:nowrap}
 .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;font-size:10.5px;color:#4b5f66}
 .legend i{display:inline-block;width:16px;height:8px;margin-right:5px;vertical-align:middle}
@@ -103,8 +102,9 @@ export default async function Report({params}:{params:Promise<{id:string}>}){
  const pct=(t:number)=>Math.max(0,Math.min(100,(t-ws)/span*100)),w=(a:number,b:number)=>Math.max(.4,pct(b)-pct(a));
  const ticks:number[]=[];for(let t=ws;t<=we;t+=step)ticks.push(t);
  const label=(t:number)=>step>=24*H?dm.format(t):new Date(t-offset).getUTCHours()===0||t===ws?`${dm.format(t)} ${hm.format(t)}`:hm.format(t);
- const bars=(iv:Row[],oc:Row[],a?:unknown,b?:unknown)=><>
-  {a&&b?<b className="plan" style={{left:pct(ms(a))+'%',width:w(ms(a),ms(b))+'%'}}/>:null}
+ // Planejado: barra contornada com as horas de início e fim; executado: trabalho, paradas e apontamentos.
+ const ps=ms(order.planned_start),pe=ms(order.planned_end),planW=w(ps,pe);
+ const bars=(iv:Row[],oc:Row[])=><>
   {iv.map((i,n)=><b key={n} className={i.kind==='ativo'?'work':STOP_BLOCK.has(i.start_kind)?'bloqueio':'pausa'} style={{left:pct(ms(i.start_at))+'%',width:w(ms(i.start_at),i.end_at?ms(i.end_at):now)+'%'}}/>)}
   {oc.map(o=>o.kind==='impacto'&&o.impact_start?<b key={o.id} className="imp" style={{left:pct(ms(o.impact_start))+'%',width:w(ms(o.impact_start),o.impact_end?ms(o.impact_end):ms(o.impact_start)+15*MIN)+'%'}}/>:<b key={o.id} className="occ" style={{left:pct(ms(o.occurred_at))+'%'}}/>)}
  </>;
@@ -129,12 +129,10 @@ export default async function Report({params}:{params:Promise<{id:string}>}){
 
   <h2>Régua da OS</h2>
   <div className="ruler" style={{'--t':`${100/Math.max(1,ticks.length-1)}%`} as React.CSSProperties}>
-   <div className="rscale">{ticks.map((t,i)=><span key={t} style={{left:pct(t)+'%',top:0,translate:i===0?'0 0':i===ticks.length-1?'-100% 0':undefined}}>{label(t)}</span>)}
-    <em className="ps" style={{left:pct(ms(order.planned_start))+'%',translate:pct(ms(order.planned_start))>70?'-100% 0':undefined}}>▶ Início prev. {hm.format(ms(order.planned_start))}</em>
-    {Math.abs(pct(ms(order.planned_end))-pct(ms(order.planned_start)))>28&&<em className="pe" style={{left:pct(ms(order.planned_end))+'%'}}>Fim prev. {hm.format(ms(order.planned_end))} ◁</em>}</div>
-   <div className="rrow os"><span>OS</span><div className="rlane">{bars(intervals,occurrences,order.planned_start,order.planned_end)}</div></div>
-   {steps.map(s=><div key={s.id} className="rrow"><span title={s.name}>{s.position}. {s.name}</span><div className="rlane">{bars(intervals.filter(i=>i.os_step_id===s.id),occurrences.filter(o=>o.os_step_id===s.id),s.planned_start,s.planned_end)}</div></div>)}
-   <div className="legend"><span><i style={{background:'#087f77'}}/>Trabalho</span><span><i style={{background:'repeating-linear-gradient(135deg,#9aa6aa 0 2px,#e5eae8 2px 5px)'}}/>Pausa</span><span><i style={{background:'repeating-linear-gradient(135deg,#d92d20 0 2px,#fde4e1 2px 5px)'}}/>Bloqueio</span><span><i style={{background:'radial-gradient(circle,#7d96a0 .7px,transparent 1px) 0 0/4px 4px,#f3f6f5',borderTop:'1px dotted #4b5f66',borderBottom:'1px dotted #4b5f66'}}/>Janela planejada</span><span><i style={{width:6,borderLeft:'3px double #004a64'}}/>Início previsto</span><span><i style={{width:6,borderLeft:'2px dashed #004a64'}}/>Fim previsto</span><span><i style={{width:2,background:'#d92d20'}}/>Ocorrência</span><span><i style={{height:3,background:'#f47a04'}}/>Impacto</span></div>
+   <div className="rscale">{ticks.map((t,i)=><span key={t} style={{left:pct(t)+'%',top:0,translate:i===0?'0 0':i===ticks.length-1?'-100% 0':undefined}}>{label(t)}</span>)}</div>
+   <div className="rrow os"><span>Planejado</span><div className="rlane"><b className="plan" style={{left:pct(ps)+'%',width:planW+'%'}}>{planW>=14?<><em>{hm.format(ps)}</em><em>{hm.format(pe)}</em></>:planW>=7?<em>{hm.format(ps)}</em>:null}</b></div></div>
+   <div className="rrow os"><span>Executado</span><div className="rlane">{bars(intervals,occurrences)}</div></div>
+   <div className="legend"><span><i style={{background:'#e6eef1',border:'1.5px solid #004a64'}}/>Planejado (início e fim)</span><span><i style={{background:'#087f77'}}/>Trabalho</span><span><i style={{background:'repeating-linear-gradient(135deg,#9aa6aa 0 2px,#e5eae8 2px 5px)'}}/>Pausa</span><span><i style={{background:'repeating-linear-gradient(135deg,#d92d20 0 2px,#fde4e1 2px 5px)'}}/>Bloqueio</span><span><i style={{width:2,background:'#d92d20'}}/>Ocorrência</span><span><i style={{height:3,background:'#f47a04'}}/>Impacto</span></div>
   </div>
 
   <h2>Etapas</h2>
