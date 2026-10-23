@@ -1,6 +1,6 @@
 // Agenda de OS para imprimir ou salvar em PDF (A4 paisagem). Cabeçalho com o resumo para o gestor
-// (quantidades, solicitantes, horas, recursos e alertas) e um Gantt por data: cada linha é um dia e
-// cada bloco uma OS no seu horário. Sempre a mesma quantidade de OS por folha.
+// (quantidades, solicitantes, horas, recursos e alertas) e o cronograma: cada linha é uma OS inteira
+// (eixo vertical) e as datas do período ficam no eixo horizontal. Sempre a mesma quantidade de OS por folha.
 import type {Metadata} from 'next';
 import type {CSSProperties} from 'react';
 import {cookies} from 'next/headers';
@@ -26,8 +26,10 @@ export async function generateMetadata({searchParams}:{searchParams:Search}):Pro
 
 const TZ='America/Sao_Paulo',H=3600_000,DAY=24*H,OFF=3*H;
 const PER_PAGE=10;
-// Espaço útil do Gantt (mm): 1ª folha com o resumo completo; as demais com cabeçalho curto.
-const AVAIL_FIRST=84,AVAIL_NEXT=150,LANE_MIN=6,LANE_MAX=15;
+// Espaço útil das linhas (mm): 1ª folha com o resumo completo; as demais com cabeçalho curto.
+const AVAIL_FIRST=82,AVAIL_NEXT=146,ROW_MIN=7,ROW_MAX=14;
+// Largura da coluna de identificação da OS e da área de datas (A4 paisagem, 277 mm úteis).
+const LABEL_W=74,TIME_W=277-LABEL_W;
 const f=new Intl.DateTimeFormat('pt-BR',{timeZone:TZ,day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
 const hm=new Intl.DateTimeFormat('pt-BR',{timeZone:TZ,hour:'2-digit',minute:'2-digit'});
 const dmy=new Intl.DateTimeFormat('pt-BR',{timeZone:TZ,day:'2-digit',month:'2-digit',year:'numeric'});
@@ -36,9 +38,6 @@ const dm=new Intl.DateTimeFormat('pt-BR',{timeZone:TZ,day:'2-digit',month:'2-dig
 const num=(n:number,d=0)=>n.toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
 const hours=(h:number)=>h>=10?`${num(h)} h`:`${num(h,1)} h`;
 const STATUS:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída'};
-const dayOf=(t:number)=>Math.floor((t-OFF)/DAY)*DAY+OFF; // 00:00 de Brasília
-
-type Seg={o:Row,day:number,s:number,e:number,contL:boolean,contR:boolean,lane:number};
 
 const css=`
 html,body{background:#dfe5e3!important;color:#0b1d25}
@@ -77,67 +76,40 @@ body{font:9pt/1.35 var(--f-body);margin:0}
 .alert li{grid-template-columns:auto 1fr;color:#7a2a12;align-items:start}.alert li span:last-child{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}.ok{font-size:7.6pt;color:#3f7d0e}
 .muted{color:#6c7c82;font-size:7.4pt}
 .gantt{flex:1;min-height:0;display:flex;flex-direction:column;border:.3mm solid #9fb0ad}
-.gh{display:grid;grid-template-columns:24mm 1fr;border-bottom:.3mm solid #9fb0ad;background:#eef1f0}
-.gh .lbl{font:700 6.4pt/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:#4b5f66;padding:1.6mm 2mm}
-.scale{position:relative;height:6mm}
-.scale span{position:absolute;top:1.6mm;translate:-50% 0;font:600 6.6pt/1 var(--f-mono);color:#4b5f66}
-.scale span.first{translate:0 0}.scale span.last{translate:-100% 0}
-.drow{display:grid;grid-template-columns:24mm 1fr;border-bottom:.3mm solid #c7d0ce;break-inside:avoid;overflow:hidden}
-.drow:last-child{border-bottom:0}
-.drow:nth-child(even) .day,.drow:nth-child(even) .lanes{background:#f7f9f8}
-.day{padding:0 2mm;border-right:.3mm solid #9fb0ad;display:flex;flex-direction:column;justify-content:center;overflow:hidden}
-.day b{font:800 10pt/1 var(--f-display);letter-spacing:-.01em}.day span{font:600 5.8pt/1.25 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:#6c7c82}
-.day.tight{flex-direction:row;align-items:center;gap:1.5mm}.day.tight b{font-size:8.5pt}
-.day em{font:italic 500 6pt/1.2 var(--f-body);color:#6c7c82;margin-top:.4mm}
-.lanes{position:relative;background-image:var(--grid)}
-.blk{position:absolute;box-sizing:border-box;padding:.7mm 1.3mm .7mm 1.9mm;border:.3mm solid var(--line);border-left:1.6mm solid var(--c);background:var(--bg);border-radius:.7mm;overflow:hidden;display:flex;flex-direction:column;gap:.25mm;min-width:0}
-.blk.one{flex-direction:row;align-items:center;gap:1.5mm;padding-top:0;padding-bottom:0}.blk.one .bt{flex:none}.blk.one .bn{-webkit-line-clamp:1;font-size:7pt}
-.blk .bt{display:flex;justify-content:space-between;gap:1.5mm;font:700 6.2pt/1.15 var(--f-mono);color:#0b1d25;white-space:nowrap;min-width:0}
-.blk .bt span{font-weight:500;color:#33474e;overflow:hidden;text-overflow:ellipsis}
-.blk .bn{font:700 7.6pt/1.15 var(--f-body);color:#0b1d25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines);overflow:hidden;overflow-wrap:anywhere}
-.blk .bm{font:500 6.3pt/1.2 var(--f-body);color:#33474e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.blk.narrow .bt span,.blk.narrow .bm{display:none}.blk.narrow .bn{font-size:6.8pt}
-.blk.done{background:repeating-linear-gradient(135deg,#fff 0 1.2mm,#f1f3f2 1.2mm 2.4mm);border-left-style:double}
-.blk.live{border-style:solid;box-shadow:inset 0 0 0 .35mm var(--c)}
-.blk.contl{border-top-left-radius:0;border-bottom-left-radius:0}
-.blk.contr{border-top-right-radius:0;border-bottom-right-radius:0;border-right:.6mm dashed var(--c)}
+.gh{display:grid;grid-template-columns:${LABEL_W}mm 1fr;border-bottom:.4mm solid #9fb0ad;background:#eef1f0}
+.gh .lbl{font:700 6.4pt/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:#4b5f66;padding:0 2.4mm;display:flex;align-items:center;border-right:.3mm solid #9fb0ad}
+.days{position:relative;height:8.4mm}
+.days span{position:absolute;top:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;border-left:.2mm solid #d3dbd9;font:600 5.8pt/1.15 var(--f-mono);color:#4b5f66;text-transform:uppercase;overflow:hidden}
+.days span b{font:800 7.6pt/1.1 var(--f-mono);color:#0b1d25;text-transform:none}
+.days span.we{background:#e2e8e6}.days span.mo{border-left:.5mm solid #4b5f66}.days span.today{background:#0b1d25;color:#fff}.days span.today b{color:#c8f25a}.days span.todayh b{box-shadow:inset 0 -.6mm 0 #d92d20}
+.hours{position:absolute;left:0;right:0;bottom:0;height:3mm}
+.hours i{position:absolute;bottom:0;font:500 5.4pt/1 var(--f-mono);font-style:normal;color:#6c7c82;translate:-50% 0}
+.orow{display:grid;grid-template-columns:${LABEL_W}mm 1fr;border-bottom:.3mm solid #c7d0ce;overflow:hidden}
+.orow:last-child{border-bottom:0}
+.orow:nth-child(even){background:#f7f9f8}
+.oinfo{display:flex;flex-direction:column;justify-content:center;gap:.3mm;padding:0 2.4mm 0 3mm;border-right:.3mm solid #9fb0ad;border-left:1.4mm solid var(--c);overflow:hidden;min-width:0}
+.oinfo .l1{display:flex;justify-content:space-between;gap:2mm;font:700 6.4pt/1.15 var(--f-mono);color:#0b1d25;white-space:nowrap}
+.oinfo .l1 span{font-weight:500;color:#33474e;overflow:hidden;text-overflow:ellipsis}
+.oinfo .l2{font:700 7.8pt/1.15 var(--f-body);color:#0b1d25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines);overflow:hidden;overflow-wrap:anywhere}
+.oinfo .l3{font:500 6.3pt/1.2 var(--f-body);color:#33474e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.otime{position:relative;background-image:var(--grid)}
+.otime .we{position:absolute;top:0;bottom:0;background:rgba(75,95,102,.07)}
+.otime .now{position:absolute;top:0;bottom:0;width:.5mm;background:#d92d20;translate:-50% 0;z-index:3}
+.bar{position:absolute;top:22%;bottom:22%;box-sizing:border-box;border:.3mm solid var(--line);border-left:1.2mm solid var(--c);background:var(--bg);border-radius:.8mm;display:flex;align-items:center;padding:0 1.2mm;overflow:hidden;z-index:2;font:600 6.2pt/1 var(--f-mono);color:#0b1d25;white-space:nowrap}
+.bar.done{background:repeating-linear-gradient(135deg,#fff 0 1.2mm,#eef1f0 1.2mm 2.4mm);border-left-style:double}
+.bar.live{box-shadow:inset 0 0 0 .35mm var(--c)}
+.bar.contl{border-top-left-radius:0;border-bottom-left-radius:0;border-left-style:dashed}
+.bar.contr{border-top-right-radius:0;border-bottom-right-radius:0;border-right:.6mm dashed var(--c)}
 .empty{padding:10mm;text-align:center;color:#4b5f66;font-size:10pt}
 .legend{display:flex;flex-wrap:wrap;gap:4mm;font-size:6.8pt;color:#4b5f66;align-items:center}
 .legend i{display:inline-block;width:6mm;height:2.6mm;margin-right:1.2mm;vertical-align:-.4mm;border:.3mm solid #6c7c82;border-left:1.2mm solid #0b1d25;background:#fff}
+.legend i.t{width:.5mm;border:0;background:#d92d20}
 .legend i.d{background:repeating-linear-gradient(135deg,#fff 0 1mm,#e5eae8 1mm 2mm);border-left-style:double}
 .legend i.l{box-shadow:inset 0 0 0 .3mm #0b1d25}
-.legend i.c{border-right:.6mm dashed #0b1d25}
+.legend i.c{border-right:.6mm dashed #0b1d25;border-left-style:dashed}
 .foot{display:flex;justify-content:space-between;gap:4mm;font:500 6.6pt/1.2 var(--f-mono);letter-spacing:.06em;color:#6c7c82}
 @media print{html,body{background:#fff!important}.noprint{display:none}.page{margin:0;box-shadow:none;break-after:page}.page:last-child{break-after:auto}@page{size:A4 landscape;margin:0}}
 `;
-
-/** Faixa de horas comum a todas as folhas (mínimo de 8 h, alinhada a horas cheias). */
-function window_(segs:Seg[]){
- if(!segs.length)return {h0:6,h1:18};
- let h0=24,h1=0;
- for(const g of segs){h0=Math.min(h0,Math.floor((g.s-g.day)/H));h1=Math.max(h1,Math.ceil((g.e-g.day)/H));}
- h0=Math.max(0,h0);h1=Math.min(24,Math.max(h1,h0+1));
- while(h1-h0<8){if(h0>0)h0--;if(h1-h0<8&&h1<24)h1++;}
- return {h0,h1};
-}
-/** Uma OS vira um trecho por dia dentro do período (OS de vários dias aparecem em cada dia). */
-function segments(o:Row,t0:number,t1:number){
- const s=Math.max(Date.parse(o.planned_start),t0),e=Math.min(Date.parse(o.planned_end),t1),out:Seg[]=[];
- for(let d=dayOf(s);d<e;d+=DAY){const a=Math.max(s,d),b=Math.min(e,d+DAY);if(b>a)out.push({o,day:d,s:a,e:b,contL:Date.parse(o.planned_start)<d,contR:Date.parse(o.planned_end)>d+DAY,lane:0});}
- return out;
-}
-/** Faixas por dia: cada OS na primeira faixa livre (sem sobrepor blocos). */
-function lanes(segs:Seg[]){
- const days=new Map<number,Seg[]>();
- for(const g of segs.sort((x,y)=>x.s-y.s||y.e-x.e||x.o.number-y.o.number)){const l=days.get(g.day)||[];l.push(g);days.set(g.day,l);}
- const rows:{day:number,segs:Seg[],lanes:number}[]=[];
- for(const [day,list] of [...days.entries()].sort((x,y)=>x[0]-y[0])){
-  const ends:number[]=[];
-  for(const g of list){let i=ends.findIndex(e=>e<=g.s);if(i<0){i=ends.length;ends.push(0);}ends[i]=g.e;g.lane=i;}
-  rows.push({day,segs:list,lanes:Math.max(1,ends.length)});
- }
- return rows;
-}
 
 export default async function Agenda({searchParams}:{searchParams:Search}){
  const s=await searchParams;
@@ -151,12 +123,15 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
  const t0=Date.parse(r.period.from),t1=Date.parse(r.period.to),sum=r.summary;
  const pages:Row[][]=[];for(let i=0;i<r.orders.length;i+=PER_PAGE)pages.push(r.orders.slice(i,i+PER_PAGE));
  if(!pages.length)pages.push([]);
- const all=r.orders.flatMap(o=>segments(o,t0,t1));
- const {h0,h1}=window_(all),span=(h1-h0)*H;
- const step=h1-h0<=14?1:2;
- const ticks:number[]=[];for(let h=h0;h<=h1;h+=step)ticks.push(h);
- const pct=(day:number,t:number)=>Math.max(0,Math.min(100,(t-day-h0*H)/span*100));
- const grid=`repeating-linear-gradient(90deg,transparent 0 calc(${100/((h1-h0)/step)}% - .3mm),#e3e8e6 calc(${100/((h1-h0)/step)}% - .3mm) ${100/((h1-h0)/step)}%)`;
+ // Eixo horizontal: os dias do período (com horas quando o período é curto).
+ const days=r.period.days,span=t1-t0,colW=TIME_W/days;
+ const pct=(t:number)=>Math.max(0,Math.min(100,(t-t0)/span*100));
+ const dayList=Array.from({length:days},(_,i)=>t0+i*DAY);
+ const wdNum=(t:number)=>new Date(t).getUTCDay(); // t0 é 00:00 de Brasília (03:00 UTC): mesmo dia
+ const hourStep=days<=1?2:days<=3?6:0;
+ const hourTicks=hourStep?dayList.flatMap(d=>Array.from({length:24/hourStep-1},(_,k)=>d+(k+1)*hourStep*H)):[];
+ const now=Date.parse(r.generatedAt),nowIn=now>=t0&&now<t1; // momento da emissão (gerado no servidor)
+ const grid=`repeating-linear-gradient(90deg,#d8dfdd 0 .2mm,transparent .2mm ${100/days}%)`;
  const range=`${dmy.format(t0)}${r.period.days>1?' a '+dmy.format(t1-1):''}`;
  const sectorLabel=r.sector?<><b>Setor {r.sector.code}</b> · {r.sector.name}</>:<b>Todos os setores</b>;
  const issued=`Emitida em ${f.format(new Date(r.generatedAt)).replace(',','')} por ${member.name}`;
@@ -203,36 +178,41 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
 
  return <main><style>{css}</style><AgendaPrint auto={one(s.imprimir)==='1'}/>
   {pages.map((list,p)=>{
-   const rows=lanes(list.flatMap(o=>segments(o,t0,t1)));
-   const totalLanes=rows.reduce((n,x)=>n+x.lanes,0)||1;
-   // Altura da faixa conforme o espaço da folha (a 1ª tem o cabeçalho completo).
-   const lane=Math.max(LANE_MIN,Math.min(LANE_MAX,(p===0?AVAIL_FIRST:AVAIL_NEXT)/totalLanes));
-   // Linhas que cabem no bloco (mm): cabeçalho 2,5; cada linha de título 3,1; local e recursos 2,7.
-   // Pouco espaço: uma linha só (número e título); depois título em 1 ou 2 linhas e, sobrando, os recursos.
-   const inner=lane-2.1,one=inner<5.8,lines=inner>=8.4?2:1,meta=!one&&inner>=2.5+3.1*lines+2.7;
+   // Altura da linha conforme o espaço da folha (a 1ª tem o resumo completo).
+   const row=Math.max(ROW_MIN,Math.min(ROW_MAX,(p===0?AVAIL_FIRST:AVAIL_NEXT)/Math.max(1,list.length)));
+   const lines=row>=10?2:1,meta=row>=(lines===2?13.5:10.5);
    const first=p*PER_PAGE+1,last=p*PER_PAGE+list.length;
    return <section key={p} className="page">
     {p===0?header:<div className="mini"><span><b>Agenda de OS · {range}</b>{r.sector?`Setor ${r.sector.code}`:'Todos os setores'}</span><span>Folha {p+1} de {pages.length}</span></div>}
     <div className="gantt">
-     <div className="gh"><div className="lbl">Data</div><div className="scale">{ticks.map((h,i)=><span key={h} className={i===0?'first':i===ticks.length-1?'last':''} style={{left:`${(h-h0)/(h1-h0)*100}%`}}>{String(h).padStart(2,'0')}h</span>)}</div></div>
-     {rows.map(row=><div key={row.day} className="drow">
-      <div className={`day${row.lanes*lane<10?' tight':''}`}><span>{wd.format(row.day+OFF).replace('.','')}</span><b>{dm.format(row.day+OFF)}</b>{p>0&&pages[p-1].some(o=>segments(o,t0,t1).some(g=>g.day===row.day))&&<em>continuação</em>}</div>
-      <div className="lanes" style={{height:`${row.lanes*lane}mm`,['--grid' as string]:grid} as CSSProperties}>
-       {row.segs.map(g=>{const o=g.o,l=pct(g.day,g.s),w=Math.max(1.2,pct(g.day,g.e)-l),narrow=w<11;
-        const cls=['blk',one?'one':'',o.status==='concluida'?'done':'',['em_andamento','encerramento_pendente'].includes(o.status)?'live':'',g.contL?'contl':'',g.contR?'contr':'',narrow?'narrow':''].filter(Boolean).join(' ');
-        const eq=(o.equipment as Row[]).map(e=>e.tag).join(', ');
-        const info=[o.org_acronym,o.location_name,eq,(o.people as string[]).length?`${(o.people as string[]).length} pessoa(s)`:''].filter(Boolean).join(' · ');
-        return <div key={o.id+':'+g.day} className={cls} title={`${osNumber(o.number)} · ${o.activity_name} · ${STATUS[o.status]||o.status}`}
-         style={{left:`${l}%`,width:`calc(${w}% - .6mm)`,top:`${g.lane*lane+.35}mm`,height:`${lane-.7}mm`,['--c' as string]:o.org_color,['--bg' as string]:`color-mix(in srgb,${o.org_color} 13%,#fff)`,['--line' as string]:`color-mix(in srgb,${o.org_color} 45%,#fff)`,['--lines' as string]:lines} as CSSProperties}>
-         <div className="bt"><b>{g.contL?'◂ ':''}{osNumber(o.number).replace('OS ','')}{o.origin==='realizada'?' · R':''}{o.status==='concluida'?' ✓':['em_andamento','encerramento_pendente'].includes(o.status)?' ●':''}</b><span>{hm.format(Date.parse(o.planned_start))}–{hm.format(Date.parse(o.planned_end))}{g.contR?' ▸':''}{o.sector_code?` · ${o.sector_code}`:''}</span></div>
-         <div className="bn">{o.activity_name}</div>
-         {meta&&<div className="bm">{info}</div>}
-        </div>;})}
-      </div>
-     </div>)}
-     {!rows.length&&<p className="empty">Nenhuma OS programada {r.sector?`para o setor ${r.sector.code} `:''}entre {range}.</p>}
+     <div className="gh"><div className="lbl">OS · atividade</div>
+      <div className="days">{dayList.map((d,i)=>{const w=wdNum(d),m=new Date(d+OFF).getUTCDate()===1;
+       return <span key={d} className={[w===0||w===6?'we':'',m&&i>0?'mo':'',nowIn&&now>=d&&now<d+DAY?(hourStep?'todayh':'today'):''].filter(Boolean).join(' ')} style={{left:`${i/days*100}%`,width:`${100/days}%`,justifyContent:hourStep?'flex-start':'center',paddingTop:hourStep?'.8mm':0}}>
+        {colW>=7?wd.format(d+OFF).replace('.',''):wd.format(d+OFF).slice(0,1)}<b>{colW>=9?dm.format(d+OFF):new Date(d+OFF).getUTCDate()}</b></span>;})}
+       {hourStep>0&&<div className="hours">{hourTicks.map(t=><i key={t} style={{left:`${pct(t)}%`}}>{String(new Date(t-OFF).getUTCHours()).padStart(2,'0')}h</i>)}</div>}</div></div>
+     {list.map(o=>{const s0=Date.parse(o.planned_start),e0=Date.parse(o.planned_end),l=pct(s0),wPct=Math.max(.6,pct(e0)-l),wMm=wPct*TIME_W/100;
+      const contL=s0<t0,contR=e0>t1,live=['em_andamento','encerramento_pendente'].includes(o.status);
+      const sameDay=dm.format(s0)===dm.format(e0);
+      const when=sameDay?`${dm.format(s0)} ${hm.format(s0)}–${hm.format(e0)}`:`${dm.format(s0)} ${hm.format(s0)} → ${dm.format(e0)} ${hm.format(e0)}`;
+      const eq=(o.equipment as Row[]).map(e=>e.tag).join(', ');
+      const info=[o.org_acronym,o.location_name,eq,(o.people as string[]).length?`${(o.people as string[]).length} pessoa(s)`:''].filter(Boolean).join(' · ');
+      const cls=['bar',o.status==='concluida'?'done':'',live?'live':'',contL?'contl':'',contR?'contr':''].filter(Boolean).join(' ');
+      const vars={['--c' as string]:o.org_color,['--bg' as string]:`color-mix(in srgb,${o.org_color} 16%,#fff)`,['--line' as string]:`color-mix(in srgb,${o.org_color} 50%,#fff)`,['--lines' as string]:lines} as CSSProperties;
+      return <div key={o.id} className="orow" style={{height:`${row}mm`,...vars}}>
+       <div className="oinfo" title={`${osNumber(o.number)} · ${o.activity_name} · ${STATUS[o.status]||o.status}`}>
+        <div className="l1"><b>{osNumber(o.number).replace('OS ','OS ')}{o.sector_code?` · ${o.sector_code}`:''}{o.origin==='realizada'?' · R':''}{o.status==='concluida'?' ✓':live?' ●':''}</b><span>{when}</span></div>
+        <div className="l2">{o.activity_name}</div>
+        {meta&&<div className="l3">{info}</div>}
+       </div>
+       <div className="otime" style={{['--grid' as string]:grid} as CSSProperties}>
+        {dayList.filter(d=>{const w=wdNum(d);return w===0||w===6;}).map(d=><i key={d} className="we" style={{left:`${pct(d)}%`,width:`${100/days}%`}}/>)}
+        <div className={cls} style={{left:`${l}%`,width:`${wPct}%`}}>{wMm>=17?`${contL?'◂ ':''}${hm.format(s0)}–${hm.format(e0)}${contR?' ▸':''}`:wMm>=9?hm.format(s0):''}</div>
+        {nowIn&&<i className="now" style={{left:`${pct(now)}%`}}/>}
+       </div>
+      </div>;})}
+     {!list.length&&<p className="empty">Nenhuma OS programada {r.sector?`para o setor ${r.sector.code} `:''}entre {range}.</p>}
     </div>
-    <div className="legend"><span>Cor do bloco = solicitante</span><span><i/>Programada</span><span><i className="l"/>● Em andamento</span><span><i className="d"/>✓ Concluída</span><span><i className="c"/>◂ ▸ Continua em outro dia</span><span>R = realizada sem planejamento</span></div>
+    <div className="legend"><span>Cor = solicitante · barra = período planejado da OS inteira</span><span><i/>Programada</span><span><i className="l"/>● Em andamento</span><span><i className="d"/>✓ Concluída</span><span><i className="c"/>◂ ▸ Começa ou termina fora do período</span><span><i className="t"/>Hoje</span><span>R = realizada sem planejamento</span></div>
     <div className="foot"><span>Folha {p+1} de {pages.length} · {list.length?`OS ${first}–${last} de ${totalLabel(sum.total)}`:'sem OS'} · {PER_PAGE} OS por folha</span><span>Horários de Brasília · NAUTILUS</span></div>
    </section>;})}
  </main>;

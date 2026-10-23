@@ -86,9 +86,7 @@ body{font-family:var(--f-body)}
 .sw.bloqueio{background:var(--pat-block);box-shadow:inset 0 0 0 1px var(--occ)}
 .sw.ocorrencia{background:var(--occ);width:4px}
 .sw.impacto{background:var(--pat-imp)}
-.sw.plan{background:radial-gradient(circle,color-mix(in srgb,var(--brand) 45%,transparent) .8px,transparent 1.2px) 0 0/4px 4px;border-top:1px dotted var(--brand);border-bottom:1px dotted var(--brand)}
-.sw.pstart{width:10px;background:transparent;border-left:3px double var(--brand);border-radius:0}
-.sw.pend{width:10px;background:transparent;border-left:2px dashed var(--brand);border-radius:0}
+.sw.plan{background:color-mix(in srgb,var(--brand) 9%,var(--surface));border:1.5px solid var(--brand)}
 .sw.now{width:3px;background:var(--ink)}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2)}
 .legend span{display:inline-flex;align-items:center;gap:6px}
@@ -106,7 +104,7 @@ body{font-family:var(--f-body)}
 .rlabels{border-right:1px solid var(--line);min-width:0}
 .rl-scale{height:22px;border-bottom:1px solid var(--line)}
 .rlabel{height:28px;font:600 10px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);display:flex;align-items:center;gap:8px;padding:0 10px;white-space:nowrap;border-bottom:1px dashed color-mix(in srgb,var(--line) 70%,transparent);overflow:hidden;width:100%;background:none;border-left:0;border-right:0;border-top:0;text-align:left;cursor:default}
-.rlabel.primary{height:38px;border-bottom-style:solid;border-bottom-color:var(--line);letter-spacing:.14em}
+.rlabel.primary{height:48px;justify-content:space-between;border-bottom-style:solid;border-bottom-color:var(--line);letter-spacing:.14em}
 .rlabel.step{cursor:pointer;text-transform:none;letter-spacing:0;font:600 11.5px/1 var(--f-body);text-overflow:ellipsis}
 .rlabel.step i{width:7px;height:7px;border-radius:50%;flex:none;background:var(--muted-c)}
 .rlabel.step.em_execucao i{background:var(--live)} .rlabel.step.pausada i{background:var(--imp)} .rlabel.step.bloqueada i{background:var(--occ)} .rlabel.step.concluida i{background:var(--ok)}
@@ -118,30 +116,25 @@ body{font-family:var(--f-body)}
 .rscale i.major{height:7px;background:var(--ink-2)}
 .rlane{height:28px;position:relative;border-bottom:1px dashed color-mix(in srgb,var(--line) 70%,transparent);cursor:pointer}
 .rlane.sel{background:color-mix(in srgb,var(--live) 7%,transparent)}
-.rlane.primary{height:38px;border-bottom:1px solid var(--line);cursor:default}
+.rlane.primary{height:48px;border-bottom:1px solid var(--line);cursor:default}
 .rextra .rlane:last-child,.rextra .rlabel:last-child{border-bottom:0}
 .rgrid .gl{position:absolute;top:0;bottom:0;width:1px;background:color-mix(in srgb,var(--line) 55%,transparent);pointer-events:none}
 .rgrid .gl.half{background:color-mix(in srgb,var(--line) 28%,transparent)}
 .rextra{display:grid;grid-template-rows:0fr;transition:grid-template-rows .35s cubic-bezier(.2,.7,.2,1)}
 .rextra>div{overflow:hidden}
 .rbox:hover .rextra,.rbox:focus-within .rextra,.rbox[data-pinned=true] .rextra{grid-template-rows:1fr}
-.ritem{position:absolute;top:7px;bottom:7px;border-radius:2px;min-width:2px;overflow:hidden}
-.rlane.primary .ritem{top:8px;bottom:12px}
+.ritem{position:absolute;top:13px;bottom:4px;border-radius:2px;min-width:2px;overflow:hidden}
+.rlane.primary .ritem{top:27px;bottom:5px}
 .ritem.trabalho{background:var(--pat-work);transform-origin:left;animation:sonar-grow .8s cubic-bezier(.2,.7,.2,1) both}
 .ritem.trabalho.open{background:linear-gradient(90deg,var(--live),color-mix(in srgb,var(--live) 45%,transparent))}
-.ritem.pausa{background:var(--pat-pause);top:10px;bottom:10px}
-.ritem.bloqueio{background:var(--pat-block);top:9px;bottom:9px}
-.rlane.primary .ritem.pausa,.rlane.primary .ritem.bloqueio{top:11px;bottom:15px}
-.rplan{position:absolute;top:3px;bottom:3px;background:radial-gradient(circle,color-mix(in srgb,var(--brand) 38%,transparent) .8px,transparent 1.2px) 0 0/5px 5px,color-mix(in srgb,var(--brand) 6%,transparent);border-top:1px dotted color-mix(in srgb,var(--brand) 60%,transparent);border-bottom:1px dotted color-mix(in srgb,var(--brand) 60%,transparent);pointer-events:auto}
-.rpline{position:absolute;top:0;bottom:0;width:0;pointer-events:none;z-index:1}
-.rpline.start{border-left:3px double var(--brand)}
-.rpline.end{border-left:2px dashed var(--brand)}
-.rflag{position:absolute;bottom:3px;z-index:2;width:max-content;font:700 10px/1 var(--f-mono);letter-spacing:.02em;padding:3px 5px;border-radius:2px;white-space:nowrap;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-.rflag.start{background:var(--brand);color:#fff;border:1px solid var(--brand)}
-.rflag.end{background:var(--surface);color:var(--brand);border:1px dashed var(--brand)}
-.rflag.start.flip,.rflag.end.flip{translate:-100% 0}
-.os-ruler.compact .rflag{font-size:9px;padding:2px 4px}
-.rmark{position:absolute;top:2px;width:3px;height:6px;border-radius:1px;translate:-50% 0;z-index:1}
+.ritem.pausa{background:var(--pat-pause);top:15px;bottom:6px}
+.ritem.bloqueio{background:var(--pat-block);top:14px;bottom:5px}
+.rlane.primary .ritem.pausa,.rlane.primary .ritem.bloqueio{top:30px;bottom:8px}
+.rplan{position:absolute;top:3px;height:8px;box-sizing:border-box;border:1.5px solid var(--brand);background:color-mix(in srgb,var(--brand) 9%,var(--surface));border-radius:2px;display:flex;justify-content:space-between;align-items:center;overflow:hidden;z-index:1;pointer-events:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rplan b{font:700 9px/1 var(--f-mono);color:var(--brand);padding:0 4px;white-space:nowrap}
+.rlane:not(.primary) .rplan b{display:none}
+.rlane.primary .rplan{top:5px;height:17px}
+.rmark{position:absolute;top:12px;width:3px;height:6px;border-radius:1px;translate:-50% 0;z-index:1}
 .rmark.ocorrencia{background:var(--occ)}
 .rmark.bloqueio{background:var(--occ);width:6px;height:6px;border-radius:50%}
 .rmark.impacto{top:auto;bottom:3px;height:5px;translate:0 0;background:var(--pat-imp);min-width:3px}
@@ -507,5 +500,9 @@ body{font-family:var(--f-body)}
 .rn-actions{display:flex;justify-content:flex-end}
 .muted-text{color:var(--muted-c);font-size:.82rem}
 
-/* Rótulo AGORA vai para baixo quando está perto das bandeiras do planejado */
-.rnow.low::after{top:auto;bottom:4px}
+
+/* Régua: rótulos das trilhas (planejado em cima, executado embaixo) */
+.rlabel.primary b{font-weight:700}
+.rlabel.primary .tracks{display:grid;gap:8px;font:600 8.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-c)}
+.rlabel.primary .tracks em{font-style:normal}
+.rlane.primary .rmark{top:24px}

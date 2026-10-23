@@ -1,8 +1,8 @@
 'use client';
 // Régua da OS: compacta em repouso (OS inteira); ao passar o mouse, focar ou fixar, abre uma faixa
-// por etapa. Tipos se distinguem por cor e padrão (legíveis também em preto e branco): trabalho
-// sólido, pausa hachurada cinza, bloqueio hachurado vermelho, janela planejada pontilhada com o
-// início previsto em linha dupla e bandeira, fim previsto tracejado, ocorrências e impactos como marcas.
+// por etapa. Cada faixa compara duas trilhas: em cima o PLANEJADO (barra contornada com as horas de
+// início e fim escritas) e embaixo o EXECUTADO (trabalho sólido, pausa hachurada cinza, bloqueio
+// hachurado vermelho, ocorrências e impactos como marcas). Legível em cor e em preto e branco.
 import {useEffect,useRef,useState,type MouseEvent} from 'react';
 import type {R} from './kit';
 
@@ -22,7 +22,7 @@ export function effective(intervals:R[],now:number){
 
 /** Legenda da régua (também usada no Painel de OS, onde as réguas são compactas). */
 export function RulerLegend({className='legend'}:{className?:string}){
- return <div className={className}><span><span className="sw trabalho"/>Trabalho</span><span><span className="sw pausa"/>Pausa</span><span><span className="sw bloqueio"/>Bloqueio</span><span><span className="sw plan"/>Janela planejada</span><span><span className="sw pstart"/>Início previsto</span><span><span className="sw pend"/>Fim previsto</span><span><span className="sw ocorrencia"/>Ocorrência</span><span><span className="sw impacto"/>Impacto</span><span><span className="sw now"/>Agora</span></div>;
+ return <div className={className}><span><span className="sw plan"/>Planejado (início e fim)</span><span><span className="sw trabalho"/>Executado: trabalho</span><span><span className="sw pausa"/>Pausa</span><span><span className="sw bloqueio"/>Bloqueio</span><span><span className="sw ocorrencia"/>Ocorrência</span><span><span className="sw impacto"/>Impacto</span><span><span className="sw now"/>Agora</span></div>;
 }
 
 type Props={order:R;steps:R[];intervals:R[];occurrences:R[];now:number;compact?:boolean;selected?:string|null;onSelect?:(id:string|null)=>void;title?:string};
@@ -57,11 +57,11 @@ export default function OsRuler({order,steps,intervals,occurrences,now,compact=f
  const ivs=(list:R[])=>list.map((i,n)=>i.kind==='ativo'
   ?<span key={n} className={`ritem trabalho${i.end_at?'':' open'}`} style={{left:pct(ms(i.start_at))+'%',width:width(ms(i.start_at),i.end_at?ms(i.end_at):now)+'%'}} title={`Trabalho ${hm.format(ms(i.start_at))}–${i.end_at?hm.format(ms(i.end_at)):'agora'} · ${dur((i.end_at?ms(i.end_at):now)-ms(i.start_at))}`}/>
   :<span key={n} className={`ritem ${stopClass(i)}`} style={{left:pct(ms(i.start_at))+'%',width:width(ms(i.start_at),i.end_at?ms(i.end_at):now)+'%'}} title={`${stopClass(i)==='bloqueio'?'Bloqueio':'Pausa'} ${hm.format(ms(i.start_at))}–${i.end_at?hm.format(ms(i.end_at)):'agora'}`}/>);
- const planned=(a?:string,b?:string)=>a&&b?<span className="rplan" style={{left:pct(ms(a))+'%',width:width(ms(a),ms(b))+'%'}} title={`Planejado ${dm.format(ms(a))} ${hm.format(ms(a))} – ${hm.format(ms(b))}`}/>:null;
- // Marcos do planejado da OS: início (linha dupla + bandeira cheia) e fim (tracejado + bandeira vazada).
- const ps=ms(order.planned_start),pe=ms(order.planned_end);
- const flagGap=Math.abs(pct(pe)-pct(ps))*(trackWidth||600)/100;
- const near=(t:number)=>[ps,pe].some(x=>Math.abs(pct(t)-pct(x))*(trackWidth||600)/100<(compact?62:96))||(nowIn&&Math.abs(pct(t)-pct(now))*(trackWidth||600)/100<48);
+ // Trilha do planejado: barra contornada com as horas de início e fim (quando cabem).
+ const planned=(a?:string,b?:string,big=false)=>{if(!a||!b)return null;const px=width(ms(a),ms(b))*(trackWidth||600)/100;
+  return <span className="rplan" style={{left:pct(ms(a))+'%',width:width(ms(a),ms(b))+'%'}} title={`Planejado ${dm.format(ms(a))} ${hm.format(ms(a))} → ${dm.format(ms(b))} ${hm.format(ms(b))}`}>
+   {px>=(big?84:72)?<><b>{hm.format(ms(a))}</b><b>{hm.format(ms(b))}</b></>:px>=(big?44:40)?<b>{hm.format(ms(a))}</b>:null}</span>;};
+ const near=(t:number)=>nowIn&&Math.abs(pct(t)-pct(now))*(trackWidth||600)/100<48;
  const sorted=[...steps].sort((a,b)=>(a.position??0)-(b.position??0));
  const eff=effective(intervals,now);
 
@@ -71,20 +71,17 @@ export default function OsRuler({order,steps,intervals,occurrences,now,compact=f
    <div className="rgrid">
     <div className="rlabels">
      <div className="rl-scale"/>
-     <div className="rlabel primary"><span className="sw trabalho"/>OS</div>
+     <div className="rlabel primary"><b>OS</b><span className="tracks"><em>Plan.</em><em>Real</em></span></div>
      <div className="rextra"><div>{sorted.map(s=><button type="button" key={s.id} className={`rlabel step ${s.status}${selected===s.id?' sel':''}`} onClick={()=>onSelect?.(selected===s.id?null:s.id)} title={s.name}><i/>{s.name}</button>)}</div></div>
     </div>
     <div className="rtrack" ref={track} onMouseMove={move} onMouseLeave={()=>setCursor(null)}>
      {ticks.map(t=><span key={'g'+t.t} className={`gl${t.major?'':' half'}`} style={{left:pct(t.t)+'%'}}/>)}
-     <div className="rscale">{ticks.map(t=><i key={'i'+t.t} className={t.major?'major':''} style={{left:pct(t.t)+'%'}}/>)}{ticks.filter(t=>t.major&&!near(t.t)).map(t=><span key={'s'+t.t} style={{left:pct(t.t)+'%'}}>{label(t.t)}</span>)}
-      <b className={`rflag start${pct(ps)>70?' flip':''}`} style={{left:pct(ps)+'%'}} title={`Início previsto ${dm.format(ps)} ${hm.format(ps)}`}>▶ {compact?'':'Início prev. '}{hm.format(ps)}</b>
-      {flagGap>(compact?70:120)&&<b className={`rflag end${pct(pe)<30?'':' flip'}`} style={{left:pct(pe)+'%'}} title={`Fim previsto ${dm.format(pe)} ${hm.format(pe)}`}>{compact?'':'Fim prev. '}{hm.format(pe)} ◁</b>}</div>
-     <div className="rlane primary">{planned(order.planned_start,order.planned_end)}{ivs(intervals.filter(i=>i.kind!=='ativo'))}{ivs(intervals.filter(i=>i.kind==='ativo'))}{marks(occurrences)}</div>
+     <div className="rscale">{ticks.map(t=><i key={'i'+t.t} className={t.major?'major':''} style={{left:pct(t.t)+'%'}}/>)}{ticks.filter(t=>t.major&&!near(t.t)).map(t=><span key={'s'+t.t} style={{left:pct(t.t)+'%'}}>{label(t.t)}</span>)}</div>
+     <div className="rlane primary">{planned(order.planned_start,order.planned_end,true)}{ivs(intervals.filter(i=>i.kind!=='ativo'))}{ivs(intervals.filter(i=>i.kind==='ativo'))}{marks(occurrences)}</div>
      <div className="rextra"><div>{sorted.map(s=><div key={s.id} className={`rlane${selected===s.id?' sel':''}`} onClick={()=>onSelect?.(selected===s.id?null:s.id)}>
       {planned(s.planned_start,s.planned_end)}{ivs(intervals.filter(i=>i.os_step_id===s.id))}{marks(occurrences.filter(o=>o.os_step_id===s.id))}
      </div>)}</div></div>
-     <span className="rpline start" style={{left:pct(ps)+'%'}}/><span className="rpline end" style={{left:pct(pe)+'%'}}/>
-     {nowIn&&<span className={`rnow${[ps,pe].some(x=>Math.abs(pct(now)-pct(x))*(trackWidth||600)/100<110)?' low':''}`} style={{left:pct(now)+'%'}}/>}
+     {nowIn&&<span className="rnow" style={{left:pct(now)+'%'}}/>}
      {cursor!==null&&<span className={`rcursor${pct(cursor)>82?' flip':''}`} style={{left:pct(cursor)+'%'}}><span>{multiDay?`${dm.format(cursor)} `:''}{hm.format(cursor)}</span></span>}
     </div>
    </div>
