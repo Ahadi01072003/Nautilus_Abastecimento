@@ -100,7 +100,7 @@ export async function checkClosure(tx:Executor,a:Member,wo:Row){
 }
 
 /** Pendências para iniciar a etapa (dependências, checklists, recursos, bloqueios). */
-async function startBlockers(tx:Executor,wo:Row,s:Row){
+async function startBlockers(tx:Executor,wo:Row,s:Row,lock=true){
  const out:string[]=[];
  const siblings=await tx.all('SELECT o.step_key,o.status,p.name FROM os_steps o JOIN plan_steps p ON p.id=o.plan_step_id WHERE o.work_order_id=?',wo.id);
  for(const d of s.depends_on as string[]){const dep=siblings.find(x=>x.step_key===d);if(dep&&!['concluida','dispensada'].includes(dep.status))out.push(`Aguardando a conclusão de “${dep.name}”.`);}
@@ -109,7 +109,7 @@ async function startBlockers(tx:Executor,wo:Row,s:Row){
   AND NOT EXISTS (SELECT 1 FROM checklist_instances i WHERE i.requirement_id=r.id AND i.status='concluido')`,wo.id,equipment.map(e=>e.equipment_id));
  for(const r of reqs)out.push(`Checklist obrigatório pendente: ${r.title}${r.equipment_id?' ('+equipment.find(e=>e.equipment_id===r.equipment_id)?.tag+')':''}.`);
  for(const e of equipment){
-  await tx.run('SELECT 1 FROM equipment WHERE id=? FOR UPDATE',e.equipment_id);
+  if(lock)await tx.run('SELECT 1 FROM equipment WHERE id=? FOR UPDATE',e.equipment_id);
   const imp=await tx.first('SELECT reason,kind FROM equipment_impediments WHERE equipment_id=? AND released_at IS NULL LIMIT 1',e.equipment_id);
   if(imp)out.push(`Equipamento ${e.tag} bloqueado (${imp.kind==='nc_critica'?'NC crítica':'impedimento técnico'}: ${imp.reason}). Aguarda liberação técnica ou substituição pelo Planejamento.`);
   const busy=await tx.first(`SELECT w.number,p.name FROM reservations r JOIN os_steps o ON o.plan_step_id=r.plan_step_id JOIN plan_steps p ON p.id=o.plan_step_id JOIN work_orders w ON w.id=o.work_order_id
@@ -122,7 +122,12 @@ async function startBlockers(tx:Executor,wo:Row,s:Row){
 
 export async function startCheck(member:Member,stepId:string){
  const a=await requireAny(member,['operacao','planejamento','acompanhamento']);
- return db().tx(async tx=>{const s=await stepOf(tx,idOf(stepId,'Etapa'));const wo=await tx.first('SELECT * FROM work_orders WHERE id=?',s.work_order_id);if(!inScope(a,wo!.org_id))throw new AppError('Etapa fora do seu acesso.',404);return {blockers:s.status==='nao_iniciada'?await startBlockers(tx,wo!,s):[]};});
+ // Só consulta: sem travar etapa nem equipamento (a conferência com trava acontece no “Iniciar”).
+ const ex=db();
+ const s=await ex.first('SELECT o.*,p.name,p.depends_on,p.planned_start,p.planned_end,p.plan_id FROM os_steps o JOIN plan_steps p ON p.id=o.plan_step_id WHERE o.id=?',idOf(stepId,'Etapa'));
+ if(!s)throw new AppError('Etapa não encontrada.',404);
+ const wo=await ex.first('SELECT * FROM work_orders WHERE id=?',s.work_order_id);if(!inScope(a,wo!.org_id))throw new AppError('Etapa fora do seu acesso.',404);
+ return {blockers:s.status==='nao_iniciada'?await startBlockers(ex,wo!,s,false):[]};
 }
 
 export async function operationMutate(path:string,b:Row,member:Member){
@@ -172,7 +177,7 @@ export async function operationMutate(path:string,b:Row,member:Member){
    const kind=path==='ops/block'?'bloqueio':b.kind;
    if(!['ocorrencia','impacto','bloqueio'].includes(kind))throw new AppError('Escolha o tipo de apontamento.');
    const blocking=kind==='bloqueio'||(kind==='impacto'&&b.blocking===true)?1:0;
-   const description=required(b.description,'Descrição',2000);
+   const description=required(b.description,kind==='bloqueio'||blocking?'Justificativa do bloqueio':'Descrição',2000);
    const category=b.categoryId?await tx.first('SELECT * FROM occurrence_categories WHERE id=? AND active=1',idOf(b.categoryId,'Categoria')):null;
    if(b.categoryId&&!category)throw new AppError('Categoria inativa ou inexistente.');
    if(category&&category.kind!==kind)throw new AppError('A categoria escolhida é de outro tipo de apontamento.');
@@ -197,7 +202,7 @@ export async function operationMutate(path:string,b:Row,member:Member){
 
   if(path==='ops/pause'){
    if(s.status!=='em_execucao')throw new AppError(`${label} não está em execução.`,409);
-   const reason=required(b.reason,'Motivo da pausa',1200);
+   const reason=required(b.reason,'Justificativa da pausa',1200);
    const ev=await event(tx,a,wo,s.id,'pausa',key,{reason});
    await closeInterval(tx,s.id,ev,t);await openInterval(tx,s.id,'interrompido',ev,t);
    await tx.run("UPDATE os_steps SET status='pausada' WHERE id=?",s.id);
@@ -234,6 +239,8 @@ export async function operationMutate(path:string,b:Row,member:Member){
    await tx.run("UPDATE os_steps SET status='concluida',actual_end=? WHERE id=?",t,s.id);
    // O equipamento fica livre a partir do término real (se antes do previsto).
    await tx.run("UPDATE reservations SET end_at=? WHERE plan_step_id=? AND status='confirmada' AND end_at::timestamptz > ?::timestamptz AND start_at::timestamptz < ?::timestamptz",t,s.plan_step_id,t,t);
+   // Terminou antes mesmo do horário reservado começar: o horário inteiro volta a ficar livre.
+   await tx.run("UPDATE reservations SET status='liberada',released_at=?,release_reason='Etapa concluída antes do horário reservado' WHERE plan_step_id=? AND status='confirmada' AND start_at::timestamptz >= ?::timestamptz",t,s.plan_step_id,t);
    await audit(tx,a,'Operação: etapa concluída',wo.id,{number:wo.number,step:s.step_key});
    const closed=await checkClosure(tx,a,wo);
    return {ok:true,closure:closed,message:closed==='concluida'?`${label} concluída. ${osNumber(wo.number)} encerrada automaticamente.`:closed==='encerramento_pendente'?`${label} concluída. A OS ficou em encerramento pendente: há checklist obrigatório a concluir.`:`${label} concluída.`};
@@ -254,6 +261,10 @@ async function dispense(b:Row,a:Actor){
   const ev=await event(tx,a,wo,s.id,'dispensa','dispense:'+s.id,{reason});void ev;
   await tx.run("UPDATE os_steps SET status='dispensada',dispensed_reason=? WHERE id=?",reason,s.id);
   await tx.run("UPDATE reservations SET status='liberada',released_at=?,release_reason='Etapa dispensada' WHERE plan_step_id=? AND status<>'liberada'",now(),s.plan_step_id);
+  // Checklist de equipamento que só seria usado na etapa dispensada deixa de ser exigido (sem apagar).
+  await tx.run(`UPDATE checklist_requirements r SET waived_at=?,waived_reason=? WHERE r.work_order_id=? AND r.waived_at IS NULL AND r.equipment_id IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM checklist_instances i WHERE i.requirement_id=r.id AND i.status='concluido')
+   AND NOT EXISTS (SELECT 1 FROM os_steps o JOIN reservations x ON x.plan_step_id=o.plan_step_id AND x.status<>'liberada' WHERE o.work_order_id=r.work_order_id AND o.status NOT IN ('dispensada','cancelada') AND x.equipment_id=r.equipment_id)`,now(),'Etapa dispensada: '+reason,wo.id);
   await audit(tx,a,'Planejamento: etapa dispensada',wo.id,{number:wo.number,step:s.step_key,reason});
   const closed=await checkClosure(tx,a,wo);
   return {ok:true,closure:closed,message:`Etapa “${s.name}” dispensada.`};

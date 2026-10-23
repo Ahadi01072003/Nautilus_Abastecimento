@@ -4,6 +4,7 @@ import {freshDatabase,addMember,seedOperation} from './helpers';
 import {mutate,state} from '../lib/service';
 import {registryMutate} from '../lib/registry';
 import {flowsMutate} from '../lib/flows';
+import {cancelOrder} from '../lib/cancel';
 import {planningMutate,planningState,planDetail,validateDraft,ordersList,availability} from '../lib/planning';
 import {conditionMutate,conditionState} from '../lib/condition';
 import {modules,type Member} from '../lib/permissions';
@@ -130,7 +131,7 @@ test('lançamento: pendências impedem; lançamento idempotente congela o planej
  assert.equal(list.counts[orgA],list.orders.filter(o=>o.org_id===orgA).length);
  // Cancelamento libera as reservas confirmadas.
  const w=await db.first('SELECT version FROM work_orders WHERE id=?',r1.workOrderId);
- await planningMutate('planning/cancel',{id,version:w!.version,reason:'Cliente adiou'},planner);
+ await cancelOrder({id,version:w!.version,reason:'Cliente adiou'},planner);
  assert.equal((await db.all("SELECT * FROM reservations WHERE plan_id=? AND status<>'liberada'",id)).length,0);
  assert.ok(!(await ordersList(planner,new URL('http://x/'))).orders.some(o=>o.id===r1.workOrderId),'cancelada fica fora da lista padrão');
 });

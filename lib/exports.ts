@@ -13,7 +13,7 @@ const d=(v:unknown):Cell=>v?new Date(String(v)):null;
 const min=(v:unknown)=>v===null||v===undefined?null:Math.round(Number(v)/60);
 const local=(v:unknown)=>v?new Date(String(v)).toLocaleString('sv-SE',{timeZone:'America/Sao_Paulo'}):'';
 const ORDER:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
-const STEP:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada'};
+const STEP:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 const KIND:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto',bloqueio:'Bloqueio'};
 const EVENT:Record<string,string>={pausa:'Pausa',bloqueio:'Bloqueio',nc_critica:'NC crítica',interrupcao_tecnica:'Interrupção técnica'};
 const MOMENT:Record<string,string>={pre_atividade:'Pré-atividade',pre_uso:'Pré-uso',durante:'Durante',pos_atividade:'Pós-atividade'};

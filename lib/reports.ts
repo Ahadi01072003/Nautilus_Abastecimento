@@ -7,10 +7,10 @@ import {osNumber} from './planning';
 import {audit} from './registry';
 import {xlsx,brDateTime,type Sheet,type Cell} from './files';
 
-const STEP:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada'};
+const STEP:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 export const ORDER_STATUS:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
 const KIND:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto',bloqueio:'Bloqueio'};
-const EVENT:Record<string,string>={inicio:'Início',bloqueio:'Bloqueio',pausa:'Pausa',retomada:'Retomada',termino:'Término',dispensa:'Dispensa',encerramento:'Encerramento',encerramento_pendente:'Encerramento pendente',nc_critica:'NC crítica',interrupcao_tecnica:'Interrupção técnica'};
+const EVENT:Record<string,string>={inicio:'Início',bloqueio:'Bloqueio',pausa:'Pausa',retomada:'Retomada',termino:'Término',dispensa:'Dispensa',encerramento:'Encerramento',encerramento_pendente:'Encerramento pendente',nc_critica:'NC crítica',interrupcao_tecnica:'Interrupção técnica',cancelamento:'Cancelamento da OS'};
 const MOMENT:Record<string,string>={pre_atividade:'Pré-atividade',pre_uso:'Pré-uso',durante:'Durante',pos_atividade:'Pós-atividade'};
 const d=(v:unknown):Cell=>v?new Date(String(v)):null;
 const ms=(v:unknown)=>Date.parse(String(v));
@@ -49,6 +49,8 @@ export async function orderWorkbook(member:Member,id:string){
  const r=await orderReport(member,id);
  const {data,order,plan,steps,org}=r;
  const stepName=(sid:string|null)=>sid?steps.find(s=>s.id===sid)?.name||'—':'OS';
+ // Histórico completo na planilha (a tela mostra só os eventos mais recentes).
+ const events=await db().all("SELECT kind,os_step_id,occurred_at,author_name,CASE WHEN jsonb_typeof(detail)='string' THEN (detail#>>'{}')::jsonb ELSE detail END detail FROM execution_events WHERE work_order_id=? ORDER BY registered_at",order.id);
  const sheets:Sheet[]=[
   {name:'Resumo',columns:['Campo','Valor'],rows:[
    ['OS',osNumber(order.number)],['Atividade',`${order.activity_code} · ${order.activity_name}`],['Situação',ORDER_STATUS[order.status]],['Solicitante',org?`${org.acronym} · ${org.name}`:''],
@@ -67,7 +69,7 @@ export async function orderWorkbook(member:Member,id:string){
    rows:(data.instances as Row[]).map(i=>{const req=(data.requirements as Row[]).find(q=>q.id===i.requirement_id);return [`${i.code} · ${i.title}`,i.version,MOMENT[i.moment],i.equipment_id?r.tag(i.equipment_id):'',req?(req.mandatory?'Sim':'Não'):'Complementar',i.status==='concluido'?'Concluído':'Em preenchimento',i.answers.length,i.answers.filter((a:Row)=>a.answer==='NC').length,i.completed_by_name,d(i.completed_at)];})},
   {name:'Respostas',columns:['Checklist','Pergunta','Resposta','Observação'],
    rows:(data.instances as Row[]).flatMap(i=>(i.answers as Row[]).map(a=>{const q=(data.questions as Row[]).find(x=>x.id===a.question_id);return [i.code,q?`${q.position}. ${q.text}`:a.question_id,a.answer==='NA'?'N/A':a.answer,a.note];}))},
-  {name:'Histórico',columns:['Quando','Evento','Etapa','Autor','Detalhe'],rows:(data.events as Row[]).slice().reverse().map(e=>[d(e.occurred_at),EVENT[e.kind]||e.kind,stepName(e.os_step_id),e.author_name,e.detail?.reason||e.detail?.resolution||''])},
+  {name:'Histórico',columns:['Quando','Evento','Etapa','Autor','Detalhe'],rows:events.map(e=>[d(e.occurred_at),EVENT[e.kind]||e.kind,stepName(e.os_step_id),e.author_name,e.detail?.reason||e.detail?.resolution||''])},
  ];
  await db().tx(tx=>audit(tx,member,'Exportação: planilha da OS',order.id,{number:order.number}));
  const file=xlsx(sheets);

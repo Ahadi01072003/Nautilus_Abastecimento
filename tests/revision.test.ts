@@ -4,6 +4,7 @@ import {freshDatabase,addMember,seedOperation} from './helpers';
 import {mutate} from '../lib/service';
 import {registryMutate} from '../lib/registry';
 import {flowsMutate} from '../lib/flows';
+import {cancelOrder} from '../lib/cancel';
 import {planningMutate,planDetail,validateDraft,ordersSteps} from '../lib/planning';
 import {revisionMutate} from '../lib/revision';
 import {conditionMutate} from '../lib/condition';
@@ -225,7 +226,7 @@ test('descartar revisão, acesso e rotas que não aceitam revisão',async()=>{
  assert.notEqual(again.id,id);
  // OS cancelada não é revisada.
  await planningMutate('planning/discard',{id:again.id,version:(await draftOf(again.id,planner2)).version},planner2);
- await planningMutate('planning/cancel',{id:before.current_plan_id,version:now.version,reason:'Cliente desistiu'},planner);
+ await cancelOrder({id:before.current_plan_id,version:now.version,reason:'Cliente desistiu'},planner);
  await rejects(revise('start',{workOrderId:wo}),409);
  // Banco: etapa da OS só aponta para o planejamento da própria OS.
  const otherPlan=await db.first("SELECT id FROM plan_steps WHERE plan_id<>? LIMIT 1",before.current_plan_id);

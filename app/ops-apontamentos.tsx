@@ -13,7 +13,7 @@ const TILES=[['andamento','Em andamento','iniciadas','var(--live)'],['programada
 type Group=typeof TILES[number][0];
 const readOs=()=>new URLSearchParams(location.search).get('os');
 
-export default function Apontamentos({refreshKey,onRevise}:{refreshKey:number,onRevise?:(planId:string)=>void}){
+export default function Apontamentos({refreshKey}:{refreshKey:number}){
  const [group,setGroup]=useState<Group>('andamento'),[q,setQ]=useState(''),[data,setData]=useState<R|null>(null),[error,setError]=useState(''),[osId,setOsId]=useState<string|null>(null);
  const refresh=useCallback(async()=>{try{setData(await load<R>(`ops/board?group=${group}${q.trim()?'&q='+encodeURIComponent(q.trim()):''}`));setError('')}catch(e){setError((e as Error).message)}},[group,q]);
  // Lista vinda do servidor, com busca adiada para não consultar a cada tecla.
@@ -34,6 +34,6 @@ export default function Apontamentos({refreshKey,onRevise}:{refreshKey:number,on
     {data.more&&<p className="sn-empty">Mostrando as 100 primeiras. Use a busca para encontrar outras.</p>}
    </div>:<p className="sn-empty">{q?'Nenhuma OS encontrada para a busca.':'Nenhuma OS neste grupo.'}</p>}
   </aside>
-  {current?<OrderExecution key={current} orderId={current} onChanged={()=>void refresh()} onRevise={onRevise}/>:data&&<div className="ap-center"><Empty icon={ClipboardList} title="Escolha uma OS" description="As OS lançadas pelo Planejamento aparecem na lista. Selecione uma para registrar o andamento."/></div>}
+  {current?<OrderExecution key={current} orderId={current} onChanged={()=>void refresh()}/>:data&&<div className="ap-center"><Empty icon={ClipboardList} title="Escolha uma OS" description="As OS lançadas pelo Planejamento aparecem na lista. Selecione uma para registrar o andamento."/></div>}
  </div>;
 }
