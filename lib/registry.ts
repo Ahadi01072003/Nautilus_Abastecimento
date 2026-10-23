@@ -41,6 +41,13 @@ async function activeIds(table:string,ids:string[],label:string,keep:string[]=[]
 }
 
 const COLOR=/^#[0-9A-F]{6}$/;
+/** Código do setor: maiúsculas, letras, números, ponto, barra, hífen e sublinhado (até 30). */
+export function sectorCode(value:unknown){
+ const v=text(value,40).toUpperCase().replace(/\s+/g,'');
+ if(!v)throw new AppError('Código do setor é obrigatório.');
+ if(!/^[A-Z0-9][A-Z0-9./_-]{0,29}$/.test(v))throw new AppError('Código do setor: use letras, números, ponto, barra, hífen ou sublinhado (até 30).');
+ return v;
+}
 const MOMENTS=['pre_atividade','pre_uso','durante','pos_atividade'];
 const ANSWERS=['C','NC','NA'];
 
@@ -48,7 +55,7 @@ export async function registryState(member:Member){
  const a=await requireCapability(member,'cadastros');
  const manager=isManager(a);
  const none=Promise.resolve([] as Row[]);
- const [orgs,people,locations,equipmentTypes,equipment,fuels,functions,materials,operators,categories,templates,versions,questions,links,activityTypes,members,audits]=await Promise.all([
+ const [orgs,people,locations,equipmentTypes,equipment,fuels,functions,materials,operators,categories,templates,versions,questions,links,activityTypes,members,audits,sectors]=await Promise.all([
   all('SELECT * FROM requester_orgs ORDER BY name'),
   all('SELECT * FROM requester_people ORDER BY name'),
   all('SELECT * FROM locations ORDER BY name'),
@@ -66,6 +73,7 @@ export async function registryState(member:Member){
   all('SELECT id,code,name,active FROM activity_types ORDER BY name'),
   manager?all('SELECT id,username,email,name,profile AS role,capabilities,org_scope,notify_requests,notify_schedule,active,created_at,must_change_password,password_changed_at,locked_until,last_login_at FROM members ORDER BY name'):none,
   manager?all('SELECT * FROM audits ORDER BY created_at DESC LIMIT 150'):none,
+  all(`SELECT s.*,(SELECT count(*) FROM work_orders w WHERE w.code=s.code)::int orders FROM sectors s ORDER BY s.code`),
  ]);
  const checklists:Row[]=templates.map(t=>{
   const v=versions.find(x=>x.template_id===t.id);
@@ -76,7 +84,7 @@ export async function registryState(member:Member){
  if(manager){try{standard=defaultPassword();}catch{standard=null;}}
  return {
   actor:{id:a.id,manager},
-  orgs,people,locations,equipmentTypes,equipment,fuels,functions,materials,operators,categories,checklists,activityTypes,
+  orgs,people,locations,equipmentTypes,equipment,fuels,functions,materials,operators,categories,checklists,activityTypes,sectors,
   members,audits,...(manager?{access:{defaultPassword:standard,temporaryPasswordDays:TEMPORARY_PASSWORD_DAYS}}:{}),
   generatedAt:now(),
  };
@@ -171,6 +179,19 @@ export async function registryMutate(path:string,b:Row,member:Member){
    await audit(tx,a,old?'Cadastros gerais: material atualizado':'Cadastros gerais: material cadastrado',mid,{before:old,after:{name,unit,description,active}});
   });
   return {id:mid};
+ }
+
+ if(path==='registry/sectors'){
+  const old=await existing('sectors',b.id,'Setor');fresh(old,b);
+  // O código identifica o setor nas OS: definido na criação e não muda depois.
+  const code=old?old.code:sectorCode(b.code);
+  const name=required(b.name,'Nome do setor',120),description=text(b.description,500),sid=old?.id||id(),active=flag(b.active);
+  if(!old&&await first('SELECT 1 FROM sectors WHERE code=?',code))throw new AppError(`O código ${code} já está cadastrado.`,409);
+  await db().tx(async tx=>{
+   await tx.run('INSERT INTO sectors(id,code,name,description,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,updated_at=excluded.updated_at',sid,code,name,description,active,old?.created_at||t,t);
+   await audit(tx,a,old?'Cadastros gerais: setor atualizado':'Cadastros gerais: setor cadastrado',sid,{before:old,after:{code,name,description,active}});
+  });
+  return {id:sid,code};
  }
 
  if(path==='registry/functions'){

@@ -22,4 +22,7 @@ export const fmt=(s:string,short=false)=>new Intl.DateTimeFormat('pt-BR',{timeZo
 export async function post(path:string,body:R){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j:R=await r.json().catch(()=>({}));if(r.status===401){window.location.reload();throw new Error('Sua sessão expirou. Entre novamente.')}if(!r.ok)throw new Error(j.error||'Não foi possível salvar.');return j}
 export async function load<T>(path:string):Promise<T>{const r=await fetch('/api/'+path,{cache:'no-store'});const j=await r.json().catch(()=>({error:'Não foi possível carregar.'}));if(r.status===401){window.location.reload();throw new Error('Sua sessão expirou.')}if(!r.ok)throw new Error(j.error||'Não foi possível carregar.');return j as T}
 /** Unidades de medida sugeridas (o campo aceita outras). */
+/** Limite visual de descrições em listas (≈ mediana das descrições em uso); o texto completo fica no detalhe e na dica. */
+export const DESCRIPTION_LIMIT=90;
+export const clip=(value:string|null|undefined,limit=DESCRIPTION_LIMIT)=>{const s=(value||'').replace(/\s+/g,' ').trim();return s.length>limit?s.slice(0,limit-1).trimEnd()+'…':s;};
 export const UNITS=['un','pç','cx','kg','t','g','L','mL','m','m²','m³','h','jogo','par','rolo'];

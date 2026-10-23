@@ -6,6 +6,7 @@ import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {revisionMutate} from '@/lib/revision';
 import {realizeActivity} from '@/lib/realized';
+import {cancelOrder} from '@/lib/cancel';
 import {centralState} from '@/lib/central';
 import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps} from '@/lib/planning';
@@ -94,7 +95,7 @@ export async function GET(req:Request){try{
  if(path==='orders/steps'){await rateLimit(member.id,'read');return json(await ordersSteps(member,url));}
  if(path==='orders/refs'){await rateLimit(member.id,'read');return json(await ordersRefs(member));}
  if(path==='ops/board'){await rateLimit(member.id,'read');return json(await opsBoard(member,url));}
- if(path==='ops/dashboard'){await rateLimit(member.id,'read');return json(await opsDashboard(member));}
+ if(path==='ops/dashboard'){await rateLimit(member.id,'read');return json(await opsDashboard(member,url));}
  if(path==='ops/order.xlsx'){await rateLimit(member.id,'export');return await orderWorkbook(member,url.searchParams.get('id')||'');}
  if(path==='ops/order'){await rateLimit(member.id,'read');return json(await orderDetail(member,url.searchParams.get('id')||''));}
  if(path==='ops/start-check'){await rateLimit(member.id,'read');return json(await startCheck(member,url.searchParams.get('stepId')||''));}
@@ -130,6 +131,7 @@ export async function POST(req:Request){try{
  if(path.startsWith('maint/'))return json(await maintenanceMutate(path,body,member));
  if(path==='planning/realize')return json(await realizeActivity(body,member));
  if(path.startsWith('planning/revision/'))return json(await revisionMutate(path,body,member));
+ if(path==='planning/cancel')return json(await cancelOrder(body,member));
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
  if(path.startsWith('ops/'))return json(await operationMutate(path,body,member));
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));

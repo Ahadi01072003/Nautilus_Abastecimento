@@ -6,7 +6,7 @@ import {db,type Row} from './db';
 import {AppError,required} from './domain';
 import {type Member,isManager,requireAny} from './permissions';
 import {audit} from './registry';
-import {loadPlan,validation,createRequirements,osNumber} from './planning';
+import {loadPlan,validation,createRequirements,osNumber,realizedNotes} from './planning';
 import {checkClosure,event} from './operation';
 
 const id=()=>crypto.randomUUID();
@@ -29,6 +29,8 @@ export async function realizeActivity(b:Row,member:Member){
  if(b.version!==plan.version)throw new AppError('O registro mudou desde a sua conferência. Confira de novo antes de registrar.',409);
  const check=await validation(plan);
  if(check.errors.length)throw new AppError(`Há ${check.errors.length} pendência(s) no registro. Confira o formulário.`,409);
+ // Apontamentos do registro: revalidados contra o período final (o período pode ter mudado depois).
+ const notes=await realizedNotes(plan.realized_notes||[],plan.planned_start,plan.planned_end);
  try{
   return await db().tx(async tx=>{
    const locked=await tx.first('SELECT status,version FROM plans WHERE id=? FOR UPDATE',plan.id);
@@ -44,10 +46,24 @@ export async function realizeActivity(b:Row,member:Member){
    await tx.run("INSERT INTO os_steps(id,work_order_id,step_key,plan_step_id,status,actual_start,actual_end) VALUES(?,?,?,?,'concluida',?,?)",sid,wid,step.step_key,step.id,start,end);
    const wo={id:wid,number:w!.number,status:'em_andamento'};
    const e1=await event(tx,a,wo,sid,'inicio',`realize:start:${wid}`,{late:true,source:'atividade realizada'},start);
+   // Bloqueios informados dividem o período: trabalho → parado → trabalho (o tempo efetivo desconta as paradas).
+   const iv=(kind:string,s0:string,s1:string,ev0:string,ev1:string)=>tx.run('INSERT INTO step_intervals(id,os_step_id,kind,start_at,end_at,start_event_id,end_event_id) VALUES(?,?,?,?,?,?,?)',id(),sid,kind,s0,s1,ev0,ev1);
+   let cursor=start,cursorEvent=e1;
+   for(const [i,n] of notes.entries()){
+    const oid=id(),blocking=n.kind==='bloqueio';
+    await tx.run(`INSERT INTO occurrences(id,work_order_id,os_step_id,kind,blocking,category_id,description,severity,occurred_at,registered_at,late,author_id,author_name,operation_key,status,resolved_at,resolved_by,resolved_by_name,resolution)
+     VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)`,oid,wid,sid,n.kind,blocking?1:0,n.categoryId,n.description,n.severity,n.at,t,a.id,a.name,`realize:note:${wid}:${i}`,
+     blocking?'resolvido':'aberto',blocking?n.until:null,blocking?a.id:null,blocking?a.name:null,blocking?'Registrado com a atividade realizada':null);
+    if(!blocking)continue;
+    const b0=await event(tx,a,wo,sid,'bloqueio',`realize:block:${wid}:${i}`,{occurrence:oid,category:n.categoryName,late:true},n.at);
+    const b1=await event(tx,a,wo,sid,'retomada',`realize:resume:${wid}:${i}`,{late:true},n.until!);
+    await iv('ativo',cursor,n.at,cursorEvent,b0);await iv('interrompido',n.at,n.until!,b0,b1);
+    cursor=n.until!;cursorEvent=b1;
+   }
    const e2=await event(tx,a,wo,sid,'termino',`realize:end:${wid}`,{late:true,source:'atividade realizada'},end);
-   await tx.run("INSERT INTO step_intervals(id,os_step_id,kind,start_at,end_at,start_event_id,end_event_id) VALUES(?,?,'ativo',?,?,?,?)",id(),sid,start,end,e1,e2);
+   await iv('ativo',cursor,end,cursorEvent,e2);
    const required=await createRequirements(tx,wid,plan);
-   await audit(tx,a,`${tag(a)}: atividade realizada registrada`,wid,{number:w!.number,code:plan.code||undefined,title:plan.title,start,end,reservations:plan.steps.flatMap(s=>s.equipment_ids).length,checklists:required});
+   await audit(tx,a,`${tag(a)}: atividade realizada registrada`,wid,{number:w!.number,code:plan.code||undefined,title:plan.title,start,end,reservations:plan.steps.flatMap(s=>s.equipment_ids).length,checklists:required,notes:notes.length});
    const closure=await checkClosure(tx,a,wo);
    return {workOrderId:wid,number:w!.number as number,closure,message:closure==='concluida'?`${osNumber(w!.number)} registrada e encerrada.`:`${osNumber(w!.number)} registrada. Falta preencher checklist obrigatório para encerrar (em Apontamentos).`};
   });

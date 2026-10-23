@@ -11,7 +11,7 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
-import {Choice,Badge,Empty,Field,Toggle,OrgTag,UNITS,fmt,post,load,type R} from './kit';
+import {Choice,Badge,Empty,Field,Toggle,OrgTag,UNITS,fmt,post,load,clip,type R} from './kit';
 import {layers,hhmm} from './flows';
 import Gantt from './gantt';
 
@@ -25,16 +25,18 @@ const range=(a?:string|null,b?:string|null)=>a&&b?`${fmt(a)} → ${fmt(b)}`:'—
 
 type Need={equipmentTypeId:string|null,functionId:string|null,materialId:string|null,quantity:number|null,amount:number|null,unit:string|null};
 type Step={key:string,id:string,name:string,description:string,required:boolean,included:boolean,dependsOn:string[],defaultMinutes:number|null,start:string,end:string,locationId:string,needs:Need[],equipmentIds:string[],operatorIds:string[]};
-type Form={title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[]};
-const fromPlan=(p:R):Form=>({title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:toLocal(p.planned_start),end:toLocal(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:toLocal(s.planned_start),end:toLocal(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids}))});
-const toBody=(f:Form)=>({title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,plannedStart:toISO(f.start),plannedEnd:toISO(f.end),steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:toISO(s.start),plannedEnd:toISO(s.end),locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[]}))});
+/** Apontamento informado no registro de atividade realizada (horários locais de Brasília). */
+type Note={key:string,kind:string,categoryId:string,description:string,at:string,until:string,severity:string};
+type Form={title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[],notes:Note[]};
+const fromPlan=(p:R):Form=>({notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until),severity:n.severity||'media'})),title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:toLocal(p.planned_start),end:toLocal(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:toLocal(s.planned_start),end:toLocal(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids}))});
+const toBody=(f:Form,realized=false)=>({...(realized?{notes:f.notes.map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||null,description:n.description,at:toISO(n.at),until:n.kind==='bloqueio'?toISO(n.until):null,severity:n.kind==='impacto'?n.severity:null}))}:{}),title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,plannedStart:toISO(f.start),plannedEnd:toISO(f.end),steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:toISO(s.start),plannedEnd:toISO(s.end),locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[]}))});
 
 /** Abre a revisão da OS (ou reabre a que já está em rascunho) e leva ao editor. */
 export async function startRevision(workOrderId:string,open:(planId:string)=>void){
  try{const r=await post('planning/revision/start',{workOrderId});toast.success(r.message);open(r.id)}catch(e){toast.error((e as Error).message)}
 }
 const draftLabel=(d:R)=><>{d.work_order_id?<Badge tone="info">Revisão {d.revision} · {osLabel(d.os_number)}</Badge>:<Badge tone="warning">Rascunho</Badge>}{d.free?<Badge>Sem fluxo</Badge>:null}</>;
-const osStepNames:Record<string,string>={concluida:'Concluída',dispensada:'Dispensada',em_execucao:'Em execução',pausada:'Pausada',bloqueada:'Bloqueada'};
+const osStepNames:Record<string,string>={concluida:'Concluída',dispensada:'Dispensada',em_execucao:'Em execução',pausada:'Pausada',bloqueada:'Bloqueada',cancelada:'Cancelada'};
 
 export function locationPaths(locations:R[]){const out=new Map<string,string>();const path=(l:R,d=0):string=>{if(out.has(l.id))return out.get(l.id)!;const p=l.parent_id&&d<5?locations.find(x=>x.id===l.parent_id):null;const v=p?path(p,d+1)+' › '+l.name:l.name;out.set(l.id,v);return v};locations.forEach(l=>path(l));return out}
 
@@ -85,14 +87,14 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched}:{planId:s
  const [saveState,setSaveState]=useState<SaveState>('saved'),[savedAt,setSavedAt]=useState<string|null>(null),[saveError,setSaveError]=useState('');
  const [osSteps,setOsSteps]=useState<R[]|null>(null),[revisionReason,setRevisionReason]=useState(''),[nowMax]=useState(()=>toLocal(new Date(Date.now()+60000).toISOString()));
  const [review,setReview]=useState<R|null>(null),[launching,setLaunching]=useState(false),[changeType,setChangeType]=useState(''),[suggest,setSuggest]=useState<Step[]|null>(null),[confirmDiscard,setConfirmDiscard]=useState(false);
- const version=useRef(0),dirtyTick=useRef(0),launchKey=useRef('');
+ const version=useRef(0),dirtyTick=useRef(0),launchKey=useRef(''),planMode=useRef('');
  const paths=useMemo(()=>locationPaths(refs.locations),[refs.locations]);
- const reload=useCallback(async()=>{try{const r=await load<R>('planning/plan?id='+encodeURIComponent(planId));setPlan(r.plan);setForm(fromPlan(r.plan));setEditable(r.editable);setOsSteps(r.osSteps);version.current=r.plan.version;setSavedAt(r.plan.updated_at);setSaveState('saved');setSaveError('');setLoadError('')}catch(e){setLoadError((e as Error).message)}},[planId]);
+ const reload=useCallback(async()=>{try{const r=await load<R>('planning/plan?id='+encodeURIComponent(planId));setPlan(r.plan);planMode.current=r.plan.mode;setForm(fromPlan(r.plan));setEditable(r.editable);setOsSteps(r.osSteps);version.current=r.plan.version;setSavedAt(r.plan.updated_at);setSaveState('saved');setSaveError('');setLoadError('')}catch(e){setLoadError((e as Error).message)}},[planId]);
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Carrega o rascunho do servidor.
  useEffect(()=>{void reload()},[reload]);
  const save=useCallback(async(f:Form)=>{
   const tick=dirtyTick.current;setSaveState('saving');
-  try{const r=await post('planning/save',{id:planId,version:version.current,...toBody(f)});version.current=r.version;setSavedAt(r.savedAt);setSaveError('');setSaveState(dirtyTick.current===tick?'saved':'dirty');return true}
+  try{const r=await post('planning/save',{id:planId,version:version.current,...toBody(f,planMode.current==='realizada')});version.current=r.version;setSavedAt(r.savedAt);setSaveError('');setSaveState(dirtyTick.current===tick?'saved':'dirty');return true}
   catch(e){setSaveError((e as Error).message);setSaveState('error');return false}
  },[planId]);
  // Salvamento automático 2,5 s depois da última alteração; "Salvo" só após confirmação do servidor.
@@ -126,7 +128,7 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched}:{planId:s
   setSuggest(out);
  }
 
- return <div className="plan-editor"><datalist id="units">{UNITS.map(u=><option key={u} value={u}/>)}</datalist><datalist id="activity-codes">{(refs.codes as string[]||[]).map(c=><option key={c} value={c}/>)}</datalist>
+ return <div className="plan-editor"><datalist id="units">{UNITS.map(u=><option key={u} value={u}/>)}</datalist>
   <div className="plan-bar"><div><Badge tone={plan.status==='draft'&&!revision?'warning':'info'}>{revision?`Revisão ${plan.revision} · ${osLabel(plan.os_number)}`:realized&&plan.status==='draft'?'Atividade realizada':plan.status==='draft'?'Rascunho':plan.os_number?osLabel(plan.os_number):plan.status}</Badge><b>{free?(form.title||'Atividade sem título'):`${plan.activity_code} · ${plan.activity_name}`}</b><small>{realized?'Registro sem planejamento prévio':free?'OS sem fluxo':`Fluxo v${plan.flow_version}`}{form.code?` · ${form.code}`:''} · responsável {plan.author_name}</small></div>
    <div className="plan-bar-actions">{editable&&<SaveBadge state={saveState} at={savedAt} message={saveError}/>}<Button variant="outline" onClick={onClose}>Fechar</Button>{editable&&<Button className="primary-action" onClick={()=>void openReview()} disabled={saveState==='saving'}>{realized?<ClipboardCheck size={16}/>:<Rocket size={16}/>} {realized?'Conferir e registrar':revision?'Conferir e lançar revisão':'Revisar e lançar OS'}</Button>}</div></div>
   {realized&&editable&&<div className="notice"><Info size={17}/><span>Registro de atividade feita sem planejamento (ex.: urgência). Informe o início e o fim reais: ao registrar, a OS é criada já executada, com os recursos usados, e fica marcada como “realizada sem planejamento”. Se houver checklist obrigatório, ela fica em encerramento pendente até o preenchimento em Apontamentos.</span></div>}
@@ -136,7 +138,7 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched}:{planId:s
   <fieldset disabled={!editable} className="plan-fieldset">
   <section className="n-panel plan-section"><div className="panel-heading"><div><h2>Dados da atividade</h2><p>O rascunho pode ficar incompleto; só o lançamento exige tudo preenchido.</p></div></div>
    <div className="form-grid plan-grid">
-    {free&&<Field label="Código da atividade" hint="Vincula a atividade ao setor. Letras, números, ponto, barra, hífen ou sublinhado."><Input maxLength={30} list="activity-codes" value={form.code} onChange={e=>update(f=>({...f,code:e.target.value.toUpperCase().replace(/\s+/g,'')}))} placeholder="Ex.: MNT-01"/></Field>}
+    <Field label="Código do setor" hint={(refs.sectors as R[]).find(s=>s.code===form.code)?.name||'Código da OS: escolha um setor cadastrado (Cadastros gerais › Setores).'}><SectorPicker value={form.code} sectors={refs.sectors} onRefs={onRefs} onChange={code=>update(f=>({...f,code}))}/></Field>
     {free?<Field label="Título da atividade *" wide hint="Aparece na lista de OS, na Operação, no relatório e na planilha."><Input maxLength={160} value={form.title} onChange={e=>update(f=>({...f,title:e.target.value}))} placeholder={realized?'Ex.: Contenção de vazamento no pátio 2':'Ex.: Remoção de sucata do pátio 3'}/></Field>:<Field label="Tipo de atividade" hint={revision?'Não muda na revisão: o fluxo da OS é mantido.':'Trocar o tipo substitui etapas, horários e alocações.'}><Choice disabled={revision} value={plan.activity_type_id} onChange={v=>{if(v!==plan.activity_type_id)setChangeType(v)}} options={refs.activityTypes.filter((t:R)=>(t.active&&!t.system)||t.id===plan.activity_type_id).map((t:R)=>({value:t.id,label:`${t.code} · ${t.name}`}))}/></Field>}
     <Field label="Organização solicitante *" hint={revision?'A organização da OS não muda na revisão.':undefined}><Choice disabled={revision} value={form.orgId} onChange={v=>update(f=>({...f,orgId:v,personId:''}))} options={refs.orgs.filter((o:R)=>o.active||o.id===form.orgId).map((o:R)=>({value:o.id,label:`${o.acronym} · ${o.name}`}))}/></Field>
     <Field label="Pessoa solicitante"><Choice disabled={!form.orgId} value={form.personId||'none'} onChange={v=>update(f=>({...f,personId:v==='none'?'':v}))} options={[{value:'none',label:'Não informada'},...people.map((p:R)=>({value:p.id,label:p.name}))]}/></Field>
@@ -150,6 +152,7 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched}:{planId:s
   <section className="n-panel plan-section"><div className="panel-heading"><div><h2>{realized?'Recursos usados':free?'Recursos':'Etapas, horários e recursos'}</h2><p>{realized?`Equipamentos, colaboradores e materiais usados entre o início e o fim reais. ${reserved} equipamento(s) no período.`:free?`A OS sem fluxo tem os marcos Início e Fim, iguais às datas acima; na Operação, registra-se o início e o fim da execução. ${reserved} equipamento(s) reservado(s) provisoriamente.`:<>{order.cyclic.length?'':`${steps.filter(s=>s.included).length} etapa(s) incluída(s) · ${reserved} equipamento(s) reservado(s) provisoriamente.`} Etapas sem dependência podem ocorrer em paralelo.</>}</p></div>{editable&&!free&&<Button variant="outline" onClick={proposeTimes}><Wand2 size={16}/> Sugerir horários</Button>}</div>
    <div className="plan-steps">{steps.map(s=><StepCard key={s.key} free={free} onRefs={onRefs} step={s} steps={steps} refs={refs} paths={paths} planId={planId} serverStep={plan.steps.find((x:R)=>x.step_key===s.key)} osStatus={osSteps?.find(o=>o.step_key===s.key)?.status} editable={editable} onChange={patch=>setStep(s.key,patch)}/>)}</div>
   </section>
+  {realized&&<RealizedNotes notes={form.notes} start={form.start} end={form.end} categories={refs.categories||[]} onChange={notes=>update(f=>({...f,notes}))}/>}
   </fieldset>
   {editable&&<div className="plan-footer"><button className="text-action danger-text" onClick={()=>setConfirmDiscard(true)}><Trash2 size={14} className="inline"/> {revision?'Descartar revisão':'Descartar rascunho'}</button><Button variant="outline" onClick={()=>void save(form)} disabled={saveState==='saving'}>Salvar agora</Button></div>}
 
@@ -291,7 +294,7 @@ export function Orders({refreshKey,onExec,onRevise}:{refreshKey:number,onExec:(i
   {display==='gantt'?<Gantt query={ganttQuery} orgs={refs.orgs} onOpen={onExec}/>:<>
   <div className="org-counts" aria-label="OS por organização solicitante">{Object.entries(rows.counts as Record<string,number>).sort((a,b)=>b[1]-a[1]).map(([org,n])=><span key={org}><OrgTag org={orgOf(org)}/><b>{n}</b><small>{Math.round(100*n/Math.max(1,rows.total))}%</small></span>)}<span className="org-total">{rows.total} OS{rows.scoped?' no seu escopo':''}{filters.from||filters.to?' com programação no período':''}</span></div>
   {rows.orders.length?<>
-   <div className="table-scroll orders-table"><Table><TableHeader><TableRow><TableHead>OS</TableHead><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Local</TableHead><TableHead>Período planejado</TableHead><TableHead>Real</TableHead><TableHead>Situação</TableHead><TableHead>Etapas</TableHead></TableRow></TableHeader><TableBody>{rows.orders.map((o:R)=><TableRow key={o.id} className="clickable" onClick={()=>void openDetail(o)}><TableCell><button className="tag-label" onClick={e=>{e.stopPropagation();void openDetail(o)}}>{osLabel(o.number)}</button></TableCell><TableCell><b>{o.activity_name}</b><small>{[o.activity_code,o.description].filter(Boolean).join(' · ')||'—'}</small></TableCell><TableCell><OrgTag org={orgOf(o.org_id)}/></TableCell><TableCell>{paths.get(o.location_id)||'—'}</TableCell><TableCell>{range(o.planned_start,o.planned_end)}</TableCell><TableCell>{o.actual_start?range(o.actual_start,o.actual_end||new Date().toISOString()):'—'}</TableCell><TableCell>{status(o)}</TableCell><TableCell>{o.steps_done}/{o.steps_total}</TableCell></TableRow>)}</TableBody></Table></div>
+   <div className="table-scroll orders-table"><Table><TableHeader><TableRow><TableHead>OS</TableHead><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Local</TableHead><TableHead>Período planejado</TableHead><TableHead>Real</TableHead><TableHead>Situação</TableHead><TableHead>Etapas</TableHead></TableRow></TableHeader><TableBody>{rows.orders.map((o:R)=><TableRow key={o.id} className="clickable" onClick={()=>void openDetail(o)}><TableCell><button className="tag-label" onClick={e=>{e.stopPropagation();void openDetail(o)}}>{osLabel(o.number)}</button></TableCell><TableCell><b>{o.activity_name}</b><small title={o.description||undefined}>{[o.activity_code,clip(o.description)].filter(Boolean).join(' · ')||'—'}</small></TableCell><TableCell><OrgTag org={orgOf(o.org_id)}/></TableCell><TableCell>{paths.get(o.location_id)||'—'}</TableCell><TableCell>{range(o.planned_start,o.planned_end)}</TableCell><TableCell>{o.actual_start?range(o.actual_start,o.actual_end||new Date().toISOString()):'—'}</TableCell><TableCell>{status(o)}</TableCell><TableCell>{o.steps_done}/{o.steps_total}</TableCell></TableRow>)}</TableBody></Table></div>
    <ul className="order-cards">{rows.orders.map((o:R)=><li key={o.id}><button type="button" onClick={()=>void openDetail(o)}><div><b>{osLabel(o.number)}</b><OrgTag org={orgOf(o.org_id)}/></div><span>{o.activity_name}</span><small><CalendarRange size={12} className="inline"/> {range(o.planned_start,o.planned_end)}</small><small><MapPin size={12} className="inline"/> {paths.get(o.location_id)||'—'}</small>{status(o)}</button></li>)}</ul>
   </>:<Empty icon={ClipboardList} title="Nenhuma OS encontrada" description="OS lançadas aparecem aqui. Rascunhos ficam em Planejamento › Rascunhos."/>}
   </>}
@@ -300,7 +303,7 @@ export function Orders({refreshKey,onExec,onRevise}:{refreshKey:number,onExec:(i
   <Dialog open={!!detail} onOpenChange={v=>{if(!busy&&!v){setDetail(null);setCancel('')}}}><DialogContent className="n-dialog n-dialog-wide">{detail&&<><DialogHeader><div className="modal-eyebrow"><ClipboardList size={16}/> {osLabel(detail.order.number)} · PLANEJAMENTO</div><DialogTitle>{detail.plan.activity_name}</DialogTitle><DialogDescription>Lançada por {detail.order.launched_by_name} em {fmt(detail.order.launched_at)} · {detail.plan.free?'OS sem fluxo':`fluxo ${detail.plan.activity_code} v${detail.plan.flow_version}`}{detail.order.revision?` · revisão ${detail.order.revision}`:''}</DialogDescription></DialogHeader>
    <OrderSummary detail={detail} refs={refs} paths={paths} status={status}/>
    <div className="access-actions"><Button variant="outline" onClick={()=>{const id=detail.order.id;setDetail(null);onExec(id)}}>Abrir em Apontamentos</Button>{refs.canPlan&&['programada','em_andamento'].includes(detail.order.status)&&<Button variant="outline" onClick={()=>{const id=detail.order.id;setDetail(null);void startRevision(id,onRevise)}}><History size={15}/> Revisar OS</Button>}</div>
-   {refs.canPlan&&detail.order.status==='programada'&&<form onSubmit={doCancel} className="cancel-box"><Field label="Cancelar OS · motivo" wide hint="Libera as reservas. A OS continua consultável como cancelada."><Textarea required maxLength={1200} value={cancel} onChange={e=>setCancel(e.target.value)}/></Field><Button type="submit" variant="outline" disabled={busy||!cancel.trim()}>Cancelar OS</Button></form>}
+   {refs.canPlan&&['programada','em_andamento'].includes(detail.order.status)&&<form onSubmit={doCancel} className="cancel-box"><Field label="Cancelar OS · justificativa" wide hint={detail.order.status==='em_andamento'?'A OS já começou: as etapas abertas são encerradas agora como canceladas, o que foi executado fica registrado e os equipamentos são liberados.':'Libera as reservas. A OS continua consultável como cancelada.'}><Textarea required maxLength={1200} value={cancel} onChange={e=>setCancel(e.target.value)}/></Field><Button type="submit" variant="outline" disabled={busy||!cancel.trim()}>Cancelar OS</Button></form>}
   </>}</DialogContent></Dialog>
  </div>;
 }
@@ -338,5 +341,58 @@ export function RealizedActivities({refreshKey,openOrder}:{refreshKey:number,ope
   {(data.drafts as R[]).length?<div className="table-scroll"><Table><TableHeader><TableRow><TableHead>Atividade</TableHead><TableHead>Código</TableHead><TableHead>Solicitante</TableHead><TableHead>Execução</TableHead><TableHead>Última gravação</TableHead>{data.actor.manager&&<TableHead>Responsável</TableHead>}<TableHead/></TableRow></TableHeader>
    <TableBody>{(data.drafts as R[]).map(d=><TableRow key={d.id}><TableCell><Badge tone="warning">Em preenchimento</Badge> <b>{d.activity_name||'Sem título'}</b></TableCell><TableCell>{d.activity_code||'—'}</TableCell><TableCell><OrgTag org={orgs.find(o=>o.id===d.org_id)}/></TableCell><TableCell>{range(d.planned_start,d.planned_end)}</TableCell><TableCell>{fmt(d.updated_at)}</TableCell>{data.actor.manager&&<TableCell>{d.author_name}</TableCell>}<TableCell><Button size="sm" variant="outline" onClick={()=>setPlanId(d.id)}>Continuar</Button></TableCell></TableRow>)}</TableBody></Table></div>
    :<Empty icon={ClipboardCheck} title="Nenhum registro em preenchimento" description="Registros concluídos aparecem em Operação › Apontamentos e na Lista de OS, marcados como “realizada sem planejamento”." action={button}/>}
+ </section>;
+}
+
+/** Código da OS = setor cadastrado; cadastro na hora (código e nome) quando ainda não existe. */
+function SectorPicker({value,sectors,onChange,onRefs}:{value:string,sectors:R[],onChange:(code:string)=>void,onRefs:()=>Promise<void>}){
+ const [open,setOpen]=useState(false),[code,setCode]=useState(''),[name,setName]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+ const options=[{value:'none',label:'Sem código'},...(sectors||[]).filter(s=>s.active||s.code===value).map(s=>({value:s.code,label:`${s.code} · ${s.name}${s.active?'':' (inativo)'}`}))];
+ async function create(e:FormEvent){e.preventDefault();e.stopPropagation();setBusy(true);setError('');try{const r=await post('planning/resource',{kind:'sector',code,name});toast.success(r.message);await onRefs();onChange(r.code);setOpen(false);setCode('');setName('')}catch(err){setError((err as Error).message)}finally{setBusy(false)}}
+ return <div className="sector-picker"><Choice value={value||'none'} onChange={v=>onChange(v==='none'?'':v)} options={options}/><button type="button" className="text-action" onClick={()=>setOpen(true)}><Plus size={13} className="inline"/> Cadastrar setor</button>
+  <Dialog open={open} onOpenChange={v=>{if(!busy)setOpen(v)}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><Plus size={16}/> CADASTRO NA HORA</div><DialogTitle>Novo setor</DialogTitle><DialogDescription>O código identifica o setor nas OS e não muda depois. Ele também aparece em Cadastros gerais › Setores.</DialogDescription></DialogHeader>
+   <form onSubmit={create}><div className="form-grid"><Field label="Código *" hint="Letras, números, ponto, barra, hífen ou sublinhado (até 30)."><Input required maxLength={30} value={code} onChange={e=>setCode(e.target.value.toUpperCase().replace(/\s+/g,''))} placeholder="Ex.: MNT-01"/></Field><Field label="Nome do setor *"><Input required maxLength={120} value={name} onChange={e=>setName(e.target.value)} placeholder="Ex.: Manutenção"/></Field></div>
+    {error&&<div className="form-error" role="alert"><AlertTriangle size={17}/>{error}</div>}
+    <div className="modal-footer"><Button type="button" variant="outline" onClick={()=>setOpen(false)} disabled={busy}>Voltar</Button><Button type="submit" className="primary-action" disabled={busy||!code||!name.trim()}>{busy?<LoaderCircle className="animate-spin" size={16}/>:null} Cadastrar e usar</Button></div></form>
+  </DialogContent></Dialog></div>;
+}
+
+const NOTE_KIND:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto',bloqueio:'Bloqueio'};
+/** Apontamentos no próprio registro da atividade realizada: ocorrência e impacto num momento;
+ * bloqueio com início e fim (desconta do tempo efetivo). Tudo dentro do período real. */
+function RealizedNotes({notes,start,end,categories,onChange}:{notes:Note[],start:string,end:string,categories:R[],onChange:(n:Note[])=>void}){
+ const blank=():Note=>({key:crypto.randomUUID(),kind:'ocorrencia',categoryId:'',description:'',at:start,until:'',severity:'media'});
+ const [draft,setDraft]=useState<Note>(blank),[error,setError]=useState('');
+ const cats=(kind:string)=>categories.filter(c=>c.kind===kind&&c.active).map(c=>({value:c.id,label:c.name}));
+ const catName=(id:string)=>categories.find(c=>c.id===id)?.name;
+ function add(){
+  const n=draft;setError('');
+  if(!start||!end)return setError('Informe antes o início e o fim reais da atividade.');
+  if(!n.description.trim())return setError('Descreva o apontamento.');
+  if(!n.at)return setError('Informe quando ocorreu.');
+  if(n.kind==='bloqueio'){
+   if(!n.categoryId)return setError('Escolha a categoria do bloqueio.');
+   if(!n.until)return setError('Informe até quando a atividade ficou parada.');
+   if(!(n.at>start&&n.until>n.at&&n.until<end))return setError('O bloqueio deve começar depois do início real e terminar antes do fim real.');
+   if(notes.some(x=>x.kind==='bloqueio'&&x.at<n.until&&x.until>n.at))return setError('Este bloqueio se sobrepõe a outro.');
+  }else if(n.at<start||n.at>end)return setError('O momento deve estar entre o início e o fim reais.');
+  onChange([...notes,{...n,description:n.description.trim()}].sort((a,b)=>a.at.localeCompare(b.at)));setDraft({...blank(),at:n.at});
+ }
+ const when=(v:string)=>v?v.slice(8,10)+'/'+v.slice(5,7)+' '+v.slice(11,16):'—';
+ return <section className="n-panel plan-section"><div className="panel-heading"><div><h2>Apontamentos da atividade</h2><p>Opcional. Ocorrências, impactos e bloqueios que aconteceram durante a atividade. Bloqueios param o tempo efetivo entre o início e o fim informados. Tudo fica marcado como registro posterior.</p></div></div>
+  <div className="rn-body">
+   {notes.length?<ul className="occ-list">{notes.map(n=><li key={n.key}><div><Badge tone={n.kind==='bloqueio'?'danger':n.kind==='impacto'?'warning':'info'}>{NOTE_KIND[n.kind]}</Badge>{n.categoryId&&<Badge>{catName(n.categoryId)}</Badge>}<b>{n.description}</b><button type="button" className="icon-action" aria-label={`Remover apontamento: ${n.description}`} onClick={()=>onChange(notes.filter(x=>x.key!==n.key))}><X size={14}/></button></div>
+    <small>{n.kind==='bloqueio'?`Parada de ${when(n.at)} até ${when(n.until)}`:`Em ${when(n.at)}`}{n.kind==='impacto'?` · severidade ${n.severity==='media'?'média':n.severity}`:''}</small></li>)}</ul>:<p className="muted-text">Nenhum apontamento informado.</p>}
+   <div className="form-grid rn-form">
+    <Field label="Tipo"><Choice value={draft.kind} onChange={v=>setDraft(d=>({...d,kind:v,categoryId:''}))} options={[{value:'ocorrencia',label:'Ocorrência'},{value:'impacto',label:'Impacto'},{value:'bloqueio',label:'Bloqueio (parou a atividade)'}]}/></Field>
+    <Field label={draft.kind==='bloqueio'?'Categoria *':'Categoria'}><Choice value={draft.categoryId||'none'} onChange={v=>setDraft(d=>({...d,categoryId:v==='none'?'':v}))} options={[...(draft.kind==='bloqueio'?[]:[{value:'none',label:'Sem categoria'}]),...cats(draft.kind)]} placeholder={cats(draft.kind).length?'Selecione':'Cadastre categorias em Cadastros gerais'}/></Field>
+    <Field label={draft.kind==='bloqueio'?'Parou em (Brasília) *':'Quando ocorreu (Brasília) *'}><Input type="datetime-local" value={draft.at} min={start||undefined} max={end||undefined} onChange={e=>setDraft(d=>({...d,at:e.target.value}))}/></Field>
+    {draft.kind==='bloqueio'?<Field label="Retomou em (Brasília) *"><Input type="datetime-local" value={draft.until} min={draft.at||start||undefined} max={end||undefined} onChange={e=>setDraft(d=>({...d,until:e.target.value}))}/></Field>
+     :draft.kind==='impacto'?<Field label="Severidade"><Choice value={draft.severity} onChange={v=>setDraft(d=>({...d,severity:v}))} options={[{value:'baixa',label:'Baixa'},{value:'media',label:'Média'},{value:'alta',label:'Alta'}]}/></Field>:<div/>}
+    <Field label={draft.kind==='bloqueio'?'Justificativa do bloqueio *':'Descrição *'} wide><Textarea maxLength={2000} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))} placeholder={draft.kind==='bloqueio'?'Ex.: Chuva forte; equipe abrigada até 10h40':'O que aconteceu'}/></Field>
+   </div>
+   {error&&<div className="form-error" role="alert"><AlertTriangle size={17}/>{error}</div>}
+   <div className="rn-actions"><Button type="button" variant="outline" onClick={add}><Plus size={15}/> Incluir apontamento</Button></div>
+  </div>
  </section>;
 }

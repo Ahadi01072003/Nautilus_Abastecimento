@@ -30,6 +30,7 @@ before(async()=>{
  const reg=(p:string,b:Row)=>registryMutate('registry/'+p,b,manager) as Promise<{id:string}>;
  org=(await reg('orgs',{name:'Operação',acronym:'OPS',category:'interna',color:'#103B52'})).id;
  loc=(await reg('locations',{kind:'unidade',name:'Base Açu'})).id;
+ for(const code of ['MNT-URG.01','PNT-02'])await reg('sectors',{code,name:'Setor '+code});
 });
 after(async()=>{await ctx.drop();});
 
@@ -49,7 +50,7 @@ test('atividade realizada: Operação registra com o formulário da OS sem fluxo
   {equipmentIds:['eq1'],operatorIds:['op1'],needs:[{materialId:mat.id,amount:12.5,unit:'kg'}]}),operator);
  p=(await planDetail(operator,id)).plan;
  assert.equal(p.code,'MNT-URG.01');assert.equal(p.activity_code,'MNT-URG.01');
- await rejects(planningMutate('planning/save',body(p,{code:'código inválido!'}),operator),400,/Código da atividade/);
+ await rejects(planningMutate('planning/save',body(p,{code:'código inválido!'}),operator),400,/Código do setor/);
  // Fim no futuro é pendência; "Lançar OS" não vale para registro.
  await planningMutate('planning/save',body(p,{plannedEnd:new Date(Date.now()+3600000).toISOString()}),operator);
  assert.ok((await validateDraft(operator,id) as Row).errors.some((e:Row)=>/não pode estar no futuro/.test(e.message)));

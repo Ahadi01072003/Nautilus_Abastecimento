@@ -12,7 +12,7 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,type R} from './kit';
-import {osLabel,startRevision} from './planning';
+import {osLabel} from './planning';
 import OsRuler,{effective} from './os-ruler';
 import {Digits,hms} from './ops-board';
 
@@ -22,16 +22,16 @@ export const dur=(ms:number)=>{const m=Math.max(0,Math.floor(ms/MIN));return `${
 const dh=(ms:number)=>{const m=Math.floor(Math.abs(ms)/MIN);return `${String(Math.floor(m/60)).padStart(2,'0')}h${String(m%60).padStart(2,'0')}`};
 /** Desvio legível: atraso, antecipação, no horário ou menos de 1 minuto. */
 export function deviation(actual:number,planned:number,done=true){const d=actual-planned;if(d===0)return 'No horário';if(Math.abs(d)<MIN)return d>0?'Atraso de menos de 1 minuto':'Menos de 1 minuto antes';return d>0?`Atraso de ${dh(d)}`:`${done?'Concluída':'Iniciada'} ${dh(d)} antes`}
-const stepNames:Record<string,[string,string]>={nao_iniciada:['Não iniciada','muted'],em_execucao:['Em execução','success'],bloqueada:['Bloqueada','danger'],pausada:['Pausada','warning'],concluida:['Concluída','info'],dispensada:['Dispensada','muted']};
+const stepNames:Record<string,[string,string]>={nao_iniciada:['Não iniciada','muted'],em_execucao:['Em execução','success'],bloqueada:['Bloqueada','danger'],pausada:['Pausada','warning'],concluida:['Concluída','info'],dispensada:['Dispensada','muted'],cancelada:['Cancelada','danger']};
 const orderNames:Record<string,[string,string]>={programada:['Programada','info'],em_andamento:['Em andamento','success'],encerramento_pendente:['Encerramento pendente','warning'],concluida:['Concluída','muted'],cancelada:['Cancelada','danger']};
 const kindNames:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto',bloqueio:'Bloqueio'};
-const eventNames:Record<string,string>={inicio:'Início',bloqueio:'Bloqueio',pausa:'Pausa',retomada:'Retomada',termino:'Término',dispensa:'Dispensa',encerramento:'Encerramento',encerramento_pendente:'Encerramento pendente',nc_critica:'NC crítica',interrupcao_tecnica:'Interrupção técnica'};
+const eventNames:Record<string,string>={inicio:'Início',bloqueio:'Bloqueio',pausa:'Pausa',retomada:'Retomada',termino:'Término',dispensa:'Dispensa',encerramento:'Encerramento',encerramento_pendente:'Encerramento pendente',nc_critica:'NC crítica',interrupcao_tecnica:'Interrupção técnica',cancelamento:'Cancelamento da OS'};
 const moments:Record<string,string>={pre_atividade:'Pré-atividade',pre_uso:'Pré-uso',durante:'Durante',pos_atividade:'Pós-atividade'};
 const localNow=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date()).replace(' ','T');
 
-type Action={kind:'block'|'note'|'pause'|'finish'|'resolve'|'dispense',step?:R,item?:R,key:string};
+type Action={kind:'block'|'note'|'pause'|'finish'|'resolve'|'dispense'|'cancel',step?:R,item?:R,key:string};
 
-export default function OrderExecution({orderId,onChanged,onRevise}:{orderId:string,onChanged?:()=>void,onRevise?:(planId:string)=>void}){
+export default function OrderExecution({orderId,onChanged}:{orderId:string,onChanged?:()=>void}){
  const [data,setData]=useState<R|null>(null),[error,setError]=useState(''),[selected,setSelected]=useState<string|null>(null),[tick,setTick]=useState(()=>Date.now()),[action,setAction]=useState<Action|null>(null),[form,setForm]=useState<R>({}),[busy,setBusy]=useState(false),[formError,setFormError]=useState(''),[blockerMap,setBlockerMap]=useState<Record<string,string[]>>({}),[checklist,setChecklist]=useState<string|null>(null),[complementary,setComplementary]=useState<R>({});
  const [offset,setOffset]=useState(0);
  const refresh=useCallback(async()=>{try{const d=await load<R>('ops/order?id='+encodeURIComponent(orderId));setOffset(Date.parse(d.serverNow)-Date.now());setData(d);setError('')}catch(e){setError((e as Error).message)}},[orderId]);
@@ -56,7 +56,7 @@ export default function OrderExecution({orderId,onChanged,onRevise}:{orderId:str
   if(s.status==='em_execucao')return now<=pe?`Restam ${dur(pe-now)}`:`Fim previsto vencido há ${dur(now-pe)}`;
   if(s.status==='bloqueada'||s.status==='pausada'){const open=s.intervals.find((i:R)=>!i.end_at);return `Parada há ${dur(open?now-Date.parse(open.start_at):0)}`}
   if(s.status==='concluida')return deviation(Date.parse(s.actual_end),pe);
-  return 'Dispensada';};
+  return s.status==='cancelada'?'Cancelada com a OS':'Dispensada';};
  const active=steps.filter(s=>['em_execucao','bloqueada','pausada'].includes(s.status));
  const occ=(data.occurrences as R[]).filter(o=>!sel||o.os_step_id===sel.id);
  const name=(id:string)=>steps.find(s=>s.id===id)?.plan.name||'—';
@@ -71,6 +71,7 @@ export default function OrderExecution({orderId,onChanged,onRevise}:{orderId:str
   if(action.kind==='finish')await run('ops/finish',{operationKey:k,stepId:s!.id,resolution:f.resolution},()=>setAction(null));
   if(action.kind==='resolve')await run('ops/resolve',{operationKey:k,id:action.item!.id,resolution:f.resolution},()=>setAction(null));
   if(action.kind==='dispense')await run('ops/dispense',{stepId:s!.id,reason:f.reason},()=>setAction(null));
+  if(action.kind==='cancel')await run('planning/cancel',{workOrderId:order.id,version:order.version,reason:f.reason},()=>setAction(null));
  }
  const categories=(kind:string)=>(data.categories as R[]).filter(c=>c.kind===kind).map(c=>({value:c.id,label:c.name}));
  const blockedTags=new Set((data.impediments as R[]).map(i=>i.equipment_id));
@@ -90,6 +91,7 @@ export default function OrderExecution({orderId,onChanged,onRevise}:{orderId:str
    </div>
    <dl className="facts"><div><dt>Solicitante</dt><dd><OrgOf data={data}/></dd></div><div><dt>Planejado</dt><dd>{fmt(order.planned_start)} → {fmt(order.planned_end)}</dd></div><div><dt>Real</dt><dd>{order.actual_start?`${fmt(order.actual_start)} → ${order.actual_end?fmt(order.actual_end):'em curso'}`:'Não iniciada'}</dd></div><div><dt>Etapas</dt><dd>{done} de {steps.length} concluídas{order.closed_at?` · encerrada ${fmt(order.closed_at)}`:''}</dd></div></dl>
    {data.impediments.length>0&&<div className="form-error"><ShieldAlert size={17}/><span>{(data.impediments as R[]).map(i=>`${i.tag} bloqueado (${i.kind==='nc_critica'?'NC crítica':'impedimento técnico'}): ${i.reason}`).join(' · ')}. Aguardando liberação técnica ou substituição pelo Planejamento.</span></div>}
+   {order.status==='cancelada'&&<div className="form-error"><Ban size={17}/><span>OS cancelada{order.cancelled_at?` em ${fmt(order.cancelled_at)}`:''}: {order.cancel_reason||'sem justificativa registrada'}</span></div>}
    {order.status==='encerramento_pendente'&&<div className="notice warn"><AlertTriangle size={17}/><span>Todas as etapas terminaram. Falta concluir checklist obrigatório para encerrar a OS (aba Checklists).</span></div>}
    <OsRuler order={order} steps={rulerSteps} intervals={data.intervals as R[]} occurrences={data.occurrences as R[]} now={now} selected={sel?.id||null} onSelect={setSelected}/>
    <div className="stepchips" role="group" aria-label="Etapas"><button type="button" aria-pressed={!sel} onClick={()=>setSelected(null)}>Todas as etapas</button>{steps.map(s=><button key={s.id} type="button" aria-pressed={sel?.id===s.id} onClick={()=>setSelected(sel?.id===s.id?null:s.id)}><span className={`st ${s.status}`}><i/></span>{s.plan.name}<small className="mono">{timing(s)}</small></button>)}</div>
@@ -137,10 +139,10 @@ export default function OrderExecution({orderId,onChanged,onRevise}:{orderId:str
    </div>:<div className="stepbox"><span className="lab">Etapas</span><span className="note">Escolha uma etapa na régua (passe o mouse para abrir) ou nos botões abaixo dela para iniciar, pausar, bloquear, finalizar ou registrar apontamentos.</span>
     {active.length>0&&<div className="acts">{active.map(s=><button key={s.id} type="button" onClick={()=>setSelected(s.id)}>{s.plan.name} · {stepNames[s.status][0].toLowerCase()}</button>)}</div>}</div>}
    {!can.execute&&<span className="note">Consulta: registrar execução exige o acesso “Operação”.</span>}
-   <div className="links"><a href={`/relatorio/${order.id}`} target="_blank" rel="noopener"><FileText size={14}/>Relatório PDF</a><a href={`/api/ops/order.xlsx?id=${encodeURIComponent(order.id)}`}><FileSpreadsheet size={14}/>Planilha Excel</a>{can.plan&&onRevise&&['programada','em_andamento'].includes(order.status)&&<button type="button" onClick={()=>void startRevision(order.id,onRevise)} title="Nova versão do planejamento com o mesmo número"><History size={14}/>Revisar OS</button>}</div>
+   <div className="links"><a href={`/relatorio/${order.id}`} target="_blank" rel="noopener"><FileText size={14}/>Relatório PDF</a><a href={`/api/ops/order.xlsx?id=${encodeURIComponent(order.id)}`}><FileSpreadsheet size={14}/>Planilha Excel</a>{can.plan&&['programada','em_andamento'].includes(order.status)&&<button type="button" className="danger-link" onClick={()=>open('cancel')} title="Somente planejador ou gestor, com justificativa"><Ban size={14}/>Cancelar OS</button>}</div>
   </aside>
 
-  <Dialog open={!!action} onOpenChange={v=>{if(!busy&&!v)setAction(null)}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><Clock size={16}/> {osLabel(order.number)}{action?.step?` · ${action.step.plan.name}`:''}</div><DialogTitle>{{block:'Bloquear etapa',note:'Registrar apontamento',pause:'Pausar etapa',finish:'Finalizar etapa',resolve:'Registrar resolução',dispense:'Dispensar etapa'}[action?.kind||'block']}</DialogTitle><DialogDescription>{action?.kind==='block'?'Interrompe o tempo efetivo da etapa; o prazo continua correndo. A retomada exige resolver o bloqueio.':action?.kind==='finish'?'Registra o término real agora. Etapa bloqueada só termina informando como o impedimento foi resolvido.':action?.kind==='dispense'?'A etapa não será executada. Dependentes deixam de esperar por ela e as reservas dela são liberadas.':action?.kind==='resolve'?'A resolução fica registrada. Retomar a etapa é uma ação separada.':'O registro fica ligado à etapa e não pode ser apagado.'}</DialogDescription></DialogHeader>
+  <Dialog open={!!action} onOpenChange={v=>{if(!busy&&!v)setAction(null)}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><Clock size={16}/> {osLabel(order.number)}{action?.step?` · ${action.step.plan.name}`:''}</div><DialogTitle>{{block:'Bloquear etapa',note:'Registrar apontamento',pause:'Pausar etapa',finish:'Finalizar etapa',resolve:'Registrar resolução',dispense:'Dispensar etapa',cancel:'Cancelar OS'}[action?.kind||'block']}</DialogTitle><DialogDescription>{action?.kind==='cancel'?(order.status==='em_andamento'?'A OS já começou: as etapas abertas serão encerradas agora como canceladas, os períodos de trabalho ficam registrados e os equipamentos são liberados. Não pode ser desfeito.':'A OS deixa de valer e as reservas de equipamento são liberadas. Não pode ser desfeito.'):action?.kind==='block'?'Interrompe o tempo efetivo da etapa; o prazo continua correndo. A retomada exige resolver o bloqueio.':action?.kind==='finish'?'Registra o término real agora. Etapa bloqueada só termina informando como o impedimento foi resolvido.':action?.kind==='dispense'?'A etapa não será executada. Dependentes deixam de esperar por ela e as reservas dela são liberadas.':action?.kind==='resolve'?'A resolução fica registrada. Retomar a etapa é uma ação separada.':'O registro fica ligado à etapa e não pode ser apagado.'}</DialogDescription></DialogHeader>
    {action&&<form onSubmit={submit}><div className="form-grid">
     {action.kind==='note'&&<><Field label="Tipo *"><Choice value={form.kind} onChange={v=>setForm(f=>({...f,kind:v,categoryId:''}))} options={[{value:'ocorrencia',label:'Ocorrência'},{value:'impacto',label:'Impacto'}]}/></Field><Field label="Categoria"><Choice value={form.categoryId} onChange={v=>setForm(f=>({...f,categoryId:v}))} options={categories(form.kind)} placeholder="Opcional"/></Field>
      <Field label="Quando ocorreu (Brasília)" hint="Pode ser anterior ao registro."><Input type="datetime-local" value={form.occurredAt} onChange={e=>setForm(f=>({...f,occurredAt:e.target.value}))}/></Field>
@@ -148,8 +150,8 @@ export default function OrderExecution({orderId,onChanged,onRevise}:{orderId:str
       <Field label="Equipamento afetado"><Choice value={form.equipmentId||'none'} onChange={v=>setForm(f=>({...f,equipmentId:v==='none'?'':v}))} options={[{value:'none',label:'Nenhum'},...(action.step!.plan.equipment_ids as string[]).map(e=>({value:e,label:tags.equipment(e)}))]}/></Field>
       {['em_execucao','pausada','bloqueada','nao_iniciada'].includes(action.step!.status)&&<Toggle title="Impacto com bloqueio" description="Também bloqueia a etapa (um só registro). Exige categoria de impacto." checked={!!form.blocking} onChange={v=>setForm(f=>({...f,blocking:v}))}/>}</>}</>}
     {action.kind==='block'&&<Field label="Categoria do bloqueio *" wide><Choice value={form.categoryId} onChange={v=>setForm(f=>({...f,categoryId:v}))} options={categories('bloqueio')} placeholder={categories('bloqueio').length?'Selecione':'Cadastre categorias em Cadastros gerais'}/></Field>}
-    {(action.kind==='block'||action.kind==='note')&&<Field label="Descrição *" wide><Textarea required maxLength={2000} value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></Field>}
-    {(action.kind==='pause'||action.kind==='dispense')&&<Field label={action.kind==='pause'?'Motivo da pausa *':'Motivo da dispensa *'} wide><Textarea required maxLength={1200} value={form.reason} onChange={e=>setForm(f=>({...f,reason:e.target.value}))}/></Field>}
+    {(action.kind==='block'||action.kind==='note')&&<Field label={action.kind==='block'||(form.kind==='impacto'&&form.blocking)?'Justificativa do bloqueio *':'Descrição *'} wide><Textarea required maxLength={2000} value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))}/></Field>}
+    {(action.kind==='pause'||action.kind==='dispense'||action.kind==='cancel')&&<Field label={action.kind==='pause'?'Justificativa da pausa *':action.kind==='cancel'?'Justificativa do cancelamento *':'Motivo da dispensa *'} wide><Textarea required maxLength={1200} value={form.reason} onChange={e=>setForm(f=>({...f,reason:e.target.value}))}/></Field>}
     {(action.kind==='resolve'||(action.kind==='finish'&&(action.step!.status==='bloqueada'||openBlocks(action.step!).length>0)))&&<Field label={action.kind==='resolve'?'Como foi resolvido *':'Como o impedimento foi resolvido ou como ocorreu a interrupção final *'} wide><Textarea required maxLength={1200} value={form.resolution} onChange={e=>setForm(f=>({...f,resolution:e.target.value}))}/></Field>}
     {action.kind==='finish'&&action.step!.status!=='bloqueada'&&!openBlocks(action.step!).length&&<p className="wide notice"><CheckCircle2 size={16}/> Término registrado com o horário do servidor no momento da confirmação.</p>}
    </div>{formError&&<div className="form-error" role="alert"><AlertTriangle size={17}/>{formError}</div>}<div className="modal-footer"><Button type="button" variant="outline" onClick={()=>setAction(null)} disabled={busy}>Voltar</Button><Button type="submit" className="primary-action" disabled={busy}>{busy?<LoaderCircle className="animate-spin" size={16}/>:null} Confirmar</Button></div></form>}

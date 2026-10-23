@@ -110,7 +110,7 @@ async function launch(a:Actor,b:Row){
      dispensed++;
     }
    }
-   await tx.run('UPDATE work_orders SET current_plan_id=?,location_id=?,planned_start=?,planned_end=?,revision=?,title=?,code=?,version=version+1 WHERE id=?',draft.id,draft.location_id,draft.planned_start,draft.planned_end,n,draft.free?draft.title:null,draft.free?draft.code||null:null,wo.id);
+   await tx.run('UPDATE work_orders SET current_plan_id=?,location_id=?,planned_start=?,planned_end=?,revision=?,title=?,code=?,version=version+1 WHERE id=?',draft.id,draft.location_id,draft.planned_start,draft.planned_end,n,draft.free?draft.title:null,draft.code||null,wo.id);
    // Checklists previstos: novos para equipamentos incluídos; os de equipamento retirado deixam de valer (sem apagar).
    const required=await createRequirements(tx,wo.id,draft);
    const used=[...new Set(draft.steps.filter(s=>s.included).flatMap(s=>s.equipment_ids))];

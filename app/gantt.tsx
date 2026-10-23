@@ -6,7 +6,7 @@ import {useCallback,useEffect,useMemo,useRef,useState,KeyboardEvent,PointerEvent
 import {ZoomIn,ZoomOut,CalendarCheck,Maximize2,ChevronRight,Lock,AlertTriangle} from 'lucide-react';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Switch} from '@/components/ui/switch';
-import {OrgTag,load,type R} from './kit';
+import {OrgTag,load,clip,type R} from './kit';
 
 const H=3600000,D=24*H,TZ=-3*H; // horário de Brasília (UTC−3, sem horário de verão)
 const MIN_SPAN=2*H,MAX_SPAN=6*365*D;
@@ -16,7 +16,8 @@ const fromLocal=(y:number,m:number,d=1,h=0)=>Date.UTC(y,m,d,h)-TZ;
 const STORE='nautilus.gantt';
 type View={start:number,span:number};
 const statusText:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
-const stepText:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada'};
+const stepText:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
+const hm=(ms:number)=>{const d=local(ms);return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`};
 const fmt=(ms:number)=>{const d=local(ms);return `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`};
 
 /** Marcas do cabeçalho conforme a escala: meses (ano), dias (mês) ou horas (dia). */
@@ -79,12 +80,12 @@ export default function Gantt({query,orgs,onOpen}:{query:string,orgs:R[],onOpen:
    <button type="button" className="icon-action" onClick={()=>zoomAt(1.25)} aria-label="Afastar"><ZoomOut size={16}/></button><button type="button" className="icon-action" onClick={()=>zoomAt(0.8)} aria-label="Aproximar"><ZoomIn size={16}/></button>
    <button type="button" className="chip" onClick={()=>setView(v=>({...v,start:Date.now()-v.span/2}))}><CalendarCheck size={13} className="inline"/> Hoje</button>
    <button type="button" className="chip" onClick={()=>void fit()}><Maximize2 size={13} className="inline"/> Ajustar ao período</button>
-   <label className="g-wheel"><Switch checked={wheel} onCheckedChange={v=>{setWheel(v);try{sessionStorage.setItem(STORE+'.wheel',v?'1':'0')}catch{}}} aria-label="Roda do mouse controla o zoom"/>Roda do mouse controla o zoom</label>
+   <label className="g-wheel" title="Desligado, a roda do mouse rola a lista de OS"><Switch checked={wheel} onCheckedChange={v=>{setWheel(v);try{sessionStorage.setItem(STORE+'.wheel',v?'1':'0')}catch{}}} aria-label="Roda do mouse controla o zoom"/>Roda do mouse controla o zoom</label>
    <span className="g-range">{fmt(view.start)} → {fmt(view.start+view.span)} · Horário de Brasília (UTC−3)</span>
   </div>
-  <div className="g-grid">
+  <div className="g-scroll"><div className="g-grid">
    <div className="g-left"><div className="g-head-left"><b>{scale.context}</b><small>{visible.length} OS no período</small></div>
-    {visible.map(o=><div key={o.id} className="g-group"><div className="g-label"><button type="button" className="g-expand" aria-expanded={expanded.includes(o.id)} aria-label={`Etapas da ${o.number}`} onClick={()=>setExpanded(e=>e.includes(o.id)?e.filter(x=>x!==o.id):[...e,o.id])}><ChevronRight size={14}/></button><button type="button" className="g-name" onClick={()=>onOpen(o.id)}><b>OS {String(o.number).padStart(6,'0')}</b><small>{o.activity_name}</small></button><OrgTag org={orgOf(o.org_id)}/></div>
+    {visible.map(o=><div key={o.id} className="g-group"><div className="g-label"><button type="button" className="g-expand" aria-expanded={expanded.includes(o.id)} aria-label={`Etapas da ${o.number}`} onClick={()=>setExpanded(e=>e.includes(o.id)?e.filter(x=>x!==o.id):[...e,o.id])}><ChevronRight size={14}/></button><button type="button" className="g-name" onClick={()=>onOpen(o.id)} title={o.activity_name}><b>OS {String(o.number).padStart(6,'0')}{o.activity_code?` · ${o.activity_code}`:''}</b><small>{clip(o.activity_name,48)}</small></button><OrgTag org={orgOf(o.org_id)}/></div>
      {expanded.includes(o.id)&&(steps[o.id]||[]).map(s=><div key={s.id} className="g-label g-step"><span>{s.name}</span><small>{stepText[s.status]}{(s.depends_on as string[]).length?` · após ${(s.depends_on as string[]).map(d=>(steps[o.id]||[]).find(x=>x.step_key===d)?.name).filter(Boolean).join(', ')}`:''}</small></div>)}</div>)}
    </div>
    <div className="g-right" ref={area} tabIndex={0} role="application" aria-label="Gantt: setas movem o período, + e − aproximam ou afastam" onKeyDown={onKey} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
@@ -94,17 +95,19 @@ export default function Gantt({query,orgs,onOpen}:{query:string,orgs:R[],onOpen:
      {now>view.start&&now<view.start+view.span&&<i className="g-now" style={{left:`${x(now)}%`}} title="Agora"/>}
      {visible.map(o=>{const ps=Date.parse(o.planned_start),pe=Date.parse(o.planned_end);const p=bar(ps,pe);const real=o.actual_start?bar(Date.parse(o.actual_start),o.actual_end?Date.parse(o.actual_end):now):null;
       return <div key={o.id} className="g-group"><div className="g-row">
-       {p&&<button type="button" className={`g-bar ${o.status} ${o.late?'late':''}`} style={p} onClick={()=>onOpen(o.id)} title={`OS ${o.number} · ${statusText[o.status]}${o.late?' · início vencido':''}\nPlanejado: ${fmt(ps)} → ${fmt(pe)}${o.actual_start?`\nReal: ${fmt(Date.parse(o.actual_start))} → ${o.actual_end?fmt(Date.parse(o.actual_end)):'em curso'}`:''}`}>{o.blocked_resources>0&&<Lock size={11}/>}<span>{statusText[o.status]}{o.late?' · atrasada':''}</span></button>}
-       {real&&<i className="g-real" style={real}/>}
+       {real&&<i className={`g-shadow${o.actual_end?'':' open'}`} style={real}/>}
+       {p&&(Math.min(101,x(pe))-Math.max(-1,x(ps)))*width/100<96&&x(pe)<98&&<span className="g-out" style={{left:`calc(${Math.min(101,x(pe))}% + 8px)`}} title={o.activity_name}><b>{clip(o.activity_name,42)}</b><small>{statusText[o.status]}{o.late?' · atrasada':''} · {hm(ps)}–{hm(pe)}</small></span>}
+       {p&&<button type="button" className={`g-bar ${o.status} ${o.late?'late':''}`} style={p} onClick={()=>onOpen(o.id)} title={`OS ${o.number} · ${o.activity_name}\n${statusText[o.status]}${o.late?' · início vencido':''}\nPlanejado: ${fmt(ps)} → ${fmt(pe)}${o.actual_start?`\nReal: ${fmt(Date.parse(o.actual_start))} → ${o.actual_end?fmt(Date.parse(o.actual_end)):'em curso'}`:''}`}>
+        <span className="g-t">{o.blocked_resources>0&&<Lock size={11}/>}{clip(o.activity_name,60)}</span><small>{statusText[o.status]}{o.late?' · atrasada':''} · {hm(ps)}–{hm(pe)}{o.origin==='realizada'?' · realizada':''}</small></button>}
       </div>
       {expanded.includes(o.id)&&(steps[o.id]||[]).map(s=>{const sp=bar(Date.parse(s.planned_start),Date.parse(s.planned_end));const sr=s.actual_start?bar(Date.parse(s.actual_start),s.actual_end?Date.parse(s.actual_end):now):null;return <div key={s.id} className="g-row g-step">
-       {sp&&<button type="button" className={`g-bar step ${s.status}`} style={sp} onClick={()=>onOpen(o.id)} title={`${s.name} · ${stepText[s.status]}\nPlanejado: ${fmt(Date.parse(s.planned_start))} → ${fmt(Date.parse(s.planned_end))}`}><span>{s.name}</span></button>}
-       {sr&&<i className={`g-real ${s.status}`} style={sr}/>}
+       {sr&&<i className={`g-shadow ${s.status}${s.actual_end?'':' open'}`} style={sr}/>}
+       {sp&&<button type="button" className={`g-bar step ${s.status}`} style={sp} onClick={()=>onOpen(o.id)} title={`${s.name} · ${stepText[s.status]}\nPlanejado: ${fmt(Date.parse(s.planned_start))} → ${fmt(Date.parse(s.planned_end))}`}><span className="g-t">{clip(s.name,60)}</span></button>}
       </div>})}</div>})}
      {!visible.length&&<p className="g-empty">Nenhuma OS no período visível. Use “Ajustar ao período”, “Hoje” ou afaste o zoom.</p>}
     </div>
    </div>
-  </div>
-  <div className="g-legend"><span><i className="g-bar programada"/>Programada</span><span><i className="g-bar em_andamento"/>Em andamento</span><span><i className="g-bar late programada"/>Início vencido</span><span><i className="g-bar encerramento_pendente"/>Encerramento pendente</span><span><i className="g-bar concluida"/>Concluída</span><span><i className="g-real"/>Execução real</span><span><Lock size={12}/> Equipamento bloqueado</span><span><i className="g-now-key"/>Agora</span></div>
+  </div></div>
+  <div className="g-legend"><span><i className="g-bar programada"/>Programada</span><span><i className="g-bar em_andamento"/>Em andamento</span><span><i className="g-bar late programada"/>Início vencido</span><span><i className="g-bar encerramento_pendente"/>Encerramento pendente</span><span><i className="g-bar concluida"/>Concluída</span><span><i className="g-shadow"/>Execução real (sombra atrás do planejado)</span><span><Lock size={12}/> Equipamento bloqueado</span><span><i className="g-now-key"/>Agora</span></div>
  </div>;
 }
