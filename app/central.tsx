@@ -54,7 +54,7 @@ export default function Central({refreshKey,onGo}:{refreshKey:number,onGo:(view:
      <div className="ce-stats"><Stat label="Rascunhos" value={s.planejamento.drafts} onClick={go('plan-rascunhos')}/><Stat label="Revisões em rascunho" value={s.planejamento.revisions} onClick={go('plan-rascunhos')}/><Stat label="Parados segurando equipamento" value={s.planejamento.stale} tone={s.planejamento.stale?'var(--mwarn)':undefined} onClick={go('plan-rascunhos')}/></div>
     </Card>}
     {(s.operacao?.agenda?.length>0||s.manutencao?.agenda?.length>0)&&<section className="ce-card"><header><span><CalendarClock size={16}/>Próximos 7 dias</span></header><ul className="ce-agenda">
-     {(s.operacao?.agenda as R[]||[]).map(o=><li key={o.id}><button type="button" onClick={()=>onGo('op-os',o.id)}><b className="mono">{fmt(o.start)}</b><span>{osLabel(o.number)} · {o.title}</span><Badge tone="info">{o.org}</Badge></button></li>)}
+     {(s.operacao?.agenda as R[]||[]).map(o=><li key={o.id}><button type="button" onClick={()=>onGo('op-os',o.id)}><b className="mono">{fmt(o.start)}</b><span>{osLabel(o.number)} · {o.title}{o.late&&<em className="ce-late"> · início atrasado</em>}</span><Badge tone="info">{o.org}</Badge></button></li>)}
      {(s.manutencao?.agenda as R[]||[]).map(p=><li key={p.planId}><button type="button" onClick={go('man-painel')}><b className="mono">{dayBR(p.date)}</b><span>Preventiva · {p.tag} · {p.name}</span><Badge tone="success">{p.unit==='dias'?`faltam ${p.remaining} dia(s)`:`faltam ${num(p.remaining)} ${p.unit}`}</Badge></button></li>)}
     </ul></section>}
    </div>

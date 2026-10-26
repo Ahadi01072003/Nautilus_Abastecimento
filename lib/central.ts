@@ -28,7 +28,7 @@ export async function centralState(member:Member){
    all('SELECT id,name,unit,stock_milli,minimum_milli,capacity_milli FROM fuels WHERE active=1 ORDER BY name'),
    all("SELECT r.id,r.fuel_id,r.requested_milli,r.received_milli,r.deadline,r.status,r.opened_at,f.name,f.unit FROM requests r JOIN fuels f ON f.id=r.fuel_id WHERE r.status IN ('open','purchasing','partial') ORDER BY r.deadline"),
   ]);
-  for(const f of fuels)if(f.stock_milli<=f.minimum_milli)alerts.push({id:'fuel:'+f.id,module:'abastecimento',severity:'critico',title:`${f.name} no mínimo`,detail:`Estoque ${qty(f.stock_milli,f.unit)} · mínimo ${qty(f.minimum_milli,f.unit)}`,at:null,link:{view:'estoque'}});
+  for(const f of fuels)if(f.stock_milli<=f.minimum_milli)alerts.push({id:'fuel:'+f.id,module:'abastecimento',severity:'critico',title:`${f.name} ${f.stock_milli<f.minimum_milli?'abaixo do mínimo':'no mínimo'}`,detail:`Estoque ${qty(f.stock_milli,f.unit)} · mínimo ${qty(f.minimum_milli,f.unit)}`,at:null,link:{view:'estoque'}});
   for(const r of requests){const late=Date.parse(r.deadline)<t;alerts.push({id:'req:'+r.id,module:'abastecimento',severity:late?'critico':'atencao',title:`Reposição de ${r.name} ${late?'vencida':'pendente'}`,detail:`${qty(r.requested_milli-r.received_milli,r.unit)} a receber · prazo ${new Date(r.deadline).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'})}`,at:r.opened_at,link:{view:'alertas'}});}
   out.sections.abastecimento={fuels:fuels.map(f=>({id:f.id,name:f.name,unit:f.unit,stock:f.stock_milli/1000,minimum:f.minimum_milli/1000,capacity:f.capacity_milli/1000,low:f.stock_milli<=f.minimum_milli})),requests:requests.length};
  }
@@ -67,7 +67,7 @@ export async function centralState(member:Member){
    overdue:rows.filter(w=>w.status==='em_andamento'&&Date.parse(w.planned_end)<t).length,
    pending:rows.filter(w=>w.status==='encerramento_pendente').length,
    blocked:blocks.length,
-   agenda:rows.filter(w=>w.status==='programada'&&Date.parse(w.planned_start)>=t-DAY&&Date.parse(w.planned_start)<t+7*DAY).slice(0,8).map(w=>({id:w.id,number:w.number,title:w.activity_name,org:w.acronym,start:w.planned_start})),
+   agenda:rows.filter(w=>w.status==='programada'&&Date.parse(w.planned_start)>=t-DAY&&Date.parse(w.planned_start)<t+7*DAY).slice(0,8).map(w=>({id:w.id,number:w.number,title:w.activity_name,org:w.acronym,start:w.planned_start,late:Date.parse(w.planned_start)<t})),
   };
  }
 

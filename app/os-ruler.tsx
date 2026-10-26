@@ -40,8 +40,10 @@ export default function OsRuler({order,steps,intervals,occurrences,now,compact=f
  const [trackWidth,setTrackWidth]=useState(0);
  useEffect(()=>{const el=track.current;if(!el||typeof ResizeObserver==='undefined')return;const ro=new ResizeObserver(([e])=>setTrackWidth(e.contentRect.width));ro.observe(el);return()=>ro.disconnect()},[]);
  const running=['em_andamento','encerramento_pendente'].includes(order.status);
+ // Programada com início vencido: a régua vai até agora para mostrar o atraso.
+ const late=order.status==='programada'&&now>ms(order.planned_start);
  const starts=[ms(order.planned_start),...intervals.map(i=>ms(i.start_at)),...steps.filter(s=>s.planned_start).map(s=>ms(s.planned_start))];
- const ends=[ms(order.planned_end),...intervals.map(i=>i.end_at?ms(i.end_at):now),...steps.filter(s=>s.planned_end).map(s=>ms(s.planned_end)),...(running?[now]:[])];
+ const ends=[ms(order.planned_end),...intervals.map(i=>i.end_at?ms(i.end_at):now),...steps.filter(s=>s.planned_end).map(s=>ms(s.planned_end)),...(running||late?[now]:[])];
  let ws=Math.min(...starts),we=Math.max(...ends);
  const offset=3*H;// relógio de Brasília (UTC−3) para alinhar marcas às horas cheias locais
  // Mais de ~20 h: escala fixa de 6 em 6 horas, com a virada de cada dia destacada.
@@ -108,7 +110,7 @@ export default function OsRuler({order,steps,intervals,occurrences,now,compact=f
      <div className={`rscale${twoTier?' multi':''}`}>{ticks.map(t=><i key={'i'+t.t} className={t.major?'major':''} style={{left:pct(t.t)+'%'}}/>)}
       {twoTier&&dayLabels.filter(d=>!near(Math.max(d,ws))).map(d=><span key={'dl'+d} className="rdaylabel" style={{left:pct(d)+'%'}}>{dm.format(Math.max(d,ws)+H)}</span>)}
       {multiDay?hourLabels&&ticks.filter(t=>!days.includes(t.t)&&pct(t.t)>0&&pct(t.t)<100).map(t=><span key={'s'+t.t} style={{left:pct(t.t)+'%'}}>{label(t.t)}</span>)
-      :ticks.filter(t=>t.major&&(twoTier||!near(t.t))).map(t=><span key={'s'+t.t} style={{left:pct(t.t)+'%'}}>{label(t.t)}</span>)}</div>
+      :ticks.filter(t=>t.major&&(twoTier||!near(t.t))&&pct(t.t)>2&&pct(t.t)<97).map(t=><span key={'s'+t.t} style={{left:pct(t.t)+'%'}}>{label(t.t)}</span>)}</div>
      <div className="rlane primary">{planned(order.planned_start,order.planned_end,true)}{ivs(intervals.filter(i=>i.kind!=='ativo'))}{ivs(intervals.filter(i=>i.kind==='ativo'))}</div>
      <div className="rextra"><div>{sorted.map(s=><div key={s.id} className={`rlane${selected===s.id?' sel':''}`} onClick={()=>onSelect?.(selected===s.id?null:s.id)}>
       {planned(s.planned_start,s.planned_end)}{ivs(intervals.filter(i=>i.os_step_id===s.id))}

@@ -190,6 +190,8 @@ export async function operationMutate(path:string,b:Row,member:Member){
    const impactStart=kind==='impacto'?instant(b.impactStart,'Início do impacto'):null,impactEnd=kind==='impacto'?instant(b.impactEnd,'Fim do impacto'):null;
    if(impactStart&&impactEnd&&impactEnd<=impactStart)throw new AppError('O fim do impacto deve ser depois do início.');
    const equipmentId=b.equipmentId?idOf(b.equipmentId,'Equipamento'):null;
+   if(equipmentId&&!await tx.first('SELECT 1 FROM equipment WHERE id=?',equipmentId))throw new AppError('Equipamento não encontrado. Atualize a tela.',404);
+   if(impactStart&&Date.parse(impactStart)>Date.now()+60000)throw new AppError('O início do impacto não pode estar no futuro.');
    const oid=id();
    await tx.run('INSERT INTO occurrences(id,work_order_id,os_step_id,kind,blocking,category_id,description,severity,equipment_id,impact_start,impact_end,occurred_at,registered_at,late,author_id,author_name,operation_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',oid,wo.id,s.id,kind,blocking,category?.id||null,description,severity,equipmentId,impactStart,impactEnd,occurred,t,late,a.id,a.name,key);
    if(blocking){

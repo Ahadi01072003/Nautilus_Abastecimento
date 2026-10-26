@@ -14,6 +14,10 @@ import OsRuler,{effective,dur,RulerLegend} from './os-ruler';
 
 const dmhmFmt=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 const dmhm={format:(t:number)=>dmhmFmt.format(t).replace(',','')};
+/** Duração longa legível: "2 d 01:02" a partir de 24 h (o HH:MM puro passa de 48:00 e confunde). */
+const span=(x:number)=>x>=86400000?`${Math.floor(x/86400000)} d ${dur(x%86400000)}`:dur(x);
+/** Período planejado: no mesmo dia "26/10 07:00–17:00"; em dias diferentes, data nas duas pontas. */
+const period=(a:number,b:number)=>{const x=dmhm.format(a),y=dmhm.format(b);return x.slice(0,5)===y.slice(0,5)?`${x}–${y.slice(6)}`:`${x} → ${y}`;};
 const STATUS:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
 const STEP:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 const COLOR:Record<string,string>={em_andamento:'var(--live)',encerramento_pendente:'var(--imp)',programada:'var(--line)',concluida:'var(--ok)',cancelada:'var(--occ)'};
@@ -79,7 +83,7 @@ export default function OpsBoard({onOpen,refreshKey}:{onOpen:(id:string)=>void;r
    <Button className="primary-action sn-export" onClick={()=>setAgenda(true)}><FileDown size={16}/> Exportar agenda</Button>
   </div>
   {invalid&&<p className="form-error" role="alert">A data final deve ser igual ou posterior à inicial.</p>}
-  <div className="sn-sechead"><h2>{TITLES[filters.group]}</h2><span className="eyebrow">{main.orders.length}{main.more?'+':''} OS{filters.from||filters.to?` · ${filters.from?filters.from.split('-').reverse().join('/'):'…'} a ${filters.to?filters.to.split('-').reverse().join('/'):'…'}`:''} · passe o mouse na régua para ver as etapas</span></div>
+  <div className="sn-sechead"><h2>{TITLES[filters.group]}</h2><span className="eyebrow">{main.orders.length}{main.more?'+':''} OS{filters.from||filters.to?` · ${filters.from?filters.from.split('-').reverse().join('/'):'…'} a ${filters.to?filters.to.split('-').reverse().join('/'):'…'}`:''} · passe o mouse ou toque na régua para ver as etapas</span></div>
   <RulerLegend className="sn-legend"/>
   <div className="sn-board">
    {main.orders.map(o=><OrderCard key={o.id} o={o} now={now} canExecute={main.canExecute} onOpen={onOpen} onChanged={refresh}/>)}
@@ -131,8 +135,8 @@ function OrderCard({o,now,canExecute,onOpen,onChanged}:{o:R;now:number;canExecut
  async function run(path:string,body:R,msg:string){setBusy(true);try{const r=await post(path,{operationKey:crypto.randomUUID(),...body});toast.success(r.message||msg);setPausing(null);setReason('');await onChanged();}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}
  function submit(e:FormEvent){e.preventDefault();if(pausing)void run('ops/pause',{stepId:pausing.id,reason},'Etapa pausada.');}
  const current=[...active,...blocked,...paused].map(s=>`${s.name} (${STEP[s.status].toLowerCase()})`).join(' · ');
- const timing=o.status==='programada'?(ps>now?`início em ${dur(ps-now)} · ${dmhm.format(ps)} → ${dmhm.format(pe)}`:`início atrasado ${dur(now-ps)}`)
-  :live?(pe>=now?`faltam ${dur(pe-now)} · fim ${dmhm.format(pe)}`:`prazo vencido há ${dur(now-pe)}`)
+ const timing=o.status==='programada'?(ps>now?`início em ${span(ps-now)} · ${period(ps,pe)}`:`início atrasado ${span(now-ps)} · ${period(ps,pe)}`)
+  :live?(pe>=now?`faltam ${span(pe-now)} · fim ${dmhm.format(pe)}`:`prazo vencido há ${span(now-pe)}`)
   :o.status==='encerramento_pendente'?'aguarda checklist para encerrar'
   :o.status==='concluida'?`concluída ${o.actual_end?dmhm.format(Date.parse(o.actual_end)):''}`:`cancelada${o.closed_at?' '+dmhm.format(Date.parse(o.closed_at)):''}`;
  return <article className="sn-card" style={{['--c' as string]:COLOR[o.status]}}>
@@ -143,8 +147,9 @@ function OrderCard({o,now,canExecute,onOpen,onChanged}:{o:R;now:number;canExecut
    {current&&<span className="meta">Agora: {current}</span>}
   </div>
   <div className="timer">
-   <span className="sn-clock clock-roll" aria-label={`Tempo efetivo ${hms(eff)}`}><Digits value={hms(eff)}/></span>
-   <small>{timing}</small>
+   {o.status==='programada'&&!eff?<span className="sn-clock sn-idle" aria-label={`Início planejado ${dmhm.format(ps)}`}><em>Início planejado</em>{dmhm.format(ps)}</span>
+    :<span className="sn-clock clock-roll" aria-label={`Tempo efetivo ${hms(eff)}`}><Digits value={hms(eff)}/></span>}
+   <small>{timing.split(' · ').map((part,i)=><span key={i} className="nw">{i?' · ':''}{part}</span>)}</small>
    <div className="acts">
     {canExecute&&active.length===1&&<button type="button" disabled={busy} onClick={()=>setPausing(active[0])}><Pause size={14}/>Pausar</button>}
     {canExecute&&!active.length&&paused.length===1&&<button type="button" className="go" disabled={busy} onClick={()=>void run('ops/resume',{stepId:paused[0].id},'Etapa retomada.')}>{busy?<LoaderCircle size={14} className="animate-spin"/>:<Play size={14}/>}Retomar</button>}
@@ -162,10 +167,13 @@ const PARTS=[['andamento','Em andamento','#1864ab'],['programadas','Programadas'
 function ByOrg({rows}:{rows:R[]}){
  const [tip,setTip]=useState<{x:number,y:number,text:string}|null>(null);
  if(!rows.length)return <p className="sn-empty">Nenhuma OS nos últimos 30 dias.</p>;
- const max=Math.max(...rows.map(r=>r.total)),W=640,L=120,R=36,row=30,T=6,H=T+rows.length*row+24,x=(v:number)=>L+v/max*(W-L-R);
+ // Escala com passo inteiro (0, 1, 2… ou 0, 2, 4…), sem marcas irregulares como 0 · 3 · 5.
+ const most=Math.max(...rows.map(r=>r.total)),stepN=[1,2,5,10,20,50,100].find(s=>most/s<=6)||200,max=Math.ceil(most/stepN)*stepN;
+ const ticks=Array.from({length:max/stepN+1},(_,i)=>i*stepN);
+ const W=640,L=120,R=36,row=30,T=6,H=T+rows.length*row+24,x=(v:number)=>L+v/max*(W-L-R);
  const show=(e:MouseEvent,text:string)=>{const box=(e.currentTarget as SVGElement).ownerSVGElement!.parentElement!.getBoundingClientRect();setTip({x:e.clientX-box.left,y:e.clientY-box.top,text});};
  return <div style={{display:'grid',gap:10}}><div className="sn-chart sn-tipbox" onMouseLeave={()=>setTip(null)}><svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={'OS por solicitante: '+rows.map(r=>`${r.acronym} ${r.total}`).join(', ')}>
-  {[...new Set([0,Math.round(max/2),max])].map(t=><g key={t}><line className="grid" x1={x(t)} x2={x(t)} y1={T} y2={H-20}/><text x={x(t)} y={H-6} textAnchor="middle">{t}</text></g>)}
+  {ticks.map(t=><g key={t}><line className="grid" x1={x(t)} x2={x(t)} y1={T} y2={H-20}/><text x={x(t)} y={H-6} textAnchor="middle">{t}</text></g>)}
   {rows.map((r,i)=>{const y=T+i*row+6;let acc=0;return <g key={r.acronym}><text className="lbl" x={L-10} y={y+13} textAnchor="end">{r.acronym}</text>
    {PARTS.map(([k,l,c])=>{const v=r[k];if(!v)return null;const x0=x(acc);acc+=v;const text=`${r.acronym} · ${l}: ${v} OS (${Math.round(v/r.total*100)}%)`;
     return <rect key={k} x={x0} y={y} width={Math.max(1.5,x(acc)-x0-1)} height={18} rx={2} fill={c} stroke={k==='canceladas'?'#6c7c82':'none'} strokeDasharray={k==='canceladas'?'2 2':undefined} tabIndex={0} aria-label={text}
@@ -177,10 +185,12 @@ function ByOrg({rows}:{rows:R[]}){
 function ByActivity({rows}:{rows:R[]}){
  if(!rows.length)return <p className="sn-empty">Nenhum tempo efetivo nos últimos 7 dias.</p>;
  const max=Math.max(.5,...rows.map(r=>r.s/3600)),st=[.5,1,2,5,10,20,50,100].find(s=>max/s<=5)||200,top=Math.ceil(max/st)*st;
- const W=560,L=150,R=50,row=30,T=6,H=T+rows.length*row+24,x=(v:number)=>L+v/top*(W-L-R);
+ const W=560,L=176,R=50,row=34,T=6,H=T+rows.length*row+24,x=(v:number)=>L+v/top*(W-L-R);
+ // Nome da atividade em até duas linhas (sem cortar no meio da palavra).
+ const lines=(label:string)=>{const out:string[]=[''];for(const w of label.split(/\s+/)){const cur=out[out.length-1];if(!cur||(cur+' '+w).length<=24)out[out.length-1]=cur?cur+' '+w:w;else if(out.length<2)out.push(w);else{out[1]=(out[1]+' '+w).slice(0,23)+'…';break;}}return out.map(l=>l.length>24?l.slice(0,23)+'…':l);};
  return <div className="sn-chart"><svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={'Horas efetivas por atividade: '+rows.map(r=>`${r.label} ${(r.s/3600).toFixed(1)} h`).join(', ')}>
   {Array.from({length:Math.round(top/st)+1},(_,i)=>i*st).map(t=><g key={t}><line className="grid" x1={x(t)} x2={x(t)} y1={T} y2={H-20}/><text x={x(t)} y={H-6} textAnchor="middle">{String(t).replace('.',',')}h</text></g>)}
-  {rows.map((r,i)=>{const y=T+i*row+6,v=r.s/3600;return <g key={r.label}><title>{`${r.label}: ${dur(r.s*1000)}`}</title><text className="lbl" x={L-10} y={y+13} textAnchor="end">{String(r.label).length>20?String(r.label).slice(0,19)+'…':r.label}</text>
+  {rows.map((r,i)=>{const y=T+i*row+6,v=r.s/3600;return <g key={r.label}><title>{`${r.label}: ${dur(r.s*1000)}`}</title>{lines(String(r.label)).map((l,j,a)=><text key={j} className="lbl" x={L-10} y={y+13+(j-(a.length-1)/2)*12} textAnchor="end">{l}</text>)}
    <rect className={i===0?'b-hot':'b-main'} x={L} y={y} width={Math.max(2,x(v)-L)} height={18} rx={2}/><text className="val" x={x(v)+6} y={y+13}>{v.toFixed(1).replace('.',',')}</text></g>;})}
  </svg></div>;
 }

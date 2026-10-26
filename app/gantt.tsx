@@ -18,6 +18,8 @@ type View={start:number,span:number};
 const statusText:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
 const stepText:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 const hm=(ms:number)=>{const d=local(ms);return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`};
+/** Período da barra: "07:00–17:00" no mesmo dia; com data nas pontas quando passa de um dia. */
+const when=(a:number,b:number)=>{const x=local(a),y=local(b),d=(z:Date)=>`${String(z.getUTCDate()).padStart(2,'0')}/${String(z.getUTCMonth()+1).padStart(2,'0')}`;return d(x)===d(y)?`${hm(a)}–${hm(b)}`:`${d(x)} ${hm(a)} → ${d(y)} ${hm(b)}`};
 const fmt=(ms:number)=>{const d=local(ms);return `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`};
 
 /** Marcas do cabeçalho conforme a escala: meses (ano), dias (mês) ou horas (dia). */
@@ -96,9 +98,9 @@ export default function Gantt({query,orgs,onOpen}:{query:string,orgs:R[],onOpen:
      {visible.map(o=>{const ps=Date.parse(o.planned_start),pe=Date.parse(o.planned_end);const p=bar(ps,pe);const real=o.actual_start?bar(Date.parse(o.actual_start),o.actual_end?Date.parse(o.actual_end):now):null;
       return <div key={o.id} className="g-group"><div className="g-row">
        {real&&<i className={`g-shadow${o.actual_end?'':' open'}`} style={real}/>}
-       {p&&(Math.min(101,x(pe))-Math.max(-1,x(ps)))*width/100<96&&x(pe)<98&&<span className="g-out" style={{left:`calc(${Math.min(101,x(pe))}% + 8px)`}} title={o.activity_name}><b>{clip(o.activity_name,42)}</b><small>{statusText[o.status]}{o.late?' · atrasada':''} · {hm(ps)}–{hm(pe)}</small></span>}
+       {p&&(Math.min(101,x(pe))-Math.max(-1,x(ps)))*width/100<96&&x(pe)<98&&<span className="g-out" style={{left:`calc(${Math.min(101,x(pe))}% + 8px)`}} title={o.activity_name}><b>{clip(o.activity_name,42)}</b><small>{statusText[o.status]}{o.late?' · atrasada':''} · {when(ps,pe)}</small></span>}
        {p&&<button type="button" className={`g-bar ${o.status} ${o.late?'late':''}`} style={p} onClick={()=>onOpen(o.id)} title={`OS ${o.number} · ${o.activity_name}\n${statusText[o.status]}${o.late?' · início vencido':''}\nPlanejado: ${fmt(ps)} → ${fmt(pe)}${o.actual_start?`\nReal: ${fmt(Date.parse(o.actual_start))} → ${o.actual_end?fmt(Date.parse(o.actual_end)):'em curso'}`:''}`}>
-        <span className="g-t">{o.blocked_resources>0&&<Lock size={11}/>}{clip(o.activity_name,60)}</span><small>{statusText[o.status]}{o.late?' · atrasada':''} · {hm(ps)}–{hm(pe)}{o.origin==='realizada'?' · realizada':''}</small></button>}
+        <span className="g-t">{o.blocked_resources>0&&<Lock size={11}/>}{clip(o.activity_name,60)}</span><small>{statusText[o.status]}{o.late?' · atrasada':''} · {when(ps,pe)}{o.origin==='realizada'?' · realizada':''}</small></button>}
       </div>
       {expanded.includes(o.id)&&(steps[o.id]||[]).map(s=>{const sp=bar(Date.parse(s.planned_start),Date.parse(s.planned_end));const sr=s.actual_start?bar(Date.parse(s.actual_start),s.actual_end?Date.parse(s.actual_end):now):null;return <div key={s.id} className="g-row g-step">
        {sr&&<i className={`g-shadow ${s.status}${s.actual_end?'':' open'}`} style={sr}/>}

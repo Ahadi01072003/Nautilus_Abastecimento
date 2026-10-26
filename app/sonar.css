@@ -111,7 +111,7 @@ body{font-family:var(--f-body)}
 .rlabel.step.sel,.rlabel.step:hover{color:var(--ink);background:color-mix(in srgb,var(--sunk) 60%,transparent)}
 .rtrack{position:relative;min-width:0}
 .rscale{height:22px;border-bottom:1px solid var(--line);position:relative}
-.rscale span{position:absolute;bottom:5px;translate:-50% 0;font:500 10.5px/1 var(--f-mono);color:var(--ink-2);white-space:nowrap}
+.rscale span{position:absolute;bottom:9px;translate:-50% 0;font:500 10.5px/1 var(--f-mono);color:var(--ink-2);white-space:nowrap}
 .rscale i{position:absolute;bottom:0;width:1px;height:4px;background:var(--line)}
 .rscale i.major{height:7px;background:var(--ink-2)}
 .rlane{height:28px;position:relative;border-bottom:1px dashed color-mix(in srgb,var(--line) 70%,transparent);cursor:pointer}
@@ -136,12 +136,12 @@ body{font-family:var(--f-body)}
 .rlane.primary .rplan{top:5px;height:17px}
 /* OS de vários dias: escala em duas linhas (data em cima, horas de 6 em 6 embaixo), dias alternados
    sombreados e a virada de dia como linha cheia escura, legível também em preto e branco. */
-.rscale.multi,.rl-scale.multi{height:32px}
+.rscale.multi,.rl-scale.multi{height:34px}
 .rscale span.rdaylabel{top:4px;bottom:auto;translate:0 0;padding-left:4px;font-weight:700;color:var(--ink)}
 .rdayband{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--sunk) 60%,transparent);pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .rgrid .gl.day{width:0;background:none;border-left:1.5px solid var(--ink-2);z-index:1}
 /* Grade só abaixo da escala (não corta os rótulos); a virada de dia atravessa a escala. */
-.rtrack .gl:not(.day){top:22px}.rtrack.multi .gl:not(.day){top:32px}
+.rtrack .gl:not(.day){top:22px}.rtrack.multi .gl:not(.day){top:34px}
 .sw.dayline{width:2px;height:12px;background:var(--ink-2)}
 /* Tempos executados abaixo da régua */
 .rtotals{display:flex;flex-wrap:wrap;gap:6px 22px;margin:2px 0 0;padding:8px 12px;border:1px solid var(--line);border-radius:4px;background:color-mix(in srgb,var(--sunk) 40%,var(--surface))}
@@ -389,7 +389,7 @@ body{font-family:var(--f-body)}
 .m.target:not(.feita){box-shadow:0 0 0 3px rgba(31,201,188,.25)}
 .mt-track .ml{position:absolute;top:22px;left:50%;transform:translateX(-50%);font:500 10.5px/1 var(--f-mono);color:var(--ink-2);white-space:nowrap;pointer-events:none}
 .mt-track .ml.alt{top:-18px}
-.mt-track .now{position:absolute;top:6px;height:38px;width:2px;background:var(--ink);transform:translateX(-1px);pointer-events:none}
+.mt-track .now{position:absolute;top:6px;height:32px;width:2px;background:var(--ink);transform:translateX(-1px);pointer-events:none}
 .mt-track .now em{position:absolute;top:-2px;left:6px;font:600 10px/1 var(--f-mono);font-style:normal;color:var(--ink);background:var(--card);padding:1px 3px;white-space:nowrap}
 .mt-box{border:1px solid var(--line);border-top:3px solid var(--s);border-radius:6px;padding:10px 12px;display:grid;gap:3px;background:var(--card)}
 .mt-box b{font:800 1.15rem/1.15 var(--f-display);font-variation-settings:"wdth" 108;color:var(--ink)}
@@ -520,3 +520,35 @@ body{font-family:var(--f-body)}
 .rlabel.primary b{font-weight:700}
 .rlabel.primary .tracks{display:grid;gap:8px;font:600 8.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-c)}
 .rlabel.primary .tracks em{font-style:normal}
+
+/* ── Revisão de usabilidade (26/10/2026) ── */
+/* Contador do menu lateral nunca é cortado ("2.."). */
+.nav-count{flex:none;overflow:visible!important;text-overflow:clip!important;white-space:nowrap;min-width:20px;text-align:center}
+/* Tabelas: texto quebra linha em vez de empurrar colunas (ações e situação ficavam fora da tela);
+   datas e números continuam numa linha só. */
+[data-slot=table-cell]{white-space:normal;padding:14px 16px;overflow-wrap:break-word}
+[data-slot=table-head]{padding:12px 16px}
+[data-slot=table-cell]:is(.date-cell,.numeric,.text-right),[data-slot=table-cell] .n-badge,[data-slot=table-cell] .tag-label,[data-slot=table-cell] .org-tag{white-space:nowrap}
+[data-slot=table-cell]:has(> .access-actions),[data-slot=table-cell]:has(> .icon-action),[data-slot=table-cell]:has(> button){white-space:nowrap}
+/* Indicação de rolagem lateral quando a tabela ainda não cabe (celular). */
+[data-slot=table-container]{background:linear-gradient(to right,var(--surface) 30%,rgba(255,255,255,0)) left/36px 100% no-repeat local,linear-gradient(to left,var(--surface) 30%,rgba(255,255,255,0)) right/36px 100% no-repeat local,radial-gradient(farthest-side at 0 50%,rgba(3,22,31,.16),transparent) left/12px 100% no-repeat scroll,radial-gradient(farthest-side at 100% 50%,rgba(3,22,31,.16),transparent) right/12px 100% no-repeat scroll}
+.table-note.more-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+/* Abas roláveis no celular (antes ficavam cortadas). */
+.n-tabs{overflow-x:auto;overflow-y:hidden;scrollbar-width:none;flex-wrap:nowrap}
+.n-tabs::-webkit-scrollbar{display:none}
+.n-tabs [data-slot=tabs-trigger]{flex:none;white-space:nowrap}
+/* Painel de OS: OS programada mostra o início planejado no lugar de 00:00:00. */
+.sn-card .timer .sn-clock.sn-idle{display:grid;justify-items:end;gap:5px;font-size:24px;color:var(--ink-2);white-space:nowrap}
+.sn-clock.sn-idle em{font:600 10px/1 var(--f-mono);font-style:normal;letter-spacing:.14em;text-transform:uppercase;color:var(--muted-c)}
+/* Painel central: OS programada que já devia ter começado. */
+.ce-late{font-style:normal;color:var(--occ);font-weight:600}
+/* Critérios de manutenção: listas com marcadores. */
+.mt-specs ol{list-style:decimal;padding-left:18px}.mt-specs ul{list-style:disc;padding-left:18px}
+.mt-specs li::marker{color:var(--muted-c)}
+.mt-track .now.flip em{left:auto;right:6px}
+/* Celular: títulos longos de uma palavra ("Abastecimentos.") não empurram a página para o lado. */
+@media(max-width:480px){.page-header h1{font-size:clamp(1.9rem,10.5vw,2.4rem);overflow-wrap:anywhere}}
+.nw{white-space:nowrap}
+[data-slot=table-cell] small.danger-text{color:var(--occ);font-weight:600}
+/* Lista de OS: só a sigla do solicitante na tabela (o nome fica na dica), para caber sem rolagem. */
+.orders-table .org-tag small{display:none}
