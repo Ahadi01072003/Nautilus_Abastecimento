@@ -184,3 +184,27 @@ Pedido:
 - O setor aparece como etiqueta em todas as OS. Sem código, aparece "sem setor".
 - Barra de OS de vários dias com data no início e no fim.
 - Períodos de até 7 dias mostram a marca das 12h.
+
+## 8. Revisão de 26/10/2026: recursos da agenda
+
+Pedido: o quadro "Recursos" não dizia onde cada equipamento estava alocado, para qual OS eram os materiais nem qual OS tinha "26 h".
+
+**Cabeçalho da agenda**
+
+- **Equipamentos reservados**: uma linha por equipamento.
+  - Com uma só OS: número da OS, local da etapa, horário da reserva e horas (ex.: `PTA-001 · OS 000021 · Armazém A · 26/10 07:00 → 27/10 09:00 · 26 h`).
+  - Com várias OS: quantas, quais números e o intervalo de datas.
+  - As horas passam a ser as da **reserva do equipamento**, recortadas ao período, e não mais a duração da OS inteira.
+- **Materiais previstos**: em quadro próprio, com o total e para qual OS (ex.: `1 un · Luvas látex → OS 000021`). Quando há várias OS, mostra a quantidade de cada uma.
+- **Atenção**: segue no seu quadro.
+
+**Nova folha "Recursos por OS"**
+
+- Vem depois do cronograma, com 10 OS por folha e a moldura fechada.
+- Uma linha por OS:
+  - número, setor, solicitante e situação;
+  - atividade, local e período;
+  - cada equipamento com tipo, horário e horas da reserva (e o local da etapa, quando difere do da OS);
+  - equipe (pessoas e funções);
+  - materiais com quantidade.
+- A numeração "Folha X de Y" conta o cronograma e os recursos.
