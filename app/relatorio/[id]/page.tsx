@@ -22,7 +22,8 @@ const dt=(v:unknown)=>v?f.format(new Date(String(v))).replace(',',''):'—';
 const ms=(v:unknown)=>Date.parse(String(v));
 const dur=(x:number)=>{const m=Math.max(0,Math.floor(x/MIN));return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`;};
 const dev=(x:number|null)=>x===null?'—':Math.abs(x)<MIN?'no horário':`${x>0?'+':'−'}${dur(Math.abs(x))}`;
-const range=(a:unknown,b:unknown)=>a?`${dt(a)} → ${b?dt(b).slice(-5):'…'}`:'—';
+/** Início e fim, sempre com data e hora (em OS de vários dias o fim não pode virar só a hora). */
+const range=(a:unknown,b:unknown)=>a?<><span className="nw">{dt(a)} →</span> <span className="nw">{b?dt(b):'em curso'}</span></>:'—';
 const STEP:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 const KIND:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto',bloqueio:'Bloqueio'};
 const EVENT:Record<string,string>={inicio:'Início',bloqueio:'Bloqueio',pausa:'Pausa',retomada:'Retomada',termino:'Término',dispensa:'Dispensa',encerramento:'Encerramento',encerramento_pendente:'Encerramento pendente',nc_critica:'NC crítica',interrupcao_tecnica:'Interrupção técnica',cancelamento:'Cancelamento da OS'};
@@ -53,28 +54,36 @@ td.n{text-align:right;font-family:var(--f-mono);white-space:nowrap}td small{disp
 td.late{color:#b42318}
 .box{border:1px solid #c7d0ce;padding:10px 12px;white-space:pre-wrap;min-height:36px}
 .ruler{border:1px solid #c7d0ce;padding:10px 12px 8px;break-inside:avoid}
-.rrow{display:grid;grid-template-columns:150px 1fr;align-items:center;min-height:22px}
-.rrow>span{font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:8px}
-.rrow.os>span{font-family:var(--f-mono);letter-spacing:.08em}
-.rlane{position:relative;height:14px;background:repeating-linear-gradient(90deg,transparent 0 calc(var(--t) - 1px),#e5eae8 calc(var(--t) - 1px) var(--t))}
-.rrow.os .rlane{height:18px}
-.rlane b{position:absolute;top:2px;bottom:2px;border-radius:1px}
-.rlane b.plan{top:1px;bottom:1px;box-sizing:border-box;border:1.5px solid #004a64;background:#e6eef1;border-radius:2px;display:flex;justify-content:space-between;align-items:center;overflow:hidden}
+.nw{white-space:nowrap}
+.rg{display:grid;grid-template-columns:96px minmax(0,1fr)}
+.rg .lab{display:grid;grid-template-rows:var(--sh) 26px 26px}
+.rg .lab span{display:flex;align-items:center;font:600 10px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:#4b5f66;border-top:1px solid #dde3e1}
+.rg .trk{position:relative;display:grid;grid-template-rows:var(--sh) 26px 26px;border-left:1px solid #c7d0ce}
+.rg .band{position:absolute;top:0;bottom:0;background:#f1f4f3}
+.rg .gl{position:absolute;top:var(--sh);bottom:0;width:1px;background:#e5eae8}
+.rg .gl.day{top:0;width:0;background:none;border-left:1.5px solid #4b5f66;z-index:2}
+.rscale{position:relative;font:500 9.5px/1 var(--f-mono);color:#4b5f66}
+.rscale span{position:absolute;bottom:3px;translate:-50% 0;white-space:nowrap}
+.rscale span.d{top:3px;bottom:auto;translate:0 0;padding-left:3px;font-weight:700;color:#0b1d25}
+.rscale i{position:absolute;bottom:0;width:1px;height:4px;background:#9aa6aa}
+.rlane{position:relative;border-top:1px solid #dde3e1}
+.rlane b{position:absolute;top:6px;bottom:6px;border-radius:1px}
+.rlane b.plan{top:4px;bottom:4px;box-sizing:border-box;border:1.5px solid #004a64;background:#e6eef1;border-radius:2px;display:flex;justify-content:space-between;align-items:center;overflow:hidden;z-index:1}
 .rlane b.plan em{font:700 9px/1 var(--f-mono);font-style:normal;color:#004a64;padding:0 4px;white-space:nowrap}
-.rrow.os .rlane{height:20px}
 .rlane b.work{background:#087f77}
-.rlane b.pausa{background:repeating-linear-gradient(135deg,#9aa6aa 0 2px,#e5eae8 2px 5px)}
-.rlane b.bloqueio{background:repeating-linear-gradient(135deg,#d92d20 0 2px,#fde4e1 2px 5px)}
-.rlane b.occ{width:2px;top:-2px;bottom:-2px;background:#d92d20}
-.rlane b.imp{top:auto;bottom:0;height:3px;background:repeating-linear-gradient(90deg,#f47a04 0 4px,transparent 4px 6px)}
-.rscale{position:relative;height:16px;margin-left:150px;font:500 9.5px/16px var(--f-mono);color:#6c7c82}
-.rscale span{position:absolute;translate:-50% 0;white-space:nowrap}
+.rlane b.pausa{background:repeating-linear-gradient(135deg,#9aa6aa 0 2px,#e5eae8 2px 5px);top:8px;bottom:8px}
+.rlane b.bloqueio{background:repeating-linear-gradient(135deg,#d92d20 0 2px,#fde4e1 2px 5px);top:7px;bottom:7px}
+.totals{display:flex;flex-wrap:wrap;gap:4px 22px;margin:8px 0 0;padding:7px 10px;border:1px solid #dde3e1;background:#f6f8f7}
+.totals div{display:grid;gap:2px}
+.totals dt{font:600 9px/1.2 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:#6c7c82;display:flex;align-items:center;gap:5px}
+.totals dt i{display:inline-block;width:14px;height:7px}
+.totals dd{margin:0;font:700 12.5px/1.2 var(--f-mono)}
 .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:6px;font-size:10.5px;color:#4b5f66}
 .legend i{display:inline-block;width:16px;height:8px;margin-right:5px;vertical-align:middle}
 .sign{display:grid;grid-template-columns:repeat(3,1fr);gap:32px;margin-top:52px;break-inside:avoid}.sign div{border-top:1px solid #0b1d25;padding-top:6px;font-size:11.5px;color:#4b5f66}
 .foot{margin-top:28px;font:500 10px/1.4 var(--f-mono);letter-spacing:.08em;color:#6c7c82;display:flex;justify-content:space-between;gap:12px}
 .noprint{position:fixed;right:20px;top:20px;background:#c8f25a;color:#0b1d25;border:0;border-radius:4px;padding:10px 16px;font-weight:700;cursor:pointer;box-shadow:0 4px 18px rgba(3,22,31,.18)}
-@media (max-width:700px){.facts{grid-template-columns:1fr 1fr}.facts div:nth-child(2n){border-right:0}.facts div:nth-child(n+3){border-top:1px solid #c7d0ce}.rrow{grid-template-columns:96px 1fr}.rscale{margin-left:96px}.sign{grid-template-columns:1fr}.sheet{padding:20px 16px 40px}.tw{overflow-x:auto}}
+@media (max-width:700px){.facts{grid-template-columns:1fr 1fr}.facts div:nth-child(2n){border-right:0}.facts div:nth-child(n+3){border-top:1px solid #c7d0ce}.rg{grid-template-columns:72px minmax(0,1fr)}.sign{grid-template-columns:1fr}.sheet{padding:20px 16px 40px}.tw{overflow-x:auto}}
 @media print{.noprint{display:none}.sheet{padding:0;max-width:none}@page{margin:12mm}}
 `;
 
@@ -94,20 +103,32 @@ export default async function Report({params}:{params:Promise<{id:string}>}){
  const done=steps.filter(s=>['concluida','dispensada'].includes(s.status)).length;
  const stops=intervals.filter(i=>i.kind!=='ativo');
 
- // Régua impressa: mesma convenção da tela (trabalho sólido, pausa cinza hachurada, bloqueio vermelho hachurado, planejado tracejado).
+ // Régua impressa: mesma convenção da tela (planejado contornado em cima; trabalho sólido, pausa cinza
+ // hachurada e bloqueio vermelho hachurado embaixo). Apontamentos ficam nos totais e na tabela, não na régua.
+ // OS de vários dias: marcas de 6 em 6 horas, dias alternados sombreados e linha cheia na virada de dia.
  const starts=[ms(order.planned_start),...intervals.map(i=>ms(i.start_at)),...steps.filter(s=>s.planned_start).map(s=>ms(s.planned_start))];
  const ends=[ms(order.planned_end),...intervals.map(i=>i.end_at?ms(i.end_at):now),...steps.filter(s=>s.planned_end).map(s=>ms(s.planned_end))];
- const step=[1,2,3,6,12,24,48,96,192].map(x=>x*H).find(x=>(Math.max(...ends)-Math.min(...starts))/x<=8)||384*H;
- const offset=3*H,ws=Math.floor((Math.min(...starts)-offset)/step)*step+offset,we=Math.ceil((Math.max(...ends)-offset)/step)*step+offset,span=Math.max(H,we-ws);
- const pct=(t:number)=>Math.max(0,Math.min(100,(t-ws)/span*100)),w=(a:number,b:number)=>Math.max(.4,pct(b)-pct(a));
- const ticks:number[]=[];for(let t=ws;t<=we;t+=step)ticks.push(t);
- const label=(t:number)=>step>=24*H?dm.format(t):new Date(t-offset).getUTCHours()===0||t===ws?`${dm.format(t)} ${hm.format(t)}`:hm.format(t);
- // Planejado: barra contornada com as horas de início e fim; executado: trabalho, paradas e apontamentos.
- const ps=ms(order.planned_start),pe=ms(order.planned_end),planW=w(ps,pe);
- const bars=(iv:Row[],oc:Row[])=><>
-  {iv.map((i,n)=><b key={n} className={i.kind==='ativo'?'work':STOP_BLOCK.has(i.start_kind)?'bloqueio':'pausa'} style={{left:pct(ms(i.start_at))+'%',width:w(ms(i.start_at),i.end_at?ms(i.end_at):now)+'%'}}/>)}
-  {oc.map(o=>o.kind==='impacto'&&o.impact_start?<b key={o.id} className="imp" style={{left:pct(ms(o.impact_start))+'%',width:w(ms(o.impact_start),o.impact_end?ms(o.impact_end):ms(o.impact_start)+15*MIN)+'%'}}/>:<b key={o.id} className="occ" style={{left:pct(ms(o.occurred_at))+'%'}}/>)}
- </>;
+ const offset=3*H,TRACK=560;// largura aproximada da trilha na folha A4 (px)
+ let ws=Math.min(...starts),we=Math.max(...ends);
+ const multiDay=we-ws>20*H,pad=Math.max((we-ws)*.03,15*MIN);
+ const step=multiDay?6*H:[.5,1,2,3,6].map(x=>x*H).find(x=>(we-ws+2*pad)/x<=9)||6*H;
+ ws=Math.floor((ws-pad-offset)/step)*step+offset;we=Math.ceil((we+pad-offset)/step)*step+offset;
+ const span=Math.max(H,we-ws),pct=(t:number)=>Math.max(0,Math.min(100,(t-ws)/span*100)),w=(a:number,b:number)=>Math.max(.4,pct(b)-pct(a));
+ const px=TRACK/span,ticks:number[]=[];for(let t=ws;t<=we;t+=step)ticks.push(t);
+ const days:number[]=[];for(let d=Math.floor((ws-offset)/(24*H))*24*H+offset;d<we;d+=24*H)days.push(d);
+ const twoTier=multiDay||days.some(d=>d>ws);
+ const dayEvery=Math.max(1,Math.ceil(44/(24*H*px)));
+ const dayLabels=days.filter((d,i)=>i%dayEvery===0&&(i>0||d>=ws||days.length<=dayEvery||pct(days[dayEvery])*TRACK/100>=46));
+ const hourLabels=step*px>=28;
+ const label=(t:number)=>multiDay?`${String(new Date(t-offset).getUTCHours()).padStart(2,'0')}h`:hm.format(t);
+ const ps=ms(order.planned_start),pe=ms(order.planned_end),planPx=w(ps,pe)*TRACK/100;
+ const cross=dm.format(ps)!==dm.format(pe),at=(t:number)=>cross?`${dm.format(t)} ${hm.format(t)}`:hm.format(t);
+ const stopKind=(i:Row)=>STOP_BLOCK.has(i.start_kind)?'bloqueio':'pausa';
+ const spans=(list:Row[])=>list.map(i=>[ms(i.start_at),i.end_at?ms(i.end_at):now]);
+ const union=(list:number[][])=>{let t=0,c:number[]|null=null;for(const x of list.filter(x=>x[1]>x[0]).sort((a,b)=>a[0]-b[0])){if(!c||x[0]>c[1]){if(c)t+=c[1]-c[0];c=[...x];}else c[1]=Math.max(c[1],x[1]);}return c?t+c[1]-c[0]:t;};
+ const paused=union(spans(stops.filter(i=>stopKind(i)==='pausa'))),blocked=union(spans(stops.filter(i=>stopKind(i)==='bloqueio')));
+ const impacted=union((data.occurrences as Row[]).filter(o=>o.kind==='impacto'&&o.impact_start).map(o=>[ms(o.impact_start),o.impact_end?ms(o.impact_end):now]));
+ const sh=twoTier?30:20;
 
  return <main className="sheet"><style>{css}</style><PrintButton/>
   {/* eslint-disable-next-line @next/next/no-img-element -- Logo estático, mesmo arquivo na impressão. */}
@@ -128,11 +149,30 @@ export default async function Report({params}:{params:Promise<{id:string}>}){
   {order.cancel_reason&&<><h2>Cancelamento</h2><div className="box">{order.cancel_reason}</div></>}
 
   <h2>Régua da OS</h2>
-  <div className="ruler" style={{'--t':`${100/Math.max(1,ticks.length-1)}%`} as React.CSSProperties}>
-   <div className="rscale">{ticks.map((t,i)=><span key={t} style={{left:pct(t)+'%',top:0,translate:i===0?'0 0':i===ticks.length-1?'-100% 0':undefined}}>{label(t)}</span>)}</div>
-   <div className="rrow os"><span>Planejado</span><div className="rlane"><b className="plan" style={{left:pct(ps)+'%',width:planW+'%'}}>{planW>=14?<><em>{hm.format(ps)}</em><em>{hm.format(pe)}</em></>:planW>=7?<em>{hm.format(ps)}</em>:null}</b></div></div>
-   <div className="rrow os"><span>Executado</span><div className="rlane">{bars(intervals,occurrences)}</div></div>
-   <div className="legend"><span><i style={{background:'#e6eef1',border:'1.5px solid #004a64'}}/>Planejado (início e fim)</span><span><i style={{background:'#087f77'}}/>Trabalho</span><span><i style={{background:'repeating-linear-gradient(135deg,#9aa6aa 0 2px,#e5eae8 2px 5px)'}}/>Pausa</span><span><i style={{background:'repeating-linear-gradient(135deg,#d92d20 0 2px,#fde4e1 2px 5px)'}}/>Bloqueio</span><span><i style={{width:2,background:'#d92d20'}}/>Ocorrência</span><span><i style={{height:3,background:'#f47a04'}}/>Impacto</span></div>
+  <div className="ruler">
+   <div className="rg" style={{'--sh':sh+'px'} as React.CSSProperties}>
+    <div className="lab"><i/><span>Planejado</span><span>Executado</span></div>
+    <div className="trk">
+     {multiDay&&days.map((d,i)=>i%2===1&&<span key={'b'+d} className="band" style={{left:pct(d)+'%',width:w(d,d+24*H)+'%'}}/>)}
+     {ticks.filter(t=>!days.includes(t)).map(t=><span key={'g'+t} className="gl" style={{left:pct(t)+'%'}}/>)}
+     {days.filter(d=>d>ws).map(d=><span key={'v'+d} className="gl day" style={{left:pct(d)+'%'}}/>)}
+     <div className="rscale">{ticks.map(t=><i key={'i'+t} style={{left:pct(t)+'%'}}/>)}
+      {twoTier&&dayLabels.map(d=><span key={'d'+d} className="d" style={{left:pct(d)+'%'}}>{dm.format(Math.max(d,ws)+H)}</span>)}
+      {hourLabels&&ticks.filter((t,i)=>multiDay?i>0&&i<ticks.length-1&&!days.includes(t):i%Math.ceil(30/(step*px))===0&&i<ticks.length-1).map(t=><span key={'h'+t} style={{left:pct(t)+'%',translate:pct(t)===0?'0 0':undefined}}>{label(t)}</span>)}</div>
+     <div className="rlane"><b className="plan" style={{left:pct(ps)+'%',width:w(ps,pe)+'%'}}>{planPx>=(cross?150:84)?<><em>{at(ps)}</em><em>{at(pe)}</em></>:planPx>=(cross?76:40)?<em>{at(ps)}</em>:null}</b></div>
+     <div className="rlane">{intervals.map((i,n)=><b key={n} className={i.kind==='ativo'?'work':stopKind(i)} style={{left:pct(ms(i.start_at))+'%',width:w(ms(i.start_at),i.end_at?ms(i.end_at):now)+'%'}}/>)}</div>
+    </div>
+   </div>
+   <dl className="totals">
+    <div><dt>Planejado</dt><dd>{dm.format(ps)} {hm.format(ps)} → {dm.format(pe)} {hm.format(pe)}</dd></div>
+    <div><dt>Executado</dt><dd>{order.actual_start?`${dm.format(ms(order.actual_start))} ${hm.format(ms(order.actual_start))} → ${order.actual_end?`${dm.format(ms(order.actual_end))} ${hm.format(ms(order.actual_end))}`:'em curso'}`:'Não iniciada'}</dd></div>
+    <div><dt><i style={{background:'#087f77'}}/>Trabalho</dt><dd>{dur(r.effective)}</dd></div>
+    <div><dt><i style={{background:'repeating-linear-gradient(135deg,#9aa6aa 0 2px,#e5eae8 2px 5px)'}}/>Pausa</dt><dd>{dur(paused)}</dd></div>
+    <div><dt><i style={{background:'repeating-linear-gradient(135deg,#d92d20 0 2px,#fde4e1 2px 5px)'}}/>Bloqueio</dt><dd>{dur(blocked)}</dd></div>
+    <div><dt><i style={{background:'repeating-linear-gradient(90deg,#f47a04 0 4px,transparent 4px 6px)'}}/>Impacto</dt><dd>{dur(impacted)}</dd></div>
+    <div><dt>Apontamentos</dt><dd>{occurrences.length}</dd></div>
+   </dl>
+   <div className="legend"><span><i style={{background:'#e6eef1',border:'1.5px solid #004a64'}}/>Planejado (início e fim)</span><span><i style={{background:'#087f77'}}/>Trabalho</span><span><i style={{background:'repeating-linear-gradient(135deg,#9aa6aa 0 2px,#e5eae8 2px 5px)'}}/>Pausa</span><span><i style={{background:'repeating-linear-gradient(135deg,#d92d20 0 2px,#fde4e1 2px 5px)'}}/>Bloqueio</span>{twoTier&&<span><i style={{width:0,borderLeft:'1.5px solid #4b5f66',height:12}}/>Virada de dia</span>}</div>
   </div>
 
   <h2>Etapas</h2>
@@ -148,7 +188,7 @@ export default async function Report({params}:{params:Promise<{id:string}>}){
   <h2>Ocorrências, impactos e bloqueios</h2>
   <div className="tw"><table><thead><tr><th>Quando</th><th>Etapa</th><th>Tipo</th><th>Descrição</th><th>Situação</th></tr></thead>
    <tbody>{occurrences.map(o=><tr key={o.id}><td>{dt(o.occurred_at)}<small>{o.author_name}</small></td><td>{stepName(o.os_step_id)}</td><td>{KIND[o.kind]}{o.blocking?' · bloqueia':''}<small>{o.category_name||''}{o.severity?` · ${o.severity}`:''}</small></td>
-    <td>{o.description}{o.impact_start&&<small>Impacto {dt(o.impact_start)} → {o.impact_end?dt(o.impact_end).slice(-5):'em aberto'}</small>}</td><td>{o.status==='resolvido'?'Resolvido':'Aberto'}{o.resolution&&<small>{o.resolution} · {o.resolved_by_name}</small>}</td></tr>)}
+    <td>{o.description}{o.impact_start&&<small>Impacto {dt(o.impact_start)} → {o.impact_end?dt(o.impact_end):'em aberto'}</small>}</td><td>{o.status==='resolvido'?'Resolvido':'Aberto'}{o.resolution&&<small>{o.resolution} · {o.resolved_by_name}</small>}</td></tr>)}
    {!occurrences.length&&<tr><td colSpan={5}>Nenhum apontamento.</td></tr>}</tbody></table></div>
 
   <h2>Checklists</h2>

@@ -142,3 +142,45 @@ Pedido: "a visualização do cronograma ficou confusa; mostrar a OS toda, com as
   - embaixo, **Executado**: trabalho, pausas, bloqueios e apontamentos.
 - A comparação planejado × real é direta e funciona em cor e em preto e branco.
 - **Relatório da OS**: mostra só a OS inteira, em duas linhas (Planejado e Executado). O detalhe por etapa continua na tabela de etapas.
+
+## 7. Revisão de 26/10/2026: régua de vários dias, totais, início e fim planejados, folha da agenda
+
+Pedido:
+
+- tirar da régua as marcas de apontamento e mostrar só os tempos;
+- corrigir a régua de OS de vários dias (tela e PDF): marcas de 6 em 6 horas e virada de dia visível;
+- mostrar início **e** fim planejados (painel lateral dos Apontamentos e relatório da OS);
+- fechar a moldura da agenda em folhas com poucas OS;
+- deixar o setor visível em todas as OS.
+
+**Régua da OS (tela, Painel de OS e relatório)**
+
+- Sem marcas de ocorrência, impacto ou bloqueio na régua.
+- Abaixo dela ficam os totais:
+  - período executado (início → fim ou "em curso");
+  - trabalho, pausa, bloqueio e impacto (períodos sobrepostos contam uma vez);
+  - quantidade de apontamentos.
+- **Mais de 20 h**:
+  - escala fixa de 6 em 6 horas;
+  - datas numa linha própria acima das horas;
+  - dias alternados sombreados;
+  - linha cheia escura na virada de cada dia, que também funciona em preto e branco.
+- Janela curta que passa da meia-noite também ganha a data e a linha da virada.
+- Barra planejada de OS que começa e termina em dias diferentes mostra a data nas duas pontas (24/10 09:00 … 26/10 09:00).
+- A grade começa abaixo da escala e não corta mais os rótulos.
+
+**Início e fim planejados**
+
+- **Painel lateral dos Apontamentos**:
+  - "Início planejado" e "Fim planejado", com data;
+  - início e fim reais, quando houver;
+  - a etapa selecionada mostra os mesmos dados.
+- **Relatório da OS**: o planejado, o real, as etapas e os impactos trazem data e hora completas no início e no fim.
+- **Painel de OS**: o cartão mostra o fim com data.
+
+**Agenda em PDF**
+
+- Toda folha tem 10 linhas que ocupam o quadro até o rodapé. Linhas sem OS continuam a grade de datas, então a moldura fica fechada.
+- O setor aparece como etiqueta em todas as OS. Sem código, aparece "sem setor".
+- Barra de OS de vários dias com data no início e no fim.
+- Períodos de até 7 dias mostram a marca das 12h.

@@ -130,17 +130,32 @@ body{font-family:var(--f-body)}
 .ritem.pausa{background:var(--pat-pause);top:15px;bottom:6px}
 .ritem.bloqueio{background:var(--pat-block);top:14px;bottom:5px}
 .rlane.primary .ritem.pausa,.rlane.primary .ritem.bloqueio{top:30px;bottom:8px}
-.rplan{position:absolute;top:3px;height:8px;box-sizing:border-box;border:1.5px solid var(--brand);background:color-mix(in srgb,var(--brand) 9%,var(--surface));border-radius:2px;display:flex;justify-content:space-between;align-items:center;overflow:hidden;z-index:1;pointer-events:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rplan{position:absolute;top:3px;height:8px;box-sizing:border-box;border:1.5px solid var(--brand);background:color-mix(in srgb,var(--brand) 9%,var(--surface));border-radius:2px;display:flex;justify-content:space-between;align-items:center;overflow:hidden;z-index:3;pointer-events:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .rplan b{font:700 9px/1 var(--f-mono);color:var(--brand);padding:0 4px;white-space:nowrap}
 .rlane:not(.primary) .rplan b{display:none}
 .rlane.primary .rplan{top:5px;height:17px}
-.rmark{position:absolute;top:12px;width:3px;height:6px;border-radius:1px;translate:-50% 0;z-index:1}
-.rmark.ocorrencia{background:var(--occ)}
-.rmark.bloqueio{background:var(--occ);width:6px;height:6px;border-radius:50%}
-.rmark.impacto{top:auto;bottom:3px;height:5px;translate:0 0;background:var(--pat-imp);min-width:3px}
+/* OS de vários dias: escala em duas linhas (data em cima, horas de 6 em 6 embaixo), dias alternados
+   sombreados e a virada de dia como linha cheia escura, legível também em preto e branco. */
+.rscale.multi,.rl-scale.multi{height:32px}
+.rscale span.rdaylabel{top:4px;bottom:auto;translate:0 0;padding-left:4px;font-weight:700;color:var(--ink)}
+.rdayband{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--sunk) 60%,transparent);pointer-events:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rgrid .gl.day{width:0;background:none;border-left:1.5px solid var(--ink-2);z-index:1}
+/* Grade só abaixo da escala (não corta os rótulos); a virada de dia atravessa a escala. */
+.rtrack .gl:not(.day){top:22px}.rtrack.multi .gl:not(.day){top:32px}
+.sw.dayline{width:2px;height:12px;background:var(--ink-2)}
+/* Tempos executados abaixo da régua */
+.rtotals{display:flex;flex-wrap:wrap;gap:6px 22px;margin:2px 0 0;padding:8px 12px;border:1px solid var(--line);border-radius:4px;background:color-mix(in srgb,var(--sunk) 40%,var(--surface))}
+.rtotals>div{display:grid;gap:3px}
+.rtotals dt{font:600 9.5px/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted-c);display:flex;align-items:center;gap:6px}
+.rtotals dd{margin:0;font:700 13px/1.1 var(--f-mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.rtotals .t-work dt::before,.rtotals .t-pause dt::before,.rtotals .t-block dt::before,.rtotals .t-imp dt::before{content:"";width:14px;height:8px;border-radius:2px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rtotals .t-work dt::before{background:var(--pat-work)}
+.rtotals .t-pause dt::before{background:var(--pat-pause);box-shadow:inset 0 0 0 1px var(--pausec)}
+.rtotals .t-block dt::before{background:var(--pat-block);box-shadow:inset 0 0 0 1px var(--occ)}
+.rtotals .t-imp dt::before{background:var(--pat-imp)}
 .rnow{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);pointer-events:none;z-index:2}
 .rnow::after{content:"AGORA";position:absolute;top:4px;left:5px;font:700 9px/1 var(--f-mono);letter-spacing:.1em;color:var(--ink);background:var(--surface);padding:1px 2px}
-.rcursor{position:absolute;top:0;bottom:0;width:1px;background:var(--accent-ink);pointer-events:none;z-index:3}
+.rcursor{position:absolute;top:0;bottom:0;width:1px;background:var(--accent-ink);pointer-events:none;z-index:4}
 .rcursor span{position:absolute;top:2px;left:4px;font:700 10.5px/1 var(--f-mono);color:var(--paper);background:var(--accent-ink);padding:3px 5px;border-radius:2px;white-space:nowrap}
 .rcursor.flip span{left:auto;right:4px}
 .os-ruler .rfoot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -505,4 +520,3 @@ body{font-family:var(--f-body)}
 .rlabel.primary b{font-weight:700}
 .rlabel.primary .tracks{display:grid;gap:8px;font:600 8.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted-c)}
 .rlabel.primary .tracks em{font-style:normal}
-.rlane.primary .rmark{top:24px}
