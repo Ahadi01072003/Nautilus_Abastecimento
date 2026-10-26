@@ -19,6 +19,9 @@ import {Digits,hms} from './ops-board';
 const MIN=60000;
 /** Duração em HH:MM com horas acumuladas (02:15, 27:35, 125:08). */
 export const dur=(ms:number)=>{const m=Math.max(0,Math.floor(ms/MIN));return `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`};
+const dmhmFmt=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+/** Data e hora curtas (26/10 09:00): início e fim sempre com a data, também em OS de vários dias. */
+const dmhm=(s:string)=>dmhmFmt.format(new Date(s)).replace(',','');
 const dh=(ms:number)=>{const m=Math.floor(Math.abs(ms)/MIN);return `${String(Math.floor(m/60)).padStart(2,'0')}h${String(m%60).padStart(2,'0')}`};
 /** Desvio legível: atraso, antecipação, no horário ou menos de 1 minuto. */
 export function deviation(actual:number,planned:number,done=true){const d=actual-planned;if(d===0)return 'No horário';if(Math.abs(d)<MIN)return d>0?'Atraso de menos de 1 minuto':'Menos de 1 minuto antes';return d>0?`Atraso de ${dh(d)}`:`${done?'Concluída':'Iniciada'} ${dh(d)} antes`}
@@ -120,12 +123,13 @@ export default function OrderExecution({orderId,onChanged}:{orderId:string,onCha
     <div className="clockbig clock-roll" aria-label={`Tempo efetivo ${hms(eff)}`}><Digits value={hms(eff)}/></div>
     <span className="sub">{active.length?<>{active.length} etapa(s) ativa(s) · <b>{active.filter(s=>s.status==='em_execucao').length} em execução</b></>:order.status==='programada'?`Início planejado ${fmt(order.planned_start)}`:`${done} de ${steps.length} etapas concluídas`}</span>
    </div>
-   {['programada','em_andamento'].includes(order.status)&&<div className="gauge"><span className={`bar${now>pe?' over':''}`}><i style={{width:`${Math.max(0,Math.min(100,(now-ps)/Math.max(1,pe-ps)*100)).toFixed(1)}%`}}/></span><span className="cap"><span>{first?`real desde ${fmt(order.actual_start,true)}`:'não iniciada'}</span><span>{now<pe?`faltam ${dur(pe-now)}`:`prazo vencido há ${dur(now-pe)}`}</span></span></div>}
-   <dl><div><dt>Planejado</dt><dd>{fmt(order.planned_start,true)} {new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'}).format(ps)}–{new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'}).format(pe)}</dd></div>
+   {['programada','em_andamento'].includes(order.status)&&<div className="gauge"><span className={`bar${now>pe?' over':''}`}><i style={{width:`${Math.max(0,Math.min(100,(now-ps)/Math.max(1,pe-ps)*100)).toFixed(1)}%`}}/></span><span className="cap"><span>{first?`real desde ${dmhm(order.actual_start)}`:'não iniciada'}</span><span>{now<pe?`faltam ${dur(pe-now)}`:`prazo vencido há ${dur(now-pe)}`}</span></span></div>}
+   <dl><div><dt>Início planejado</dt><dd>{dmhm(order.planned_start)}</dd></div><div><dt>Fim planejado</dt><dd>{dmhm(order.planned_end)}</dd></div>
+    {order.actual_start&&<div><dt>Início real</dt><dd>{dmhm(order.actual_start)}</dd></div>}{order.actual_end&&<div><dt>Fim real</dt><dd>{dmhm(order.actual_end)}</dd></div>}
     <div><dt>Etapas concluídas</dt><dd>{done}/{steps.length}</dd></div><div><dt>Bloqueios abertos</dt><dd>{allOpenBlocks.length}</dd></div><div><dt>Apontamentos</dt><dd>{(data.occurrences as R[]).length}</dd></div></dl>
    {sel?<div className="stepbox">
     <span className="lab">Etapa selecionada</span><b>{sel.plan.name} · {stepNames[sel.status][0]}</b>
-    <dl style={{paddingTop:0,borderTop:0}}><div><dt>Efetivo</dt><dd>{dur(sum(sel.intervals,'ativo'))}</dd></div><div><dt>Parado</dt><dd>{dur(sum(sel.intervals,'interrompido'))}</dd></div>
+    <dl style={{paddingTop:0,borderTop:0}}><div><dt>Início planejado</dt><dd>{dmhm(sel.plan.planned_start)}</dd></div><div><dt>Fim planejado</dt><dd>{dmhm(sel.plan.planned_end)}</dd></div><div><dt>Efetivo</dt><dd>{dur(sum(sel.intervals,'ativo'))}</dd></div><div><dt>Parado</dt><dd>{dur(sum(sel.intervals,'interrompido'))}</dd></div>
      <div><dt>Decorrido</dt><dd>{sel.actual_start?dur((sel.actual_end?Date.parse(sel.actual_end):now)-Date.parse(sel.actual_start)):'—'}</dd></div><div><dt>Prazo</dt><dd>{timing(sel)}</dd></div>
      {['em_execucao','bloqueada','pausada'].includes(sel.status)&&dependents(sel).length>0&&(()=>{const next=dependents(sel).sort((a,b)=>Date.parse(a.plan.planned_start)-Date.parse(b.plan.planned_start))[0];const d=Date.parse(next.plan.planned_start)-now;return <div style={{gridColumn:'1/-1'}}><dt>Próximo marco</dt><dd>{d>=0?`${dur(d)} até o início de “${next.plan.name}”`:`início de “${next.plan.name}” vencido há ${dur(-d)}`}</dd></div>})()}</dl>
     {can.execute&&<div className="acts">

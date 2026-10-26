@@ -75,7 +75,7 @@ body{font:9pt/1.35 var(--f-body);margin:0}
 .res{display:grid;grid-template-columns:1fr 1fr;gap:3mm}
 .alert li{grid-template-columns:auto 1fr;color:#7a2a12;align-items:start}.alert li span:last-child{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}.ok{font-size:7.6pt;color:#3f7d0e}
 .muted{color:#6c7c82;font-size:7.4pt}
-.gantt{flex:1;min-height:0;display:flex;flex-direction:column;border:.3mm solid #9fb0ad}
+.gantt{flex:1;min-height:0;display:flex;flex-direction:column;border:.3mm solid #9fb0ad;position:relative}
 .gh{display:grid;grid-template-columns:${LABEL_W}mm 1fr;border-bottom:.4mm solid #9fb0ad;background:#eef1f0}
 .gh .lbl{font:700 6.4pt/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:#4b5f66;padding:0 2.4mm;display:flex;align-items:center;border-right:.3mm solid #9fb0ad}
 .days{position:relative;height:8.4mm}
@@ -84,12 +84,16 @@ body{font:9pt/1.35 var(--f-body);margin:0}
 .days span.we{background:#e2e8e6}.days span.mo{border-left:.5mm solid #4b5f66}.days span.today{background:#0b1d25;color:#fff}.days span.today b{color:#c8f25a}.days span.todayh b{box-shadow:inset 0 -.6mm 0 #d92d20}
 .hours{position:absolute;left:0;right:0;bottom:0;height:3mm}
 .hours i{position:absolute;bottom:0;font:500 5.4pt/1 var(--f-mono);font-style:normal;color:#6c7c82;translate:-50% 0}
-.orow{display:grid;grid-template-columns:${LABEL_W}mm 1fr;border-bottom:.3mm solid #c7d0ce;overflow:hidden}
-.orow:last-child{border-bottom:0}
+/* Sempre ${PER_PAGE} linhas por folha, dividindo a altura toda: a moldura do cronograma vai até o rodapé mesmo com poucas OS. */
+.orow{display:grid;grid-template-columns:${LABEL_W}mm 1fr;border-bottom:.3mm solid #c7d0ce;overflow:hidden;flex:1 1 0;min-height:0}
+.orow.blank .oinfo{border-left:0;padding:0}
+.orow:last-of-type{border-bottom:0}
 .orow:nth-child(even){background:#f7f9f8}
 .oinfo{display:flex;flex-direction:column;justify-content:center;gap:.3mm;padding:0 2.4mm 0 3mm;border-right:.3mm solid #9fb0ad;border-left:1.4mm solid var(--c);overflow:hidden;min-width:0}
 .oinfo .l1{display:flex;justify-content:space-between;gap:2mm;font:700 6.4pt/1.15 var(--f-mono);color:#0b1d25;white-space:nowrap}
 .oinfo .l1 span{font-weight:500;color:#33474e;overflow:hidden;text-overflow:ellipsis}
+.oinfo .l1 b{flex:none}.oinfo .l1 .sc{display:inline-block;margin-left:1mm;padding:.2mm .8mm;border:.2mm solid #9fb0ad;border-radius:.5mm;background:#fff;font:700 6pt/1 var(--f-mono);color:#0b1d25}
+.oinfo .l1 .sc.none{font-weight:500;color:#6c7c82;border-style:dashed}
 .oinfo .l2{font:700 7.8pt/1.15 var(--f-body);color:#0b1d25;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:var(--lines);overflow:hidden;overflow-wrap:anywhere}
 .oinfo .l3{font:500 6.3pt/1.2 var(--f-body);color:#33474e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .otime{position:relative;background-image:var(--grid)}
@@ -100,7 +104,7 @@ body{font:9pt/1.35 var(--f-body);margin:0}
 .bar.live{box-shadow:inset 0 0 0 .35mm var(--c)}
 .bar.contl{border-top-left-radius:0;border-bottom-left-radius:0;border-left-style:dashed}
 .bar.contr{border-top-right-radius:0;border-bottom-right-radius:0;border-right:.6mm dashed var(--c)}
-.empty{padding:10mm;text-align:center;color:#4b5f66;font-size:10pt}
+.empty{position:absolute;left:${LABEL_W}mm;right:0;top:45%;margin:0;text-align:center;color:#4b5f66;font-size:10pt;z-index:4}
 .legend{display:flex;flex-wrap:wrap;gap:4mm;font-size:6.8pt;color:#4b5f66;align-items:center}
 .legend i{display:inline-block;width:6mm;height:2.6mm;margin-right:1.2mm;vertical-align:-.4mm;border:.3mm solid #6c7c82;border-left:1.2mm solid #0b1d25;background:#fff}
 .legend i.t{width:.5mm;border:0;background:#d92d20}
@@ -128,7 +132,7 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
  const pct=(t:number)=>Math.max(0,Math.min(100,(t-t0)/span*100));
  const dayList=Array.from({length:days},(_,i)=>t0+i*DAY);
  const wdNum=(t:number)=>new Date(t).getUTCDay(); // t0 é 00:00 de Brasília (03:00 UTC): mesmo dia
- const hourStep=days<=1?2:days<=3?6:0;
+ const hourStep=days<=1?2:days<=3?6:days<=7?12:0;
  const hourTicks=hourStep?dayList.flatMap(d=>Array.from({length:24/hourStep-1},(_,k)=>d+(k+1)*hourStep*H)):[];
  const now=Date.parse(r.generatedAt),nowIn=now>=t0&&now<t1; // momento da emissão (gerado no servidor)
  const grid=`repeating-linear-gradient(90deg,#d8dfdd 0 .2mm,transparent .2mm ${100/days}%)`;
@@ -178,8 +182,8 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
 
  return <main><style>{css}</style><AgendaPrint auto={one(s.imprimir)==='1'}/>
   {pages.map((list,p)=>{
-   // Altura da linha conforme o espaço da folha (a 1ª tem o resumo completo).
-   const row=Math.max(ROW_MIN,Math.min(ROW_MAX,(p===0?AVAIL_FIRST:AVAIL_NEXT)/Math.max(1,list.length)));
+   // Altura estimada da linha (a 1ª folha tem o resumo completo): decide quanto texto cabe no bloco.
+   const row=Math.max(ROW_MIN,Math.min(ROW_MAX,(p===0?AVAIL_FIRST:AVAIL_NEXT)/PER_PAGE));
    const lines=row>=10?2:1,meta=row>=(lines===2?13.5:10.5);
    const first=p*PER_PAGE+1,last=p*PER_PAGE+list.length;
    return <section key={p} className="page">
@@ -194,22 +198,33 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
       const contL=s0<t0,contR=e0>t1,live=['em_andamento','encerramento_pendente'].includes(o.status);
       const sameDay=dm.format(s0)===dm.format(e0);
       const when=sameDay?`${dm.format(s0)} ${hm.format(s0)}–${hm.format(e0)}`:`${dm.format(s0)} ${hm.format(s0)} → ${dm.format(e0)} ${hm.format(e0)}`;
+      // Texto da barra: OS de vários dias leva a data no início e no fim (nunca "09:00–09:00").
+      const barText=(mm:number)=>{const a=contL?'◂ ':'',b=contR?' ▸':'';
+       if(sameDay)return mm>=17?`${a}${hm.format(s0)}–${hm.format(e0)}${b}`:mm>=9?hm.format(s0):'';
+       return mm>=36?`${a}${dm.format(s0)} ${hm.format(s0)} → ${dm.format(e0)} ${hm.format(e0)}${b}`:mm>=26?`${a}${hm.format(s0)} → ${dm.format(e0)} ${hm.format(e0)}${b}`:mm>=14?`${a}${dm.format(s0)} ${hm.format(s0)}`:'';};
       const eq=(o.equipment as Row[]).map(e=>e.tag).join(', ');
       const info=[o.org_acronym,o.location_name,eq,(o.people as string[]).length?`${(o.people as string[]).length} pessoa(s)`:''].filter(Boolean).join(' · ');
       const cls=['bar',o.status==='concluida'?'done':'',live?'live':'',contL?'contl':'',contR?'contr':''].filter(Boolean).join(' ');
       const vars={['--c' as string]:o.org_color,['--bg' as string]:`color-mix(in srgb,${o.org_color} 16%,#fff)`,['--line' as string]:`color-mix(in srgb,${o.org_color} 50%,#fff)`,['--lines' as string]:lines} as CSSProperties;
-      return <div key={o.id} className="orow" style={{height:`${row}mm`,...vars}}>
+      return <div key={o.id} className="orow" style={vars}>
        <div className="oinfo" title={`${osNumber(o.number)} · ${o.activity_name} · ${STATUS[o.status]||o.status}`}>
-        <div className="l1"><b>{osNumber(o.number).replace('OS ','OS ')}{o.sector_code?` · ${o.sector_code}`:''}{o.origin==='realizada'?' · R':''}{o.status==='concluida'?' ✓':live?' ●':''}</b><span>{when}</span></div>
+        <div className="l1"><b>{osNumber(o.number)}{o.sector_code?<span className="sc" title={o.sector_name||undefined}>{o.sector_code}</span>:<span className="sc none">sem setor</span>}{o.origin==='realizada'?' · R':''}{o.status==='concluida'?' ✓':live?' ●':''}</b><span>{when}</span></div>
         <div className="l2">{o.activity_name}</div>
         {meta&&<div className="l3">{info}</div>}
        </div>
        <div className="otime" style={{['--grid' as string]:grid} as CSSProperties}>
         {dayList.filter(d=>{const w=wdNum(d);return w===0||w===6;}).map(d=><i key={d} className="we" style={{left:`${pct(d)}%`,width:`${100/days}%`}}/>)}
-        <div className={cls} style={{left:`${l}%`,width:`${wPct}%`}}>{wMm>=17?`${contL?'◂ ':''}${hm.format(s0)}–${hm.format(e0)}${contR?' ▸':''}`:wMm>=9?hm.format(s0):''}</div>
+        <div className={cls} style={{left:`${l}%`,width:`${wPct}%`}}>{barText(wMm)}</div>
         {nowIn&&<i className="now" style={{left:`${pct(now)}%`}}/>}
        </div>
       </div>;})}
+     {Array.from({length:PER_PAGE-list.length},(_,i)=><div key={'blank'+i} className="orow blank" aria-hidden="true">
+      <div className="oinfo"/>
+      <div className="otime" style={{['--grid' as string]:grid} as CSSProperties}>
+       {dayList.filter(d=>{const w=wdNum(d);return w===0||w===6;}).map(d=><i key={d} className="we" style={{left:`${pct(d)}%`,width:`${100/days}%`}}/>)}
+       {nowIn&&<i className="now" style={{left:`${pct(now)}%`}}/>}
+      </div>
+     </div>)}
      {!list.length&&<p className="empty">Nenhuma OS programada {r.sector?`para o setor ${r.sector.code} `:''}entre {range}.</p>}
     </div>
     <div className="legend"><span>Cor = solicitante · barra = período planejado da OS inteira</span><span><i/>Programada</span><span><i className="l"/>● Em andamento</span><span><i className="d"/>✓ Concluída</span><span><i className="c"/>◂ ▸ Começa ou termina fora do período</span><span><i className="t"/>Hoje</span><span>R = realizada sem planejamento</span></div>

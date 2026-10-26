@@ -12,8 +12,8 @@ import {Choice,Field,OrgTag,post,load,type R} from './kit';
 import {osLabel} from './planning';
 import OsRuler,{effective,dur,RulerLegend} from './os-ruler';
 
-const hm=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'});
-const dmhm=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+const dmhmFmt=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+const dmhm={format:(t:number)=>dmhmFmt.format(t).replace(',','')};
 const STATUS:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
 const STEP:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 const COLOR:Record<string,string>={em_andamento:'var(--live)',encerramento_pendente:'var(--imp)',programada:'var(--line)',concluida:'var(--ok)',cancelada:'var(--occ)'};
@@ -131,8 +131,8 @@ function OrderCard({o,now,canExecute,onOpen,onChanged}:{o:R;now:number;canExecut
  async function run(path:string,body:R,msg:string){setBusy(true);try{const r=await post(path,{operationKey:crypto.randomUUID(),...body});toast.success(r.message||msg);setPausing(null);setReason('');await onChanged();}catch(e){toast.error((e as Error).message);}finally{setBusy(false);}}
  function submit(e:FormEvent){e.preventDefault();if(pausing)void run('ops/pause',{stepId:pausing.id,reason},'Etapa pausada.');}
  const current=[...active,...blocked,...paused].map(s=>`${s.name} (${STEP[s.status].toLowerCase()})`).join(' · ');
- const timing=o.status==='programada'?(ps>now?`início em ${dur(ps-now)} · ${dmhm.format(ps)}`:`início atrasado ${dur(now-ps)}`)
-  :live?(pe>=now?`faltam ${dur(pe-now)} · fim ${hm.format(pe)}`:`prazo vencido há ${dur(now-pe)}`)
+ const timing=o.status==='programada'?(ps>now?`início em ${dur(ps-now)} · ${dmhm.format(ps)} → ${dmhm.format(pe)}`:`início atrasado ${dur(now-ps)}`)
+  :live?(pe>=now?`faltam ${dur(pe-now)} · fim ${dmhm.format(pe)}`:`prazo vencido há ${dur(now-pe)}`)
   :o.status==='encerramento_pendente'?'aguarda checklist para encerrar'
   :o.status==='concluida'?`concluída ${o.actual_end?dmhm.format(Date.parse(o.actual_end)):''}`:`cancelada${o.closed_at?' '+dmhm.format(Date.parse(o.closed_at)):''}`;
  return <article className="sn-card" style={{['--c' as string]:COLOR[o.status]}}>
