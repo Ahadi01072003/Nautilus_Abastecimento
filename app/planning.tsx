@@ -189,15 +189,19 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false
  // Revisão de OS: etapa concluída/dispensada não muda; etapa iniciada mantém início e não sai da OS.
  const frozen=osStatus==='concluida'||osStatus==='dispensada',started=!!osStatus&&osStatus!=='nao_iniciada'&&!frozen;
  const editable=canEdit&&!frozen;
- const [avail,setAvail]=useState<Record<string,R>>({}),[showAll,setShowAll]=useState(false);
+ const [avail,setAvail]=useState<Record<string,R>>({}),[people,setPeople]=useState<Record<string,R>>({}),[showAll,setShowAll]=useState(false);
  const startISO=toISO(s.start),endISO=toISO(s.end),valid=!!startISO&&!!endISO&&Date.parse(endISO)>Date.parse(startISO);
  // Consulta a agenda do intervalo da etapa (o servidor revalida ao gravar).
- useEffect(()=>{if(!valid||!s.included||!editable)return;const t=setTimeout(async()=>{try{const r=await load<R>(`planning/availability?start=${encodeURIComponent(startISO!)}&end=${encodeURIComponent(endISO!)}&planId=${planId}&stepId=${serverStep?.id||''}`);setAvail(Object.fromEntries(r.equipment.map((e:R)=>[e.id,e])))}catch{/* sem prévia: a gravação confere */}},400);return()=>clearTimeout(t)},[valid,startISO,endISO,s.included,editable,planId,serverStep?.id]);
+ useEffect(()=>{if(!valid||!s.included||!editable)return;const t=setTimeout(async()=>{try{const r=await load<R>(`planning/availability?start=${encodeURIComponent(startISO!)}&end=${encodeURIComponent(endISO!)}&planId=${planId}&stepId=${serverStep?.id||''}`);setAvail(Object.fromEntries(r.equipment.map((e:R)=>[e.id,e])));setPeople(Object.fromEntries((r.operators||[]).map((o:R)=>[o.id,o])))}catch{/* sem prévia: a gravação confere */}},400);return()=>clearTimeout(t)},[valid,startISO,endISO,s.included,editable,planId,serverStep?.id]);
  const deps=s.dependsOn.map(d=>steps.find(x=>x.key===d)).filter(Boolean) as Step[];
  const typeNeeds=s.needs.filter(n=>n.equipmentTypeId),fnNeeds=s.needs.filter(n=>n.functionId);
  const neededTypes=typeNeeds.map(n=>n.equipmentTypeId);
  const equipment=(refs.equipment as R[]).filter(e=>(e.active||s.equipmentIds.includes(e.id))&&(showAll||!neededTypes.length||neededTypes.includes(e.type_id)||s.equipmentIds.includes(e.id)));
- const operators=(refs.operators as R[]).filter(o=>o.active||s.operatorIds.includes(o.id));
+ // Colaboradores: quem tem a função exigida primeiro; entre eles, os livres no horário da etapa.
+ const fitsFn=(o:R)=>fnNeeds.some(n=>o.function_ids.includes(n.functionId));
+ const operators=(refs.operators as R[]).filter(o=>o.active||s.operatorIds.includes(o.id))
+  .map((o,i)=>({o,i,rank:(fitsFn(o)?0:2)+(people[o.id]?.status==='ocupado'?1:0)})).sort((x,y)=>x.rank-y.rank||x.i-y.i).map(x=>x.o);
+ const freeFor=(fn:string)=>(refs.operators as R[]).filter(o=>o.active&&o.function_ids.includes(fn)&&people[o.id]?.status!=='ocupado').length;
  const name=(list:string,id:string|null)=>(refs[list] as R[]).find(x=>x.id===id)?.name||'—';
  const dur=minutesBetween(startISO,endISO);
  return <article className={`step-card ${s.included?'':'excluded'}`}>
@@ -214,8 +218,11 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false
     {!valid?<small className="pending-text">Informe início e fim da etapa para consultar a agenda e reservar equipamentos.</small>:<div className="resource-list">{equipment.map(e=>{const a=avail[e.id];const chosen=s.equipmentIds.includes(e.id);const blocked=a&&a.status!=='livre'&&!chosen;return <label key={e.id} className={`resource ${a?.status||''} ${chosen?'chosen':''}`}><Checkbox checked={chosen} disabled={!!blocked} onCheckedChange={v=>onChange({equipmentIds:v?[...s.equipmentIds,e.id]:s.equipmentIds.filter(x=>x!==e.id)})}/><span><b>{e.tag}</b><small>{name('equipmentTypes',e.type_id)}{e.capacity?` · ${e.capacity}`:''}</small>{a&&a.status!=='livre'&&<em>{a.detail}</em>}</span><Badge tone={!a?'muted':a.status==='livre'?'success':a.status==='bloqueado'?'danger':'warning'}>{!a?(editable?'Consultando…':chosen?'Reservado aqui':'—'):a.status==='livre'?'Livre':a.status==='bloqueado'?'Bloqueado':chosen?'Reservado aqui':'Reservado'}</Badge></label>})}{neededTypes.length>0&&<button type="button" className="text-action" onClick={()=>setShowAll(v=>!v)}>{showAll?'Mostrar só os tipos necessários':'Mostrar todos os equipamentos'}</button>}</div>}
     {valid&&<small>A reserva provisória começa quando o rascunho é salvo; antes disso, a seleção não garante exclusividade.</small>}
    </fieldset>
-   <fieldset className="n-field wide"><legend>Colaboradores {fnNeeds.length>0&&<small>({fnNeeds.map(n=>`${n.quantity}× ${name('functions',n.functionId)}`).join(', ')})</small>}</legend>
-    <div className="resource-list people">{operators.map(o=>{const fits=fnNeeds.some(n=>o.function_ids.includes(n.functionId));return <label key={o.id} className={`resource ${s.operatorIds.includes(o.id)?'chosen':''}`}><Checkbox checked={s.operatorIds.includes(o.id)} onCheckedChange={v=>onChange({operatorIds:v?[...s.operatorIds,o.id]:s.operatorIds.filter(x=>x!==o.id)})}/><span><b>{o.name}</b><small>{o.function_ids.map((f:string)=>name('functions',f)).join(', ')||'Sem função'}</small></span>{fits&&<Badge tone="info">Função exigida</Badge>}</label>})}</div>
+   <fieldset className="n-field wide"><legend>Colaboradores {fnNeeds.length>0&&<small>({fnNeeds.map(n=>`${n.quantity}× ${name('functions',n.functionId)}${valid&&Object.keys(people).length?` · ${freeFor(n.functionId||'')} livre(s)`:''}`).join(', ')})</small>}</legend>
+    <div className="resource-list people">{operators.map(o=>{const fits=fitsFn(o),p=valid?people[o.id]:undefined,chosen=s.operatorIds.includes(o.id);
+     return <label key={o.id} className={`resource ${p?.status==='ocupado'?'busy':''} ${chosen?'chosen':''}`}><Checkbox checked={chosen} onCheckedChange={v=>onChange({operatorIds:v?[...s.operatorIds,o.id]:s.operatorIds.filter(x=>x!==o.id)})}/><span><b>{o.name}</b><small>{o.function_ids.map((f:string)=>name('functions',f)).join(', ')||'Sem função'}{fits?' · função exigida':''}</small>{p?.status==='ocupado'&&<em>Também em: {p.detail}</em>}</span>
+      <Badge tone={!p?'muted':p.status==='livre'?'success':'warning'}>{!p?(valid&&editable?'Consultando…':'—'):p.status==='livre'?'Livre':chosen?'Ocupado (escolhido)':'Ocupado'}</Badge></label>})}</div>
+    {valid&&<small>Colaborador ocupado em outra etapa no mesmo horário é só um aviso: pode ser escolhido e não impede o lançamento.</small>}
    </fieldset>
   </div></fieldset>}
  </article>;

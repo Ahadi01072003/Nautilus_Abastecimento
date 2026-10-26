@@ -137,7 +137,7 @@ export async function availability(member:Member,url:URL){
  const start=instant(url.searchParams.get('start'),'Início'),end=instant(url.searchParams.get('end'),'Fim');
  if(!start||!end||ms(end)<=ms(start))throw new AppError('Informe um intervalo válido.');
  const stepId=url.searchParams.get('stepId')||undefined,planId=url.searchParams.get('planId')||undefined;
- const [equipment,impediments]=await Promise.all([all('SELECT id,tag FROM equipment WHERE active=1 ORDER BY tag'),all('SELECT equipment_id,reason FROM equipment_impediments WHERE released_at IS NULL AND opened_at::timestamptz < ?::timestamptz',end)]);
+ const [equipment,impediments,operators]=await Promise.all([all('SELECT id,tag FROM equipment WHERE active=1 ORDER BY tag'),all('SELECT equipment_id,reason FROM equipment_impediments WHERE released_at IS NULL AND opened_at::timestamptz < ?::timestamptz',end),all('SELECT id FROM operators WHERE active=1')]);
  const plan=planId?await first('SELECT p.work_order_id,p.base_plan_id,s.step_key FROM plans p LEFT JOIN plan_steps s ON s.id=? AND s.plan_id=p.id WHERE p.id=?',stepId||'',planId):null;
  const workOrderId=plan?.work_order_id||null,stepKey=plan?.step_key;
  // Revisão: equipamento já reservado na versão vigente para a mesma etapa continua aceito (é a mesma reserva).
@@ -150,7 +150,23 @@ export async function availability(member:Member,url:URL){
   const kept=blocked.length&&carried?.some(r=>r.equipment_id===e.id&&r.step_key===stepKey);
   out.push({id:e.id,status:blocked.length?'bloqueado':busy.length?'reservado':'livre',detail:blocked.length?`Bloqueado por impedimento técnico: ${blocked.map(b=>b.reason).join('; ')}${kept?' (mantido da versão vigente)':''}`:busy.map(b=>b.label).join(' · ')});
  }
- return {equipment:out};
+ // Colaboradores: só informativo (não há reserva exclusiva de pessoas e não impede o lançamento).
+ // Conta etapas incluídas de OS lançadas (sem as canceladas, concluídas e etapas já encerradas) e rascunhos.
+ const busy=await all(`SELECT pp.operator_id,pp.plan_step_id,st.name step_name,st.planned_start,st.planned_end,p.id plan_id,p.status plan_status,p.author_id,p.author_name,p.org_id,w.number
+  FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id AND st.included=1 JOIN plans p ON p.id=pp.plan_id
+  LEFT JOIN work_orders w ON w.id=p.work_order_id LEFT JOIN os_steps o ON o.plan_step_id=st.id
+  WHERE p.status IN ('draft','launched') AND st.planned_start IS NOT NULL AND st.planned_end IS NOT NULL
+   AND st.planned_start::timestamptz < ?::timestamptz AND st.planned_end::timestamptz > ?::timestamptz
+   AND (w.id IS NULL OR w.status NOT IN ('cancelada','concluida'))
+   AND (o.id IS NULL OR o.status NOT IN ('concluida','dispensada','cancelada'))
+   AND pp.plan_step_id IS DISTINCT FROM ?::text
+   AND NOT (?::text IS NOT NULL AND p.work_order_id = ?::text AND p.id IS DISTINCT FROM ?::text)
+  ORDER BY st.planned_start::timestamptz`,end,start,stepId||null,workOrderId,workOrderId,planId||null);
+ const people=operators.map(o=>{const mine=busy.filter(b=>b.operator_id===o.id);
+  return {id:o.id,status:mine.length?'ocupado':'livre',detail:mine.map(b=>{const when=period(b.planned_start,b.planned_end);
+   if(b.plan_status==='draft')return b.plan_id===planId?`nesta atividade, etapa “${b.step_name}”, em ${when}`:`rascunho de planejamento${b.author_id===a.id||isManager(a)?` de ${b.author_name}`:''}, em ${when}`;
+   return inScope(a,b.org_id)?`etapa “${b.step_name}” da ${osNumber(b.number)}, em ${when}`:`outra OS, em ${when}`;}).join(' · ')};});
+ return {equipment:out,operators:people};
 }
 
 /** Pendências (impedem o lançamento) e avisos. Só depende dos dados carregados. */
@@ -232,7 +248,8 @@ export async function validation(plan:Plan){
   const clash=await all(`SELECT DISTINCT o.name FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id JOIN plans p ON p.id=pp.plan_id JOIN operators o ON o.id=pp.operator_id
    WHERE pp.operator_id = ANY(?::text[]) AND pp.plan_step_id<>? AND p.status IN ('draft','launched') AND st.included=1 AND st.planned_start IS NOT NULL
    AND st.planned_start::timestamptz < ?::timestamptz AND st.planned_end::timestamptz > ?::timestamptz
-   AND (p.status='launched' OR p.id=?) AND (p.id=? OR p.work_order_id IS DISTINCT FROM ?::text)`,s.operator_ids,s.id,s.planned_end,s.planned_start,plan.id,plan.id,plan.work_order_id||null);
+   AND (p.status='launched' OR p.id=?) AND (p.id=? OR p.work_order_id IS DISTINCT FROM ?::text)
+   AND NOT EXISTS (SELECT 1 FROM work_orders cw WHERE cw.id=p.work_order_id AND cw.status='cancelada')`,s.operator_ids,s.id,s.planned_end,s.planned_start,plan.id,plan.id,plan.work_order_id||null);
   if(clash.length)result.warnings.push({step:s.step_key,message:`Etapa “${s.name}”: ${clash.map(c=>c.name).join(', ')} também está em outra etapa no mesmo horário.`});
  }
  return result;
