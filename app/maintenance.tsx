@@ -2,7 +2,7 @@
 // Manutenção: Painel de preventivas (linha do tempo por equipamento/critério com os marcos do
 // ciclo), Critérios de manutenção, Corretivas e Leituras de horímetro/odômetro.
 // Situação e marcos vêm calculados do servidor; a tela só desenha e envia os registros.
-import {useCallback,useEffect,useMemo,useState,FormEvent,ReactNode} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState,FormEvent,ReactNode} from 'react';
 import {Plus,Wrench,Gauge,ClipboardCheck,AlertTriangle,LoaderCircle,CheckCircle2,X,Clock,History,Lock,Search,Pencil,Timer,Ban} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
@@ -125,14 +125,27 @@ function Track({row:r,onMark}:{row:R,onMark:(m:R)=>void}){
  const pos=(v:number)=>4+((v-lo)/span)*92;
  const label=(v:number)=>r.method==='dias'?'hoje':`${num(v)} ${r.unit}`;
  const tone=(m:R)=>m.state==='vencida'?(cur!=null&&cur>m.due+r.tolerance?'atrasada':'pendente'):'';
- return <div className="mt-track" role="group" aria-label={`Linha do tempo de ${r.tag} · ${r.name}`}>
+ // Rótulos sem sobreposição: o de "hoje/leitura" fica na linha de cima; cada marco tenta embaixo e
+ // depois em cima; se não couber em nenhuma, o texto some (continua na dica e no leitor de tela).
+ const box=useRef<HTMLDivElement>(null),[width,setWidth]=useState(560);
+ useEffect(()=>{const el=box.current;if(!el||typeof ResizeObserver==='undefined')return;const ro=new ResizeObserver(([e])=>setWidth(e.contentRect.width||560));ro.observe(el);return()=>ro.disconnect();},[]);
+ const px=(v:number)=>pos(v)/100*width,textW=(t:string)=>t.length*6.6+6;
+ const rows:{up:number[][],down:number[][]}={up:[],down:[]},free=(row:number[][],a:number,b:number)=>row.every(([x,y])=>b+4<x||a>y+4);
+ const nowText=cur!=null?label(cur):'',nowFlip=cur!=null&&px(cur)+8+textW(nowText)>width;
+ if(cur!=null){const a=nowFlip?px(cur)-8-textW(nowText):px(cur)+6;rows.up.push([a,a+textW(nowText)]);}
+ const place=marks.map(m=>{const t=r.method==='dias'?String(m.label).slice(0,5):String(m.label),c=px(m.due),a=c-textW(t)/2,b=c+textW(t)/2;
+  if(a>=-2&&b<=width+2&&free(rows.down,a,b)){rows.down.push([a,b]);return 'down';}
+  if(a>=-2&&b<=width+2&&free(rows.up,a,b)){rows.up.push([a,b]);return 'up';}
+  if(free(rows.down,a,b)){rows.down.push([a,b]);return 'down';}
+  return 'hide';});
+ return <div className="mt-track" ref={box} role="group" aria-label={`Linha do tempo de ${r.tag} · ${r.name}`}>
   <div className="mt-axis"/>
   {cur!=null&&<div className="mt-fill" style={{left:`${pos(Math.min(r.segment.from,cur))}%`,width:`${Math.max(0,pos(cur)-pos(Math.min(r.segment.from,cur)))}%`}}/>}
   {marks.map((m,i)=><button key={m.cycle} type="button" className={`m ${m.state} ${tone(m)} ${m.cycle===r.target?'target':''}`} style={{left:`${pos(m.due)}%`}} onClick={()=>onMark(m)}
    aria-label={`Marco ${m.cycle}: ${m.label} · ${MARK[m.state]}${m.cycle===r.target&&!r.openRecord&&m.state!=='feita'?' · registrar preventiva':''}`} title={`Marco ${m.cycle} · ${m.label} · ${MARK[m.state]}`}>
    {m.state==='feita'?<CheckCircle2 size={12}/>:m.state==='perdida'?<X size={11}/>:m.state==='em_andamento'?<Wrench size={11}/>:null}
-   <span className={`ml ${i%2?'alt':''}`}>{r.method==='dias'?m.label.slice(0,5):m.label}</span></button>)}
-  {cur!=null&&<span className="now" style={{left:`${pos(cur)}%`}}><em>{label(cur)}</em></span>}
+   {place[i]!=='hide'&&<span className={`ml ${place[i]==='up'?'alt':''}`}>{r.method==='dias'?m.label.slice(0,5):m.label}</span>}</button>)}
+  {cur!=null&&<span className={`now${nowFlip?' flip':''}`} style={{left:`${pos(cur)}%`}}><em>{nowText}</em></span>}
  </div>;
 }
 
