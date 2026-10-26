@@ -39,8 +39,11 @@ export async function agendaData(member:Member,params:{from:unknown,to:unknown,s
   WHERE ${where.join(' AND ')} ORDER BY w.planned_start::timestamptz,w.number LIMIT 600`,...values);
  const plans=orders.map(o=>o.current_plan_id);
  const [equipment,people,materials,functions,impediments]=plans.length?await Promise.all([
-  db().all(`SELECT DISTINCT p.id plan_id,e.id,e.tag,e.description,et.name type_name FROM reservations r JOIN plans p ON p.id=r.plan_id JOIN equipment e ON e.id=r.equipment_id LEFT JOIN equipment_types et ON et.id=e.type_id
-   WHERE r.plan_id = ANY(?::text[]) AND r.status<>'liberada' ORDER BY e.tag`,plans),
+  // Cada reserva com o horário, a etapa e o local da etapa: diz onde e quando o equipamento é usado.
+  db().all(`SELECT r.plan_id,e.id,e.tag,e.description,et.name type_name,r.start_at,r.end_at,s.name step_name,l.name step_location
+   FROM reservations r JOIN equipment e ON e.id=r.equipment_id LEFT JOIN equipment_types et ON et.id=e.type_id
+   LEFT JOIN plan_steps s ON s.id=r.plan_step_id LEFT JOIN locations l ON l.id=s.location_id
+   WHERE r.plan_id = ANY(?::text[]) AND r.status<>'liberada' ORDER BY e.tag,r.start_at::timestamptz`,plans),
   db().all('SELECT DISTINCT x.plan_id,op.id,op.name FROM plan_step_people x JOIN operators op ON op.id=x.operator_id JOIN plan_steps s ON s.id=x.plan_step_id AND s.included=1 WHERE x.plan_id = ANY(?::text[]) ORDER BY op.name',plans),
   db().all(`SELECT n.plan_id,m.name,n.unit,sum(n.amount)::float8 amount FROM plan_step_needs n JOIN materials m ON m.id=n.material_id JOIN plan_steps s ON s.id=n.plan_step_id AND s.included=1
    WHERE n.plan_id = ANY(?::text[]) GROUP BY n.plan_id,m.name,n.unit ORDER BY m.name`,plans),
@@ -48,8 +51,16 @@ export async function agendaData(member:Member,params:{from:unknown,to:unknown,s
    WHERE n.plan_id = ANY(?::text[]) GROUP BY n.plan_id,f.name`,plans),
   db().all('SELECT i.equipment_id,i.kind,i.reason,e.tag FROM equipment_impediments i JOIN equipment e ON e.id=i.equipment_id WHERE i.released_at IS NULL'),
  ]):[[],[],[],[],[]];
+ // Horas de reserva recortadas ao período, sem contar em dobro reservas sobrepostas do mesmo equipamento.
+ const union=(spans:number[][])=>{let total=0,cur:number[]|null=null;for(const x of spans.filter(x=>x[1]>x[0]).sort((a,b)=>a[0]-b[0])){if(!cur||x[0]>cur[1]){if(cur)total+=cur[1]-cur[0];cur=[...x];}else cur[1]=Math.max(cur[1],x[1]);}return cur?total+cur[1]-cur[0]:total;};
+ const inPeriod=(a:number,b:number)=>[Math.max(a,t0),Math.min(b,t1)];
+ const usesOf=(o:Row)=>{const mine=equipment.filter(e=>e.plan_id===o.current_plan_id);const by=new Map<string,Row>();
+  for(const e of mine){const g=by.get(e.id)||{id:e.id,tag:e.tag,type:e.type_name,description:e.description,spans:[] as number[][],steps:new Set<string>(),places:new Set<string>()};
+   g.spans.push([Date.parse(e.start_at),Date.parse(e.end_at)]);if(e.step_name)g.steps.add(e.step_name);g.places.add(e.step_location||o.location_name||'');by.set(e.id,g);}
+  return [...by.values()].map(g=>({id:g.id,tag:g.tag,type:g.type,description:g.description,start:new Date(Math.min(...g.spans.map((x:number[])=>x[0]))).toISOString(),end:new Date(Math.max(...g.spans.map((x:number[])=>x[1]))).toISOString(),
+   hours:union(g.spans.map((x:number[])=>inPeriod(x[0],x[1])))/H,steps:[...g.steps],location:[...g.places].filter(Boolean).join(' · ')||null}));};
  const list:Row[]=orders.map((o):Row=>({...o,
-  equipment:equipment.filter(e=>e.plan_id===o.current_plan_id).map(e=>({id:e.id,tag:e.tag,type:e.type_name})),
+  equipment:usesOf(o),
   people:people.filter(x=>x.plan_id===o.current_plan_id).map(x=>x.name as string),
   materials:materials.filter(x=>x.plan_id===o.current_plan_id).map(x=>({name:x.name,unit:x.unit,amount:x.amount})),
   functions:functions.filter(x=>x.plan_id===o.current_plan_id).map(x=>({name:x.name,quantity:x.quantity})),
@@ -59,8 +70,12 @@ export async function agendaData(member:Member,params:{from:unknown,to:unknown,s
  const clip=(o:Row)=>Math.max(0,Math.min(Date.parse(o.planned_end),t1)-Math.max(Date.parse(o.planned_start),t0));
  const byStatus:Record<string,number>={};for(const o of list)byStatus[o.status]=(byStatus[o.status]||0)+1;
  const orgs=new Map<string,Row>();for(const o of list){const g=orgs.get(o.org_id)||{acronym:o.org_acronym,name:o.org_name,color:o.org_color,count:0,hours:0};g.count++;g.hours+=clip(o)/H;orgs.set(o.org_id,g);}
- const eq=new Map<string,Row>();for(const o of list)for(const e of o.equipment){const g=eq.get(e.id)||{tag:e.tag,type:e.type,count:0,hours:0};g.count++;g.hours+=clip(o)/H;eq.set(e.id,g);}
- const mats=new Map<string,Row>();for(const o of list)for(const m of o.materials){const k=m.name+'|'+m.unit;const g=mats.get(k)||{name:m.name,unit:m.unit,amount:0};g.amount+=Number(m.amount)||0;mats.set(k,g);}
+ // Por equipamento: cada OS em que está reservado, com local, horário da reserva e horas.
+ const eq=new Map<string,Row>();for(const o of list)for(const e of o.equipment){const g=eq.get(e.id)||{tag:e.tag,type:e.type,description:e.description,count:0,hours:0,uses:[]};g.count++;g.hours+=e.hours;
+  g.uses.push({number:o.number,activity:o.activity_name,location:e.location,start:e.start,end:e.end,hours:e.hours});eq.set(e.id,g);}
+ for(const g of eq.values())g.uses.sort((x:Row,y:Row)=>Date.parse(x.start)-Date.parse(y.start));
+ // Por material: total e a quantidade de cada OS.
+ const mats=new Map<string,Row>();for(const o of list)for(const m of o.materials){const k=m.name+'|'+m.unit;const g=mats.get(k)||{name:m.name,unit:m.unit,amount:0,uses:[]};g.amount+=Number(m.amount)||0;g.uses.push({number:o.number,amount:Number(m.amount)||0});mats.set(k,g);}
  const crew=new Set(list.flatMap(o=>o.people));
  const days=new Map<string,number>();
  for(const o of list){for(let d=Math.max(t0,Math.floor((Date.parse(o.planned_start)-t0)/DAY)*DAY+t0);d<Math.min(t1,Date.parse(o.planned_end));d+=DAY){const k=new Date(d+3*H).toISOString().slice(0,10);days.set(k,(days.get(k)||0)+1);}}

@@ -26,6 +26,8 @@ export async function generateMetadata({searchParams}:{searchParams:Search}):Pro
 
 const TZ='America/Sao_Paulo',H=3600_000,DAY=24*H,OFF=3*H;
 const PER_PAGE=10;
+// Folhas "Recursos por OS": uma linha por OS com equipamentos (onde e quando), equipe e materiais.
+const RES_PER_PAGE=10,RES_ITEMS=4;
 // Espaço útil das linhas (mm): 1ª folha com o resumo completo; as demais com cabeçalho curto.
 const AVAIL_FIRST=82,AVAIL_NEXT=146,ROW_MIN=7,ROW_MAX=14;
 // Largura da coluna de identificação da OS e da área de datas (A4 paisagem, 277 mm úteis).
@@ -61,7 +63,25 @@ body{font:9pt/1.35 var(--f-body);margin:0}
 .kpis dt{font:600 6.2pt/1.2 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:#6c7c82}
 .kpis dd{margin:.4mm 0 0;font:800 13pt/1 var(--f-mono);color:#0b1d25}.kpis dd small{font:500 7pt/1.3 var(--f-body);color:#4b5f66;display:block;margin-top:.6mm}
 .kpis .lead dd{font-size:18pt;color:#087f77}
-.cols{display:grid;grid-template-columns:1.15fr 1.25fr 1fr;gap:4mm;min-height:0}
+.cols{display:grid;grid-template-columns:.95fr 1.9fr 1.5fr .9fr;gap:3mm;min-height:0}
+.card h2 small{font:500 6pt/1 var(--f-mono);letter-spacing:.06em;text-transform:none;color:#6c7c82;margin-left:1.4mm}
+.uses li{grid-template-columns:auto minmax(0,1fr) auto}
+.uses.wrap li>span{white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.uses li>span:nth-child(2){color:#33474e}.uses li>span:nth-child(2) b{font:700 6.8pt var(--f-mono);color:#0b1d25}
+.see{margin:.8mm 0 0;font:500 6pt/1.3 var(--f-mono);color:#6c7c82}
+/* Recursos por OS */
+.rtab{flex:1;min-height:0;display:flex;flex-direction:column;border:.3mm solid #9fb0ad}
+.rtab .rh,.rtab .rr{display:grid;grid-template-columns:36mm 62mm 76mm 52mm 1fr}
+.rtab .rh{background:#eef1f0;border-bottom:.4mm solid #9fb0ad}
+.rtab .rh span{font:700 6.2pt/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:#4b5f66;padding:2.2mm 2.4mm;border-right:.3mm solid #c7d0ce}
+.rtab .rr{flex:1 1 0;min-height:0;border-bottom:.3mm solid #c7d0ce;overflow:hidden}
+.rtab .rr:last-of-type{border-bottom:0}.rtab .rr:nth-of-type(even){background:#f7f9f8}
+.rtab .rr>div{padding:1.4mm 2.4mm;border-right:.3mm solid #dde3e1;overflow:hidden;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:.5mm;font-size:6.8pt;line-height:1.25;color:#33474e}
+.rtab .rr>div:first-child{border-left:1.4mm solid var(--c)}
+.rtab .rr.blank>div:first-child{border-left:0}
+.rtab .rr b{color:#0b1d25}.rtab .rr .k{font:700 7pt var(--f-mono);color:#0b1d25}
+.rtab .rr .ln{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rtab .rr .mut{color:#6c7c82}
 .card{border:.3mm solid #c7d0ce;padding:1.6mm 2.4mm;min-width:0;overflow:hidden}
 .card h2{margin:0 0 1.4mm;font:700 6.6pt/1.2 var(--f-mono);letter-spacing:.14em;text-transform:uppercase;color:#087f77}
 .stack{display:flex;height:3.2mm;border-radius:.6mm;overflow:hidden;margin-bottom:1.6mm;border:.2mm solid #c7d0ce}
@@ -143,6 +163,11 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
  const st=sum.byStatus as Record<string,number>;
  const orgTotal=Math.max(1,sum.total);
 
+ // Período curto: "26/10 07:00–17:00" no mesmo dia; com data nas duas pontas quando passa de um dia.
+ const per=(a:string,b:string)=>{const x=Date.parse(a),y=Date.parse(b);return dm.format(x)===dm.format(y)?`${dm.format(x)} ${hm.format(x)}–${hm.format(y)}`:`${dm.format(x)} ${hm.format(x)} → ${dm.format(y)} ${hm.format(y)}`;};
+ const osShort=(n:number)=>osNumber(n).replace('OS ','');
+ const resPages:Row[][]=[];for(let i=0;i<r.orders.length;i+=RES_PER_PAGE)resPages.push(r.orders.slice(i,i+RES_PER_PAGE));
+ const sheets=pages.length+resPages.length;
  const header=<>
   <div className="top">
    {/* eslint-disable-next-line @next/next/no-img-element -- Logo estático, mesmo arquivo na impressão. */}
@@ -164,13 +189,20 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
     <ul className="rows">{sum.orgs.slice(0,5).map((o:Row)=><li key={o.acronym}><i className="sw" style={{background:o.color}}/><span><b>{o.acronym}</b> · {o.name}</span><b>{o.count} · {num(o.count/orgTotal*100)}% · {hours(o.hours)}</b></li>)}
      {sum.orgs.length>5&&<li><i/><span className="muted">+ {sum.orgs.length-5} solicitante(s)</span><i/></li>}{!sum.orgs.length&&<li><i/><span className="muted">Nenhuma OS no período.</span><i/></li>}</ul>
    </section>
-   <section className="card"><h2>Recursos</h2>
-    <div className="res">
-     <ul className="rows">{sum.equipment.slice(0,6).map((e:Row)=><li key={e.tag} title={e.type||''}><span className="tag">{e.tag}</span><span/><b>{e.count} OS · {hours(e.hours)}</b></li>)}
-      {sum.equipment.length>6&&<li><i/><span className="muted">+ {sum.equipment.length-6} equipamento(s)</span><i/></li>}{!sum.equipment.length&&<li><i/><span className="muted">Nenhum equipamento reservado.</span><i/></li>}</ul>
-     <ul className="rows">{sum.materials.slice(0,6).map((m:Row)=><li key={m.name+m.unit}><i/><span>{m.name}</span><b>{num(m.amount,m.amount%1?1:0)} {m.unit}</b></li>)}
-      {sum.materials.length>6&&<li><i/><span className="muted">+ {sum.materials.length-6} material(is)</span><i/></li>}{!sum.materials.length&&<li><i/><span className="muted">Nenhum material previsto.</span><i/></li>}</ul>
-    </div>
+   <section className="card"><h2>Equipamentos reservados<small>OS · local · horário · horas</small></h2>
+    {/* Uma linha por equipamento: com uma só OS, diz onde e quando; com várias, quais OS (detalhe na folha de recursos). */}
+    <ul className="rows uses">{(sum.equipment as Row[]).slice(0,5).map(e=>{const u=e.uses as Row[];
+     return <li key={e.tag} title={`${e.tag}${e.type?' · '+e.type:''}: ${u.map(x=>`${osNumber(x.number)} ${per(x.start,x.end)}`).join(' | ')}`}><span className="tag">{e.tag}</span>
+      {u.length===1?<span><b>OS {osShort(u[0].number)}</b>{u[0].location?` · ${u[0].location}`:''} · {per(u[0].start,u[0].end)}</span>
+       :<span><b>{u.length} OS</b> · {u.slice(0,3).map(x=>osShort(x.number)).join(', ')}{u.length>3?` +${u.length-3}`:''} · {dm.format(Date.parse(u[0].start))} a {dm.format(Date.parse(u[u.length-1].end))}</span>}
+      <b>{hours(e.hours)}</b></li>;})}
+     {!sum.equipment.length&&<li><i/><span className="muted">Nenhum equipamento reservado.</span><i/></li>}</ul>
+    {sum.equipment.length>0&&<p className="see">{sum.equipment.length>5?`+ ${sum.equipment.length-5} equipamento(s) · `:''}Cada reserva em “Recursos por OS” (folha {pages.length+1})</p>}
+   </section>
+   <section className="card"><h2>Materiais previstos<small>total · OS</small></h2>
+    <ul className="rows uses wrap">{sum.materials.slice(0,5).map((m:Row)=><li key={m.name+m.unit}><b>{num(m.amount,m.amount%1?1:0)} {m.unit}</b><span>{m.name} → <b>{(m.uses as Row[]).length>2?`${(m.uses as Row[]).length} OS`:(m.uses as Row[]).map((u,i)=>`${i?'':'OS '}${osShort(u.number)}${(m.uses as Row[]).length>1?` (${num(u.amount,u.amount%1?1:0)})`:''}`).join(', ')}</b></span><i/></li>)}
+     {!sum.materials.length&&<li><i/><span className="muted">Nenhum material previsto.</span><i/></li>}</ul>
+    {sum.materials.length>0&&<p className="see">{sum.materials.length>5?`+ ${sum.materials.length-5} material(is) · `:''}Quantidade por OS em “Recursos por OS” (folha {pages.length+1})</p>}
    </section>
    <section className="card"><h2>Atenção</h2>
     {sum.alerts.length?<ul className="rows alert">{sum.alerts.slice(0,4).map((a:Row,i:number)=><li key={i}><span className="tag">{a.tag}</span><span>{a.text}</span></li>)}{sum.alerts.length>4&&<li><i/><span className="muted">+ {sum.alerts.length-4} alerta(s)</span></li>}</ul>
@@ -187,7 +219,7 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
    const lines=row>=10?2:1,meta=row>=(lines===2?13.5:10.5);
    const first=p*PER_PAGE+1,last=p*PER_PAGE+list.length;
    return <section key={p} className="page">
-    {p===0?header:<div className="mini"><span><b>Agenda de OS · {range}</b>{r.sector?`Setor ${r.sector.code}`:'Todos os setores'}</span><span>Folha {p+1} de {pages.length}</span></div>}
+    {p===0?header:<div className="mini"><span><b>Agenda de OS · {range}</b>{r.sector?`Setor ${r.sector.code}`:'Todos os setores'}</span><span>Folha {p+1} de {sheets}</span></div>}
     <div className="gantt">
      <div className="gh"><div className="lbl">OS · atividade</div>
       <div className="days">{dayList.map((d,i)=>{const w=wdNum(d),m=new Date(d+OFF).getUTCDate()===1;
@@ -228,7 +260,28 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
      {!list.length&&<p className="empty">Nenhuma OS programada {r.sector?`para o setor ${r.sector.code} `:''}entre {range}.</p>}
     </div>
     <div className="legend"><span>Cor = solicitante · barra = período planejado da OS inteira</span><span><i/>Programada</span><span><i className="l"/>● Em andamento</span><span><i className="d"/>✓ Concluída</span><span><i className="c"/>◂ ▸ Começa ou termina fora do período</span><span><i className="t"/>Hoje</span><span>R = realizada sem planejamento</span></div>
-    <div className="foot"><span>Folha {p+1} de {pages.length} · {list.length?`OS ${first}–${last} de ${totalLabel(sum.total)}`:'sem OS'} · {PER_PAGE} OS por folha</span><span>Horários de Brasília · NAUTILUS</span></div>
+    <div className="foot"><span>Folha {p+1} de {sheets} · {list.length?`OS ${first}–${last} de ${totalLabel(sum.total)}`:'sem OS'} · {PER_PAGE} OS por folha</span><span>Horários de Brasília · NAUTILUS</span></div>
+   </section>;})}
+  {resPages.map((list,q)=>{const sheet=pages.length+q+1;
+   return <section key={'res'+q} className="page">
+    <div className="mini"><span><b>Recursos por OS · {range}</b>{r.sector?`Setor ${r.sector.code}`:'Todos os setores'}</span><span>Folha {sheet} de {sheets}</span></div>
+    <div className="rtab">
+     <div className="rh"><span>OS · setor</span><span>Atividade · local · período</span><span>Equipamentos · reserva (horas)</span><span>Equipe</span><span>Materiais</span></div>
+     {list.map(o=>{const eqs=o.equipment as Row[],people=o.people as string[],fns=o.functions as Row[],mats=o.materials as Row[];
+      return <div key={o.id} className="rr" style={{['--c' as string]:o.org_color} as CSSProperties}>
+       <div><span className="k">{osNumber(o.number)}</span><span>{o.sector_code||<span className="mut">sem setor</span>} · {o.org_acronym}</span><span className="mut">{STATUS[o.status]||o.status}</span></div>
+       <div><b className="ln">{o.activity_name}</b><span className="ln">{o.location_name||'Local não informado'}</span><span className="ln">{per(o.planned_start,o.planned_end)}</span></div>
+       <div>{eqs.length?<>{eqs.slice(0,RES_ITEMS).map(e=><span key={e.id} className="ln" title={`${e.tag} · ${e.type||''} · ${e.steps.join(', ')}`}><b>{e.tag}</b>{e.type?` ${e.type}`:''} · {per(e.start,e.end)} ({hours(e.hours)}){e.location&&e.location!==o.location_name?` · ${e.location}`:''}</span>)}
+        {eqs.length>RES_ITEMS&&<span className="mut">+ {eqs.length-RES_ITEMS} equipamento(s)</span>}</>:<span className="mut">Sem equipamento reservado</span>}</div>
+       <div>{people.length?<span>{people.slice(0,6).join(', ')}{people.length>6?` +${people.length-6}`:''}</span>:<span className="mut">Ninguém alocado</span>}
+        {fns.length>0&&<span className="mut ln">{fns.map(f=>`${f.quantity}× ${f.name}`).join(' · ')}</span>}</div>
+       <div>{mats.length?<>{mats.slice(0,RES_ITEMS).map((m,i)=><span key={i} className="ln"><b>{num(Number(m.amount),Number(m.amount)%1?1:0)} {m.unit}</b> {m.name}</span>)}
+        {mats.length>RES_ITEMS&&<span className="mut">+ {mats.length-RES_ITEMS} material(is)</span>}</>:<span className="mut">Sem material previsto</span>}</div>
+      </div>;})}
+     {Array.from({length:RES_PER_PAGE-list.length},(_,i)=><div key={'rb'+i} className="rr blank" aria-hidden="true"><div/><div/><div/><div/><div/></div>)}
+    </div>
+    <div className="legend"><span>Equipamentos: horário e horas da reserva na OS (recortadas ao período da agenda); local da etapa quando difere do local da OS. Materiais e funções somam as etapas incluídas.</span></div>
+    <div className="foot"><span>Folha {sheet} de {sheets} · OS {q*RES_PER_PAGE+1}–{q*RES_PER_PAGE+list.length} de {totalLabel(sum.total)}</span><span>Horários de Brasília · NAUTILUS</span></div>
    </section>;})}
  </main>;
 }
