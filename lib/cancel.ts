@@ -1,6 +1,7 @@
 // Cancelamento de OS (planejador ou gestor, com justificativa): vale para OS programada e em
-// andamento. Em andamento, as etapas abertas terminam como canceladas no momento do cancelamento,
-// os períodos de trabalho já registrados ficam preservados e o equipamento é liberado dali em diante.
+// andamento. Em andamento, as etapas abertas terminam como canceladas no momento do cancelamento e
+// os períodos de trabalho já registrados ficam preservados (histórico). Todos os recursos voltam a
+// ficar livres: as reservas de equipamento são liberadas e a equipe deixa de contar como ocupada.
 import {db,type Row} from './db';
 import {AppError,required} from './domain';
 import {type Member,isManager,requireAny} from './permissions';
@@ -40,9 +41,8 @@ export async function cancelOrder(b:Row,member:Member){
    await tx.run("UPDATE occurrences SET status='resolvido',resolved_at=?,resolved_by=?,resolved_by_name=?,resolution=? WHERE work_order_id=? AND blocking=1 AND status='aberto'",t,a.id,a.name,'OS cancelada: '+reason,w.id);
   }
   for(const s of steps)await tx.run("UPDATE os_steps SET status='cancelada',actual_end=CASE WHEN actual_start IS NOT NULL THEN ? ELSE actual_end END WHERE id=?",t,s.id);
-  // Equipamento: o que já foi usado fica registrado até agora; o restante do período volta a ficar livre.
-  await tx.run("UPDATE reservations SET end_at=? WHERE plan_id=? AND status='confirmada' AND start_at::timestamptz < ?::timestamptz AND end_at::timestamptz > ?::timestamptz",t,w.current_plan_id,t,t);
-  await tx.run("UPDATE reservations SET status='liberada',released_at=?,release_reason='OS cancelada' WHERE plan_id=? AND status<>'liberada' AND start_at::timestamptz >= ?::timestamptz",t,w.current_plan_id,t);
+  // Todas as reservas da OS são liberadas (o uso real fica nos períodos de trabalho das etapas).
+  await tx.run("UPDATE reservations SET status='liberada',released_at=?,release_reason='OS cancelada' WHERE plan_id=? AND status<>'liberada'",t,w.current_plan_id);
   await tx.run("UPDATE work_orders SET status='cancelada',cancelled_at=?,cancelled_by=?,cancel_reason=?,actual_end=CASE WHEN ?::boolean THEN ? ELSE actual_end END,version=version+1 WHERE id=?",t,a.id,reason,running,t,w.id);
   await audit(tx,a,'Planejamento: OS cancelada',w.id,{number:w.number,reason,inProgress:running,openSteps:steps.length});
   return {ok:true,message:running?`${osNumber(w.number)} cancelada. As etapas abertas foram encerradas e os equipamentos liberados.`:`${osNumber(w.number)} cancelada. As reservas foram liberadas.`};

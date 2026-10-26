@@ -577,3 +577,9 @@ body{font-family:var(--f-body)}
  .appointment-flow>svg,.appointment-flow>i{display:none}
  .stock-grid{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
 }
+/* Planejamento: colaborador ocupado em outra etapa no mesmo horário (aviso; pode ser escolhido). */
+.resource.busy:not(.chosen){background:color-mix(in srgb,var(--imp) 7%,var(--surface))}
+.resource.busy em{color:#8a5a00}
+/* Painel central: botão da Apresentação (TV). */
+.ce-present{display:inline-flex;align-items:center;gap:8px;margin-left:12px;padding:9px 14px;border-radius:5px;background:var(--abyss);color:var(--signal);font:600 13.5px/1 var(--f-body);text-decoration:none;border:1px solid var(--abyss)}
+.ce-present:hover{background:#0d2c3e}

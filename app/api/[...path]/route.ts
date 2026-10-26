@@ -14,6 +14,7 @@ import {conditionState,conditionMutate} from '@/lib/condition';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
+import {tvData} from '@/lib/tv';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -99,6 +100,7 @@ export async function GET(req:Request){try{
  if(path==='ops/order.xlsx'){await rateLimit(member.id,'export');return await orderWorkbook(member,url.searchParams.get('id')||'');}
  if(path==='ops/order'){await rateLimit(member.id,'read');return json(await orderDetail(member,url.searchParams.get('id')||''));}
  if(path==='ops/start-check'){await rateLimit(member.id,'read');return json(await startCheck(member,url.searchParams.get('stepId')||''));}
+ if(path==='tv'){await rateLimit(member.id,'read');return json(await tvData(member,url));}
  if(path==='condition'){await rateLimit(member.id,'read');return json(await conditionState(member));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}

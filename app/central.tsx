@@ -2,7 +2,7 @@
 // Painel central: resumo de cada módulo e a lista de avisos (rolável, filtrável por gravidade e
 // módulo). Cada cartão e cada aviso levam à tela de origem. O conteúdo segue o acesso de quem vê.
 import {useCallback,useEffect,useMemo,useState,ReactNode} from 'react';
-import {AlertTriangle,AlertOctagon,Info,ArrowRight,Droplets,HardHat,CalendarRange,Wrench,CalendarClock,CheckCircle2} from 'lucide-react';
+import {AlertTriangle,AlertOctagon,Info,ArrowRight,Droplets,HardHat,CalendarRange,Wrench,CalendarClock,CheckCircle2,MonitorPlay} from 'lucide-react';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Badge,fmt,load,type R} from './kit';
@@ -36,6 +36,7 @@ export default function Central({refreshKey,onGo}:{refreshKey:number,onGo:(view:
   <div className="ce-sev" role="group" aria-label="Gravidade dos avisos">
    {Object.entries(SEV).map(([k,[label,color,Icon]])=><button key={k} type="button" aria-pressed={sev===k} style={{['--t' as string]:color}} onClick={()=>setSev(sev===k?'':k)}><Icon size={16}/><b>{data.counts[k]}</b><span>{label}</span></button>)}
    <span className="ce-updated">Atualizado {fmt(data.generatedAt)}</span>
+   {s.operacao&&<a className="ce-present" href="/apresentacao" target="_blank" rel="noopener" title="Tela cheia para TV: todas as OS, recursos e o que está acontecendo agora"><MonitorPlay size={17}/>Apresentação</a>}
   </div>
   <div className="ce-grid">
    <div className="ce-cards">

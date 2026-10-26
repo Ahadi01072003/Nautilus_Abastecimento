@@ -4,7 +4,7 @@ import {freshDatabase,addMember,seedOperation} from './helpers';
 import {mutate} from '../lib/service';
 import {registryMutate} from '../lib/registry';
 import {flowsMutate} from '../lib/flows';
-import {planningMutate,planDetail,ordersList} from '../lib/planning';
+import {planningMutate,planDetail,ordersList,availability,validateDraft} from '../lib/planning';
 import {revisionMutate} from '../lib/revision';
 import {realizeActivity} from '../lib/realized';
 import {cancelOrder} from '../lib/cancel';
@@ -41,11 +41,11 @@ before(async()=>{
 after(async()=>{await ctx.drop();});
 
 /** OS com fluxo de duas etapas, equipamento na segunda; código do setor opcional. */
-async function launch(s:number,e:number,eq='eq1',code=''){
+async function launch(s:number,e:number,eq='eq1',code='',people:string[]=[]){
  const {id}=await planningMutate('planning/create',{activityTypeId:flow},planner) as Row;
  const p=(await planDetail(planner,id)).plan;
  const mid=(s+e)/2;
- await planningMutate('planning/save',{id,version:p.version,code,orgId:org,locationId:loc,plannedStart:at(s),plannedEnd:at(e),steps:p.steps.map((x:Row)=>({key:x.step_key,included:true,plannedStart:x.step_key==='prep-0001'?at(s):at(mid),plannedEnd:x.step_key==='prep-0001'?at(mid):at(e),needs:[],equipmentIds:x.step_key==='move-0001'?[eq]:[],operatorIds:[]}))},planner);
+ await planningMutate('planning/save',{id,version:p.version,code,orgId:org,locationId:loc,plannedStart:at(s),plannedEnd:at(e),steps:p.steps.map((x:Row)=>({key:x.step_key,included:true,plannedStart:x.step_key==='prep-0001'?at(s):at(mid),plannedEnd:x.step_key==='prep-0001'?at(mid):at(e),needs:[],equipmentIds:x.step_key==='move-0001'?[eq]:[],operatorIds:x.step_key==='move-0001'?people:[]}))},planner);
  const v=(await planDetail(planner,id)).plan.version;
  const r=await planningMutate('planning/launch',{id,version:v,launchKey:key()},planner) as Row;
  return {plan:id,wo:r.workOrderId as string};
@@ -89,10 +89,25 @@ test('cancelamento: só planejador ou gestor, com justificativa; em andamento en
  assert.deepEqual(d.steps.map((s:Row)=>s.status).sort(),['cancelada','cancelada']);
  assert.ok(d.intervals.every((i:Row)=>i.end_at),'nenhum período aberto');
  assert.ok(d.events.some((e:Row)=>e.kind==='cancelamento'));
- assert.equal((await db.first("SELECT count(*)::int n FROM reservations WHERE equipment_id='eq2' AND status<>'liberada' AND end_at::timestamptz>now()"))!.n,0,'equipamento livre dali em diante');
+ assert.equal((await db.first("SELECT count(*)::int n FROM reservations r JOIN plans p ON p.id=r.plan_id WHERE p.work_order_id=? AND r.status<>'liberada'",wo))!.n,0,'nenhuma reserva da OS cancelada fica ativa');
  await rejects(ops('start',{stepId:(await step(wo,'move-0001')).id}),409,/cancelada/);
  // Outra OS consegue o mesmo equipamento no mesmo horário.
  await launch(1,3,'eq2');
+});
+
+test('OS cancelada libera equipamento e equipe: outra OS no mesmo horário não tem conflito',async()=>{
+ const a=await launch(110,114,'eq1','',['op1']);
+ // Mesmo horário, mesmo equipamento e a mesma pessoa: com a primeira OS ativa, há disputa.
+ await rejects(launch(110,114,'eq1','',['op1']),409,/reservado/);
+ const busy=await availability(planner,new URL(`http://x/?start=${at(110)}&end=${at(114)}`));
+ assert.equal(busy.operators.find((o:Row)=>o.id==='op1')?.status,'ocupado');
+ await cancelOrder({workOrderId:a.wo,reason:'Mudança de prioridade'},planner);
+ const free=await availability(planner,new URL(`http://x/?start=${at(110)}&end=${at(114)}`));
+ assert.equal(free.equipment.find((e:Row)=>e.id==='eq1')?.status,'livre','equipamento da OS cancelada fica livre');
+ assert.equal(free.operators.find((o:Row)=>o.id==='op1')?.status,'livre','colaborador da OS cancelada fica livre');
+ const b=await launch(110,114,'eq1','',['op1']);
+ const v=await validateDraft(planner,b.plan);
+ assert.ok(!v.warnings.some((w:Row)=>/também está em outra etapa/.test(w.message)),'colaborador da OS cancelada não conta como ocupado');
 });
 
 test('cancelar OS com revisão em aberto libera as reservas da revisão',async()=>{
