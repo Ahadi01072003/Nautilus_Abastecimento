@@ -133,10 +133,12 @@ function Track({row:r,onMark}:{row:R,onMark:(m:R)=>void}){
  const rows:{up:number[][],down:number[][]}={up:[],down:[]},free=(row:number[][],a:number,b:number)=>row.every(([x,y])=>b+4<x||a>y+4);
  const nowText=cur!=null?label(cur):'',nowFlip=cur!=null&&px(cur)+8+textW(nowText)>width;
  if(cur!=null){const a=nowFlip?px(cur)-8-textW(nowText):px(cur)+6;rows.up.push([a,a+textW(nowText)]);}
- const place=marks.map(m=>{const t=r.method==='dias'?String(m.label).slice(0,5):String(m.label),c=px(m.due),a=c-textW(t)/2,b=c+textW(t)/2;
-  if(a>=-2&&b<=width+2&&free(rows.down,a,b)){rows.down.push([a,b]);return 'down';}
-  if(a>=-2&&b<=width+2&&free(rows.up,a,b)){rows.up.push([a,b]);return 'up';}
+ // Perto das bordas o rótulo desliza para dentro da linha (não sai do quadro).
+ const shift:number[]=[];
+ const place=marks.map((m,i)=>{const t=r.method==='dias'?String(m.label).slice(0,5):String(m.label),c=px(m.due),tw=textW(t);
+  const dx=c-tw/2<0?tw/2-c:c+tw/2>width?width-(c+tw/2):0;shift[i]=dx;const a=c-tw/2+dx,b=c+tw/2+dx;
   if(free(rows.down,a,b)){rows.down.push([a,b]);return 'down';}
+  if(free(rows.up,a,b)){rows.up.push([a,b]);return 'up';}
   return 'hide';});
  return <div className="mt-track" ref={box} role="group" aria-label={`Linha do tempo de ${r.tag} · ${r.name}`}>
   <div className="mt-axis"/>
@@ -144,7 +146,7 @@ function Track({row:r,onMark}:{row:R,onMark:(m:R)=>void}){
   {marks.map((m,i)=><button key={m.cycle} type="button" className={`m ${m.state} ${tone(m)} ${m.cycle===r.target?'target':''}`} style={{left:`${pos(m.due)}%`}} onClick={()=>onMark(m)}
    aria-label={`Marco ${m.cycle}: ${m.label} · ${MARK[m.state]}${m.cycle===r.target&&!r.openRecord&&m.state!=='feita'?' · registrar preventiva':''}`} title={`Marco ${m.cycle} · ${m.label} · ${MARK[m.state]}`}>
    {m.state==='feita'?<CheckCircle2 size={12}/>:m.state==='perdida'?<X size={11}/>:m.state==='em_andamento'?<Wrench size={11}/>:null}
-   {place[i]!=='hide'&&<span className={`ml ${place[i]==='up'?'alt':''}`}>{r.method==='dias'?m.label.slice(0,5):m.label}</span>}</button>)}
+   {place[i]!=='hide'&&<span className={`ml ${place[i]==='up'?'alt':''}`} style={shift[i]?{transform:`translateX(calc(-50% + ${Math.round(shift[i])}px))`}:undefined}>{r.method==='dias'?m.label.slice(0,5):m.label}</span>}</button>)}
   {cur!=null&&<span className={`now${nowFlip?' flip':''}`} style={{left:`${pos(cur)}%`}}><em>{nowText}</em></span>}
  </div>;
 }

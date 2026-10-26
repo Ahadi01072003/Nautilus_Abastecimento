@@ -552,3 +552,28 @@ body{font-family:var(--f-body)}
 [data-slot=table-cell] small.danger-text{color:var(--occ);font-weight:600}
 /* Lista de OS: só a sigla do solicitante na tabela (o nome fica na dica), para caber sem rolagem. */
 .orders-table .org-tag small{display:none}
+/* Régua: "agora" depois do período planejado vira selo na borda (a escala não estica). */
+.rnow-edge{position:absolute;top:3px;right:3px;z-index:4;font:700 9px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--surface);background:var(--ink);padding:3px 5px;border-radius:2px;pointer-events:none;white-space:nowrap}
+/* ── Segunda revisão de layout (26/10/2026) ── */
+/* Etiqueta do solicitante nunca passa da coluna (o nome ganha reticências). */
+.org-tag{max-width:100%;min-width:0}
+.org-tag small{min-width:0}
+/* Seletores: texto com reticências em vez de cortado; filtros com largura pelo conteúdo. */
+.choice [data-slot=select-value]{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(min-width:768px){.filters>.choice{width:auto;min-width:200px;max-width:280px}}
+/* Cabeçalho da página: as ações descem para a linha de baixo quando não cabem ao lado do título. */
+.page-header{flex-wrap:wrap}
+.page-header>div:first-child{min-width:0}
+/* Telas médias (tablet ou janela estreita com o menu aberto): blocos se reorganizam em vez de estourar. */
+.alert-summary{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.stock-card-top{flex-wrap:wrap}
+.panel-heading{flex-wrap:wrap}
+.panel-heading .n-badge{white-space:normal}
+.facts div{grid-template-columns:minmax(0,1fr)}
+.facts dd .org-tag{max-width:100%}
+.mt-specs b{overflow-wrap:anywhere}
+@media(max-width:1100px){
+ .appointment-flow{grid-template-columns:1fr;gap:10px}
+ .appointment-flow>svg,.appointment-flow>i{display:none}
+ .stock-grid{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+}

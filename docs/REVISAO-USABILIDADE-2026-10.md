@@ -138,3 +138,33 @@ Legenda:
   - nenhum erro no console.
 - **E2E**: Painel de OS, filtros, Lista e Gantt, Apontamentos, Cancelar OS, régua, planejamento com setor, cadastro de setores, atividade realizada e OS de vários dias, todos sem erros.
 - **Banco**: nenhuma migração.
+
+## 12. Segunda revisão de layout (26/10/2026)
+
+Pedido:
+
+- no Painel de OS, o horário das OS programadas saía do cartão;
+- a régua de uma OS programada se estendia até hoje e espremia o planejado.
+
+**Como a revisão foi feita**
+
+- Verificador automático: em cada uma das 24 telas e em 7 larguras (390, 768, 1024, 1280, 1440, 1660 e 1920 px), procura todo elemento que:
+  - sai do seu cartão ou painel;
+  - é cortado por ele;
+  - tem texto cortado sem reticências;
+  - passa da largura da página.
+- Os dados de teste receberam títulos, locais e nomes de solicitante longos, como os reais.
+- Resultado: 19 ocorrências antes; **nenhuma depois**; nenhum erro no console.
+
+| # | Achado | Correção |
+| --- | --- | --- |
+| 39 | **Painel de OS: horário fora do cartão.** "Início atrasado 2 d 19:42 · 23/10 13:00–16:30" não quebrava linha (o separador estava dentro de um trecho que não quebra), e a coluna do horário saía do cartão. | O separador fica fora dos trechos; a linha quebra entre eles. |
+| 40 | **Régua da OS programada esticada até hoje.** Uma OS de 23/10 das 15:00 às 17:00 virava uma barra minúscula numa régua de 23/10 a 26/10. | A régua fica só no período planejado. Se o momento atual passou do fim, aparece o selo "agora 26/10 09:02 ▸" na borda direita, sem esticar a escala. A régua só vai até agora quando a OS já está em execução. |
+| 41 | **Seletores de filtro com texto cortado.** "Todos os combustíveis" e "Todas as organizações" perdiam letras. | Os seletores mostram reticências quando o texto não cabe, e os filtros ganham largura pelo conteúdo. |
+| 42 | **Botão para fora da tela em 1024 px.** Em Abastecimentos, o botão "Registrar abastecimento" passava 96 px da tela. | O cabeçalho da página leva as ações para a linha de baixo quando não cabem. |
+| 43 | **Telas médias (768 px com menu aberto).** Os resumos de Solicitações e Alertas passavam da tela, e o fluxo "1. Solicitar → 2. Agendar → 3. Realizar" ficava espremido. | Os resumos se reorganizam em colunas que cabem, e o fluxo fica empilhado. |
+| 44 | **Selo de estoque cortado em cartões estreitos.** "Abaixo do mínimo" e "Acima do mínimo" eram cortados. | O selo desce para a linha de baixo quando não cabe. |
+| 45 | **Selo cortado no cabeçalho de painel.** "Uma solicitação ativa por combustível" era cortado. | O texto quebra linha. |
+| 46 | **Apontamentos: etiqueta do solicitante maior que a coluna.** | A etiqueta se limita à coluna e o nome ganha reticências. |
+| 47 | **Critérios em 768 px.** "Principais inconformidades" saía do quadro. | O título quebra linha. |
+| 48 | **Preventivas no celular.** O rótulo do último marco ("125.000 km") saía da linha. | Perto das bordas, o rótulo desliza para dentro. |

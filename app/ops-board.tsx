@@ -2,7 +2,7 @@
 // Operação › Painel de OS: indicadores do turno e cada OS com a sua régua e o seu cronômetro
 // (tempo efetivo). Filtros de período, situação, código do setor e solicitante; exportação da
 // agenda em PDF. Pausar e retomar direto do cartão; o resto nos Apontamentos.
-import {useCallback,useEffect,useState,type FormEvent,type MouseEvent} from 'react';
+import {Fragment,useCallback,useEffect,useState,type FormEvent,type MouseEvent} from 'react';
 import {Pause,Play,ArrowRight,LoaderCircle,CalendarRange,FileDown,FilterX,ClipboardCheck} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
@@ -149,7 +149,7 @@ function OrderCard({o,now,canExecute,onOpen,onChanged}:{o:R;now:number;canExecut
   <div className="timer">
    {o.status==='programada'&&!eff?<span className="sn-clock sn-idle" aria-label={`Início planejado ${dmhm.format(ps)}`}><em>Início planejado</em>{dmhm.format(ps)}</span>
     :<span className="sn-clock clock-roll" aria-label={`Tempo efetivo ${hms(eff)}`}><Digits value={hms(eff)}/></span>}
-   <small>{timing.split(' · ').map((part,i)=><span key={i} className="nw">{i?' · ':''}{part}</span>)}</small>
+   <small>{timing.split(' · ').map((part,i)=><Fragment key={i}>{i?' · ':''}<span className="nw">{part}</span></Fragment>)}</small>
    <div className="acts">
     {canExecute&&active.length===1&&<button type="button" disabled={busy} onClick={()=>setPausing(active[0])}><Pause size={14}/>Pausar</button>}
     {canExecute&&!active.length&&paused.length===1&&<button type="button" className="go" disabled={busy} onClick={()=>void run('ops/resume',{stepId:paused[0].id},'Etapa retomada.')}>{busy?<LoaderCircle size={14} className="animate-spin"/>:<Play size={14}/>}Retomar</button>}
