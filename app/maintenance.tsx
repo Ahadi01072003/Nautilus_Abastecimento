@@ -12,12 +12,12 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
-import {Choice,Badge,Empty,Field,Toggle,fmt,post,load,type R} from './kit';
+import {Choice,Badge,Empty,Field,Toggle,fmt,post,load,toLocalInput,fromLocalInput,type R} from './kit';
 
 /* ───────────── utilitários ───────────── */
 
-const toLocal=(iso?:string|null)=>iso?new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(iso)).replace(' ','T'):'';
-const toISO=(local:string)=>local?new Date(local+':00-03:00').toISOString():null;
+const toLocal=toLocalInput;
+const toISO=fromLocalInput;
 const nowLocal=()=>toLocal(new Date().toISOString());
 const dayBR=(d?:string|null)=>d?d.split('-').reverse().join('/'):'—';
 const num=(n:number)=>n.toLocaleString('pt-BR',{maximumFractionDigits:1});

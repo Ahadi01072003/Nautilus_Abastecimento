@@ -186,6 +186,7 @@ function instant(value:unknown,label:string){
  if(value==null||value==='')return null;
  if(typeof value!=='string'||value.length>40||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)||!/(Z|[+-]\d{2}:\d{2})$/.test(value))throw new AppError(`${label}: informe data e hora completas.`);
  const d=new Date(value);if(!Number.isFinite(d.valueOf()))throw new AppError(`${label}: data inválida.`);
+ const y=d.getUTCFullYear();if(y<2000||y>2100)throw new AppError(`${label}: ano ${y} fora da faixa aceita (2000 a 2100).`);
  return d.toISOString();
 }
 const when=(value:unknown,label:string)=>{const v=instant(value,label);if(!v)throw new AppError(`${label}: informe data e hora.`);if(Date.parse(v)>Date.now()+5*60000)throw new AppError(`${label}: não pode estar no futuro.`);return v;};

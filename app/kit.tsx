@@ -1,10 +1,11 @@
 'use client';
 // Componentes compartilhados entre os módulos (Abastecimento, Planejamento e Cadastros gerais).
-import {ReactNode,useId,isValidElement,cloneElement} from 'react';
-import {ClipboardList} from 'lucide-react';
+import {Component,ReactNode,useId,isValidElement,cloneElement} from 'react';
+import {ClipboardList,AlertTriangle} from 'lucide-react';
 import {Select,SelectTrigger,SelectValue,SelectContent,SelectItem} from '@/components/ui/select';
 import {Checkbox} from '@/components/ui/checkbox';
 import {Switch} from '@/components/ui/switch';
+import {Button} from '@/components/ui/button';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dados de tabelas e formulários heterogêneos; autorização e validação ficam no servidor.
 export type R=Record<string,any>;
 export type Option={value:string,label:string};
@@ -27,4 +28,28 @@ export async function load<T>(path:string):Promise<T>{const r=await fetch('/api/
 /** Limite visual de descrições em listas (≈ mediana das descrições em uso); o texto completo fica no detalhe e na dica. */
 export const DESCRIPTION_LIMIT=90;
 export const clip=(value:string|null|undefined,limit=DESCRIPTION_LIMIT)=>{const s=(value||'').replace(/\s+/g,' ').trim();return s.length>limit?s.slice(0,limit-1).trimEnd()+'…':s;};
+/** Campo datetime-local ↔ instante, no horário de Brasília (UTC−3, sem horário de verão). Nunca
+ * lança exceção: data fora do formato vira '' (ida) ou null (volta); o ano fica com 4 dígitos. */
+export const BR_OFFSET=3*3600_000;
+const LOCAL=/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/;
+export const toLocalInput=(iso?:string|null)=>{const t=iso?Date.parse(iso):NaN;if(!Number.isFinite(t))return '';const d=new Date(t-BR_OFFSET),y=d.getUTCFullYear();if(y<0||y>9999)return '';const p=(n:number)=>String(n).padStart(2,'0');return `${String(y).padStart(4,'0')}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;};
+export const fromLocalInput=(local:string)=>{if(!local||!LOCAL.test(local))return null;const t=Date.parse(local+':00-03:00');return Number.isFinite(t)?new Date(t).toISOString():null;};
+/** Ano aceito nas datas da operação (o servidor confere a mesma faixa). */
+export const YEAR_MIN=2000,YEAR_MAX=2100;
+export const INPUT_MIN=`${YEAR_MIN}-01-01T00:00`,INPUT_MAX=`${YEAR_MAX}-12-31T23:59`;
+/** Problema de um campo datetime-local já preenchido ('' quando está tudo certo ou vazio). */
+export const localIssue=(local:string)=>{if(!local)return '';const m=LOCAL.exec(local);if(!m||!fromLocalInput(local))return 'Data inválida: confira dia, mês, ano e hora.';const y=Number(m[1]);return y<YEAR_MIN||y>YEAR_MAX?`Ano ${y} fora da faixa aceita (${YEAR_MIN} a ${YEAR_MAX}).`:'';};
 export const UNITS=['un','pç','cx','kg','t','g','L','mL','m','m²','m³','h','jogo','par','rolo'];
+
+/** Erro inesperado numa tela: só aquele módulo mostra o aviso (menu e sessão continuam) e dá para
+ * tentar de novo ou voltar, sem recarregar a página. A troca de tela (key) zera o erro. */
+export class ModuleBoundary extends Component<{children:ReactNode,onBack?:()=>void},{error:Error|null}>{
+ state={error:null as Error|null};
+ static getDerivedStateFromError(error:Error){return {error};}
+ componentDidCatch(error:Error){console.error(error);}
+ render(){
+  if(!this.state.error)return this.props.children;
+  return <div className="error-panel" role="alert"><AlertTriangle/><h2>Esta tela encontrou um erro inesperado</h2><p>Nada do que já estava salvo foi perdido. Tente abrir de novo; se o erro voltar, avise o gestor com o horário ({new Date().toLocaleTimeString('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit'})}).</p>
+   <div className="access-actions"><Button onClick={()=>this.setState({error:null})}>Tentar de novo</Button>{this.props.onBack&&<Button variant="outline" onClick={()=>{this.setState({error:null});this.props.onBack!();}}>Voltar</Button>}</div></div>;
+ }
+}

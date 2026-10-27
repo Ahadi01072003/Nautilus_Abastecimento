@@ -240,3 +240,23 @@ fieldset.n-field{border:0;padding:0;margin:0;min-width:0}fieldset.n-field>legend
 .g-out{position:absolute;top:10px;display:grid;max-width:240px;background:rgba(246,248,247,.88);padding:0 4px;border-radius:3px;pointer-events:none;z-index:2;white-space:nowrap}
 .g-out b{font-size:.74rem;font-weight:600;color:#23404a;overflow:hidden;text-overflow:ellipsis}
 .g-out small{font-size:.64rem;color:#7f95a2;overflow:hidden;text-overflow:ellipsis}
+
+/* Gantt (padronização): planejado à frente; executado atrás, mesma altura, deslocado 10 px para
+   baixo, nas próprias datas e na mesma escala. Antecipação e atraso aparecem como a barra de trás
+   saindo para a esquerda ou para a direita da planejada. */
+.g-real-bar{position:absolute;top:18px;height:34px;border-radius:6px;background:#2f5563;border:1px solid #1b3540;z-index:1;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.g-real-bar.open{background:repeating-linear-gradient(135deg,#2e8a70 0 8px,#3b9c80 8px 16px);border-color:#1d5f4d;border-right:2px dashed #1d5f4d}
+.g-real-bar.cancelada{background:#8a5560;border-color:#6b3a44}
+.g-row.g-step .g-real-bar{top:15px;height:24px}
+.g-legend .g-real-bar{position:static;display:inline-block;width:26px;height:12px}
+.g-noplan{position:absolute;left:8px;top:18px;font-size:.72rem;color:#b46a00;background:#fff4df;border:1px dashed #c98a2b;border-radius:4px;padding:2px 6px;z-index:2}
+.g-off{position:absolute;top:18px;z-index:3;font:600 .7rem/1 var(--f-mono,ui-monospace);color:#23404a;background:#fff;border:1px solid #c7d0ce;border-radius:999px;padding:4px 8px;cursor:pointer}
+.g-off.left{left:6px}.g-off.right{right:6px}
+.g-off:hover{border-color:#087f77;color:#087f77}
+.g-flags{display:inline-flex;gap:4px;align-items:center;flex:none}
+.g-flags i{font-style:normal;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-radius:3px;padding:2px 4px}
+.g-flags i.late{background:#fde7e9;color:#a3323b}.g-flags i.bad{background:#fff4df;color:#b46a00;display:inline-grid;place-items:center}
+/* Cabeçalho de grupo: mesma altura nas duas colunas (identificação e área temporal), alinhando as linhas. */
+.g-ghead{height:30px;display:flex;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid #c7d0ce;background:#eaf0ee;font-size:.76rem;color:#23404a;position:relative;z-index:2}
+.g-ghead span{color:#557587}
+.g-body>.g-ghead{background:color-mix(in srgb,#eaf0ee 70%,transparent)}
