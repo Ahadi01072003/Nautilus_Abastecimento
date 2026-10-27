@@ -4,7 +4,7 @@
 // início e fim escritas) e embaixo o EXECUTADO (trabalho sólido, pausa hachurada cinza, bloqueio
 // hachurado vermelho). Apontamentos não viram marcas: abaixo da régua ficam os tempos de trabalho,
 // pausa, bloqueio e impacto. OS de vários dias: marcas de 6 em 6 horas e virada de dia destacada.
-import {useEffect,useRef,useState,type MouseEvent} from 'react';
+import {useCallback,useEffect,useRef,useState,type MouseEvent} from 'react';
 import type {R} from './kit';
 
 const H=3600_000;
@@ -35,11 +35,23 @@ export function union(spans:number[][]){
 type Props={order:R;steps:R[];intervals:R[];occurrences:R[];now:number;compact?:boolean;selected?:string|null;onSelect?:(id:string|null)=>void;title?:string};
 export default function OsRuler({order,steps,intervals,occurrences,now,compact=false,selected,onSelect,title='Régua da OS'}:Props){
  const [pinned,setPinned]=useState(false),[cursor,setCursor]=useState<number|null>(null);
- const track=useRef<HTMLDivElement>(null);
+ const track=useRef<HTMLDivElement>(null),scroller=useRef<HTMLDivElement>(null),centered=useRef<string|null>(null);
  // Quantidade de marcas acompanha a largura da régua (rótulos nunca se sobrepõem).
  const [trackWidth,setTrackWidth]=useState(0);
  useEffect(()=>{const el=track.current;if(!el||typeof ResizeObserver==='undefined')return;const ro=new ResizeObserver(([e])=>setTrackWidth(e.contentRect.width));ro.observe(el);return()=>ro.disconnect()},[]);
  const running=['em_andamento','encerramento_pendente'].includes(order.status);
+ // Régua com rolagem: abre mostrando o "agora" (ou o início, se agora estiver fora), uma vez por OS.
+ // `view` diz se há mais régua à esquerda/direita (sombras e botões) e qual dia está na borda esquerda.
+ const [view,setView]=useState({more:false,left:false,right:false,at:0});
+ const sync=useCallback(()=>{const el=scroller.current;if(!el)return;const max=el.scrollWidth-el.clientWidth;
+  const v={more:max>2,left:el.scrollLeft>2,right:el.scrollLeft<max-2,at:el.scrollWidth?el.scrollLeft/el.scrollWidth:0};
+  setView(o=>o.more===v.more&&o.left===v.left&&o.right===v.right&&Math.abs(o.at-v.at)<.002?o:v);},[]);
+ useEffect(()=>{const el=scroller.current;if(!el)return;
+  if(el.scrollWidth>el.clientWidth+2&&centered.current!==order.id){centered.current=order.id;
+   const t=el.querySelector('.rnow') as HTMLElement|null;el.scrollLeft=t?Math.max(0,t.offsetLeft-el.clientWidth*.6):0;}
+  sync();});
+ const slide=(dir:number|'now')=>{const el=scroller.current;if(!el)return;const t=el.querySelector('.rnow') as HTMLElement|null;
+  el.scrollTo({left:dir==='now'?(t?t.offsetLeft-el.clientWidth*.6:0):el.scrollLeft+dir*el.clientWidth*.8,behavior:'smooth'});};
  // Programada (ainda sem execução): a régua fica no período planejado; se "agora" já passou dele,
  // um selo na borda direita mostra a hora atual em vez de esticar a escala.
  const starts=[ms(order.planned_start),...intervals.map(i=>ms(i.start_at)),...steps.filter(s=>s.planned_start).map(s=>ms(s.planned_start))];
@@ -51,7 +63,11 @@ export default function OsRuler({order,steps,intervals,occurrences,now,compact=f
  const pad=Math.max((we-ws)*.03,15*60000);
  if(multiDay){const q=6*H;ws=Math.floor((ws-pad-offset)/q)*q+offset;we=Math.ceil((we+pad-offset)/q)*q+offset;}
  else{ws=Math.floor((ws-pad)/(H/2))*(H/2);we=Math.ceil((we+pad)/(H/2))*(H/2);}
- const span=Math.max(H,we-ws),pct=(t:number)=>Math.max(0,Math.min(100,(t-ws)/span*100)),width=(a:number,b:number)=>Math.max(.25,pct(b)-pct(a));
+ const span=Math.max(H,we-ws);
+ // OS longa: largura mínima por hora (6 h ≈ 64 px; 48 px no cartão do painel). Se não couber, a
+ // régua rola para o lado dentro do próprio quadro, com os rótulos à esquerda fixos.
+ const minTrack=multiDay?Math.round(span/H*(compact?8:10.7)):0;
+ const pct=(t:number)=>Math.max(0,Math.min(100,(t-ws)/span*100)),width=(a:number,b:number)=>Math.max(.25,pct(b)-pct(a));
  const px=(trackWidth||(compact?520:760))/span; // pixels por milissegundo
  const ticks:{t:number;major:boolean}[]=[];
  if(multiDay){for(let t=ws;t<=we;t+=6*H)ticks.push({t,major:new Date(t-offset).getUTCHours()===0});}
@@ -98,15 +114,20 @@ export default function OsRuler({order,steps,intervals,occurrences,now,compact=f
  const when=(t:number)=>`${dm.format(t)} ${hm.format(t)}`;
 
  return <div className={`os-ruler${compact?' compact':''}`}>
-  {!compact&&<div className="rhead"><h2 className="rtitle">{title}</h2><span className="rsum">Planejado {when(ms(order.planned_start))} → {when(ms(order.planned_end))}</span></div>}
+  {!compact&&<div className="rhead"><h2 className="rtitle">{title}</h2><span className="rsum">Planejado {when(ms(order.planned_start))} → {when(ms(order.planned_end))}</span>
+   {view.more&&<span className="rnav" role="group" aria-label="Rolar a régua">
+    <button type="button" onClick={()=>slide(-1)} disabled={!view.left} aria-label="Voltar no tempo">◂</button>
+    {nowIn&&<button type="button" onClick={()=>slide('now')}>Agora</button>}
+    <button type="button" onClick={()=>slide(1)} disabled={!view.right} aria-label="Avançar no tempo">▸</button></span>}</div>}
   <div className="rbox" tabIndex={0} data-pinned={pinned} aria-label={`Régua: ${dur(eff)} de tempo efetivo. Passe o mouse ou foque para ver as etapas.`}>
    <div className="rgrid">
     <div className="rlabels">
-     <div className={`rl-scale${twoTier?' multi':''}`}/>
+     <div className={`rl-scale${twoTier?' multi':''}`}>{view.left&&<span className="rl-day" title="Dia na borda esquerda da régua">{dm.format(ws+view.at*span)} ▸</span>}</div>
      <div className="rlabel primary"><b>OS</b><span className="tracks"><em>Plan.</em><em>Real</em></span></div>
      <div className="rextra"><div>{sorted.map(s=><button type="button" key={s.id} className={`rlabel step ${s.status}${selected===s.id?' sel':''}`} onClick={()=>onSelect?.(selected===s.id?null:s.id)} title={s.name}><i/>{s.name}</button>)}</div></div>
     </div>
-    <div className={`rtrack${twoTier?' multi':''}`} ref={track} onMouseMove={move} onMouseLeave={()=>setCursor(null)}>
+    <div className={`rscroll${view.left?' l':''}${view.right?' r':''}`} ref={scroller} onScroll={sync}>
+    <div className={`rtrack${twoTier?' multi':''}`} ref={track} style={minTrack?{minWidth:minTrack}:undefined} onMouseMove={move} onMouseLeave={()=>setCursor(null)}>
      {multiDay&&days.map((d,i)=>i%2===1&&<span key={'d'+d} className="rdayband" style={{left:pct(d)+'%',width:width(d,d+24*H)+'%'}}/>)}
      {ticks.filter(t=>!days.includes(t.t)).map(t=><span key={'g'+t.t} className={`gl${multiDay||!t.major?' half':''}`} style={{left:pct(t.t)+'%'}}/>)}
      {days.filter(d=>d>ws).map(d=><span key={'v'+d} className="gl day" style={{left:pct(d)+'%'}}/>)}
@@ -121,6 +142,7 @@ export default function OsRuler({order,steps,intervals,occurrences,now,compact=f
      {nowIn&&<span className="rnow" style={{left:pct(now)+'%'}}/>}
      {edgeNow&&<span className="rnow-edge" title="O momento atual está depois do fim desta régua">agora {dm.format(now)} {hm.format(now)} ▸</span>}
      {cursor!==null&&<span className={`rcursor${pct(cursor)>82?' flip':''}`} style={{left:pct(cursor)+'%'}}><span>{multiDay?`${dm.format(cursor)} `:''}{hm.format(cursor)}</span></span>}
+    </div>
     </div>
    </div>
   </div>

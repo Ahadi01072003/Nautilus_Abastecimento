@@ -197,3 +197,20 @@ test('painel de OS: filtros de período, setor e solicitante; gráfico só com o
  assert.equal(dash.byOrg.length,0,'OS futura não entra no gráfico dos últimos 30 dias');
  assert.ok(dash.sectors.some((s:Row)=>s.code==='PNL-1'));
 });
+
+test('disponibilidade segue a regra do banco: equipamento de etapa em execução continua ocupado depois do fim reservado',async()=>{
+ const a=await launch(130,134,'eq2');
+ const d=await orderDetail(operator,a.wo);
+ for(const req of d.requirements as Row[]){
+  const inst=await ops('checklist/start',{workOrderId:a.wo,requirementId:req.id});
+  for(const x of (await orderDetail(operator,a.wo)).questions.filter((y:Row)=>y.version_id===req.version_id))await ops('checklist/answer',{instanceId:inst.id,questionId:x.id,answer:'C'});
+  await ops('checklist/complete',{instanceId:inst.id});
+ }
+ const prep=await step(a.wo,'prep-0001');await ops('start',{stepId:prep.id});await ops('finish',{stepId:prep.id});
+ await ops('start',{stepId:(await step(a.wo,'move-0001')).id});
+ // Depois do fim reservado (134 h), a etapa segue aberta: a consulta já avisa, sem esperar o erro do banco.
+ const later=await availability(planner,new URL(`http://x/?start=${at(140)}&end=${at(144)}`));
+ const e=later.equipment.find((x:Row)=>x.id==='eq2')!;
+ assert.equal(e.status,'reservado');assert.match(e.detail,/ainda não finalizada/);
+ await rejects(launch(140,144,'eq2'),409);
+});

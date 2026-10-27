@@ -208,3 +208,21 @@ Pedido: o quadro "Recursos" não dizia onde cada equipamento estava alocado, par
   - equipe (pessoas e funções);
   - materiais com quantidade.
 - A numeração "Folha X de Y" conta o cronograma e os recursos.
+
+## 9. Revisão de 27/10/2026: régua de OS longa com rolagem lateral
+
+**Problema:** em Apontamentos, a régua de uma OS longa ou muito atrasada (ex.: 27/10 10:00 → 30/10 15:00) passava da coluna do meio e ficava por baixo do painel da direita.
+
+**Agora:**
+
+- **Contida:** a coluna do meio de Apontamentos não deixa mais nada passar da sua largura.
+- **Rolagem lateral:** em OS de vários dias, a régua tem uma largura mínima por hora (cerca de 64 px a cada 6 h; 48 px no cartão do Painel de OS). Quando não cabe, ela rola para o lado dentro do próprio quadro.
+- **Rótulos fixos:** os rótulos da esquerda (OS, Plan., Real e as etapas) ficam parados durante a rolagem.
+- **Posição inicial:** a régua abre mostrando o "agora" (ou o início, se o agora estiver fora dela).
+- **Navegação:**
+  - no cabeçalho da régua, botões **◂**, **Agora** e **▸**;
+  - também pela barra de rolagem, pelo trackpad ou por Shift + roda do mouse.
+- **Orientação durante a rolagem:**
+  - uma sombra nas bordas indica que há mais régua para aquele lado;
+  - a data do dia visível na borda esquerda fica fixa acima dos rótulos (ex.: `26/10 ▸`).
+- **Impressão:** a régua volta a caber na largura da folha.

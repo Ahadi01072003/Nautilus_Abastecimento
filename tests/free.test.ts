@@ -4,7 +4,7 @@ import {freshDatabase,addMember,seedOperation} from './helpers';
 import {mutate} from '../lib/service';
 import {registryMutate,registryState} from '../lib/registry';
 import {flowsMutate,flowsState} from '../lib/flows';
-import {planningMutate,planDetail,validateDraft,ordersList,planningState} from '../lib/planning';
+import {planningMutate,planDetail,validateDraft,ordersList,planningState,availability} from '../lib/planning';
 import {revisionMutate} from '../lib/revision';
 import {orderDetail,operationMutate} from '../lib/operation';
 import type {Member} from '../lib/permissions';
@@ -110,4 +110,34 @@ test('materiais em Cadastros gerais e códigos de sistema reservados',async()=>{
  await rejects(flowsMutate('flows/save',{code:'SYS.TESTE',name:'Teste',steps:[{key:'a-0001',name:'A'}]},manager),400,/reservados/);
  const free=await db.first("SELECT id,updated_at FROM activity_types WHERE system=1");
  await rejects(flowsMutate('flows/status',{id:free!.id,updatedAt:free!.updated_at,active:false},manager),404);
+});
+
+test('OS sem fluxo: período de uso por equipamento reserva só o trecho informado; ano fora da faixa é recusado',async()=>{
+ const make=async()=>{const {id}=await planningMutate('planning/create-free',{},planner) as {id:string};return id;};
+ const a=await make(),b=await make();
+ let p=(await planDetail(planner,a)).plan;
+ // Ano 0026 (digitado errado) não é gravado: mensagem clara, nada muda.
+ await rejects(planningMutate('planning/save',body(p,{title:'Uso parcial',orgId:org,locationId:loc,plannedStart:'0026-05-20T11:00:00.000Z',plannedEnd:at(20,17)}),planner),400,/ano 26 fora da faixa/);
+ // OS de 08:00 às 17:00; a empilhadeira só das 09:00 às 11:30.
+ await planningMutate('planning/save',body(p,{title:'Uso parcial',orgId:org,locationId:loc,plannedStart:at(20,8),plannedEnd:at(20,17)},{equipmentIds:['eq1'],equipmentWindows:{eq1:{start:at(20,9),end:new Date(Date.parse(at(20,11))+30*60000).toISOString()}}}),planner);
+ const r=(await db.first("SELECT start_at,end_at FROM reservations WHERE plan_id=? AND status<>'liberada'",a))!;
+ assert.equal(r.start_at,at(20,9));assert.equal(Date.parse(r.end_at)-Date.parse(r.start_at),2.5*3600_000);
+ // Outra OS usa a mesma empilhadeira na tarde do mesmo dia: livre, sem conflito.
+ let q=(await planDetail(planner,b)).plan;
+ const avail=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(20,13))}&end=${encodeURIComponent(at(20,16))}&planId=${b}`)) as Row;
+ assert.equal(avail.equipment.find((e:Row)=>e.id==='eq1').status,'livre');
+ await planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,13),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner);
+ // Sobrepor o trecho reservado é recusado com o período na mensagem.
+ q=(await planDetail(planner,b)).plan;
+ await rejects(planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,10),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner),409,/indisponível/);
+ // Período fora da OS é recusado; sem período, a reserva volta a cobrir a OS inteira.
+ p=(await planDetail(planner,a)).plan;
+ await rejects(planningMutate('planning/save',body(p,{},{equipmentIds:['eq1'],equipmentWindows:{eq1:{start:at(20,7),end:at(20,9)}}}),planner),400,/entre o início e o fim da OS/);
+ assert.equal((p.steps[0].reservations as Row[])[0].start_at,at(20,9),'o rascunho carrega o período salvo');
+ // Ao lançar, a reserva confirmada mantém o trecho.
+ await planningMutate('planning/save',body(p,{},{equipmentIds:['eq1'],equipmentWindows:{eq1:{start:at(20,9),end:at(20,10)}}}),planner);
+ p=(await planDetail(planner,a)).plan;
+ await planningMutate('planning/launch',{id:a,version:p.version,launchKey:key()},planner);
+ const c=(await db.first("SELECT start_at,end_at,status FROM reservations WHERE plan_id=? AND status<>'liberada'",a))!;
+ assert.deepEqual([c.status,c.start_at,c.end_at],['confirmada',at(20,9),at(20,10)]);
 });

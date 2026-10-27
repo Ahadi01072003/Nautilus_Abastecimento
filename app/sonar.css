@@ -583,3 +583,47 @@ body{font-family:var(--f-body)}
 /* Painel central: botão da Apresentação (TV). */
 .ce-present{display:inline-flex;align-items:center;gap:8px;margin-left:12px;padding:9px 14px;border-radius:5px;background:var(--abyss);color:var(--signal);font:600 13.5px/1 var(--f-body);text-decoration:none;border:1px solid var(--abyss)}
 .ce-present:hover{background:#0d2c3e}
+/* Régua de OS longa: rola para o lado dentro do quadro (rótulos fixos à esquerda). */
+.rscroll{min-width:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.rscroll::-webkit-scrollbar{height:8px}.rscroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+/* Apontamentos: a coluna central nunca passa da sua largura (botões de etapa com nome longo quebram linha). */
+.ap-center{grid-template-columns:minmax(0,1fr)}
+.ap-center>*{min-width:0}
+.stepchips button{white-space:normal;text-align:left;max-width:100%}
+/* Régua longa: sombras nas bordas indicam que há mais régua para o lado; o dia da borda esquerda
+   fica fixo na coluna dos rótulos; no cabeçalho, botões para voltar, ir ao "agora" e avançar. */
+.rscroll.r{mask-image:linear-gradient(to right,#000 calc(100% - 32px),transparent)}
+.rscroll.l{mask-image:linear-gradient(to right,transparent,#000 32px)}
+.rscroll.l.r{mask-image:linear-gradient(to right,transparent,#000 32px,#000 calc(100% - 32px),transparent)}
+.rl-scale{position:relative}
+.rl-day{position:absolute;top:4px;right:6px;font:700 10.5px/1 var(--f-mono);color:var(--ink);white-space:nowrap}
+.os-ruler .rhead .rsum{margin-left:auto}
+.rnav{display:inline-flex;gap:4px;align-self:center}
+.rnav button{font:600 11px/1 var(--f-mono);letter-spacing:.04em;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:3px;padding:5px 8px;cursor:pointer}
+.rnav button:hover:not(:disabled){border-color:var(--ink-2);background:var(--sunk)}
+.rnav button:disabled{opacity:.35;cursor:default}
+@media print{.rscroll{overflow:visible;mask-image:none!important}.rscroll .rtrack{min-width:0!important}.rnav{display:none}}
+/* Campo de data com problema (ano fora da faixa, data incompleta): borda e dica em vermelho. */
+.n-field input[aria-invalid=true]{border-color:var(--occ);box-shadow:0 0 0 1px var(--occ)}
+.n-field:has(input[aria-invalid=true]) small{color:var(--occ)}
+/* OS sem fluxo: período de uso por equipamento (início + horas), dentro da OS. */
+.equip-uses{display:grid;gap:8px;margin-top:12px;padding:12px;border:1px dashed var(--line);border-radius:6px;background:color-mix(in srgb,var(--sunk) 45%,transparent)}
+.equip-uses>small{color:var(--ink-2)}
+.equip-use{display:grid;grid-template-columns:minmax(80px,auto) minmax(190px,220px) 110px minmax(0,1fr) auto auto;gap:6px 12px;align-items:end;padding:8px 0;border-top:1px solid color-mix(in srgb,var(--line) 70%,transparent)}
+.equip-use>b{align-self:center;font:700 13px/1.2 var(--f-mono)}
+.equip-use label{display:grid;gap:3px;font-size:11px;color:var(--ink-2)}
+.equip-use-until{display:grid;gap:2px;font-size:12.5px;align-self:center}.equip-use-until small{color:var(--ink-2)}
+.equip-use>em{grid-column:1/-1;font-size:12px;color:var(--imp);font-style:normal}
+@media (max-width:900px){.equip-use{grid-template-columns:1fr 1fr}.equip-use>b{grid-column:1/-1}}
+/* Cabeçalho de grupo na lista (mesma divisão do Gantt). */
+.group-row td{background:color-mix(in srgb,var(--sunk) 75%,transparent);padding:8px 12px!important}
+.group-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.group-head b{font-size:13.5px}.group-head span{font:600 11px/1 var(--f-mono);color:var(--ink-2)}.group-head small{color:var(--ink-2);font-size:12px}
+.order-cards li.group-head{padding:10px 4px 4px;border:0;background:none}
+.orders-table td:first-child>small{display:block;font:600 10.5px/1.2 var(--f-mono);color:var(--ink-2);margin-top:3px}
+.orders-table td:nth-child(2){min-width:220px}.orders-table td:nth-child(4){min-width:150px;max-width:210px}
+.present-link{margin-left:auto;display:inline-flex;gap:6px;align-items:center;text-decoration:none}
+/* Gantt: identificação numa linha só (número e setor), com sinalizadores compactos. */
+.g-name b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.g-grid{grid-template-columns:300px minmax(0,1fr)}
+@media(max-width:640px){.g-grid{grid-template-columns:130px minmax(0,1fr)}}

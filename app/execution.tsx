@@ -11,7 +11,7 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
-import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,type R} from './kit';
+import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,fromLocalInput,type R} from './kit';
 import {osLabel} from './planning';
 import OsRuler,{effective} from './os-ruler';
 import {Digits,hms} from './ops-board';
@@ -64,7 +64,7 @@ export default function OrderExecution({orderId,onChanged}:{orderId:string,onCha
  const occ=(data.occurrences as R[]).filter(o=>!sel||o.os_step_id===sel.id);
  const name=(id:string)=>steps.find(s=>s.id===id)?.plan.name||'—';
  const open=(kind:Action['kind'],step?:R,item?:R)=>{setFormError('');setAction({kind,step,item,key:crypto.randomUUID()});setForm({kind:'ocorrencia',categoryId:'',description:'',reason:'',resolution:'',occurredAt:localNow(),severity:'media',blocking:false,impactStart:'',impactEnd:'',equipmentId:''})};
- const iso=(v:string)=>v?new Date(v+':00-03:00').toISOString():null;
+ const iso=fromLocalInput;
  async function run(path:string,body:R,done?:()=>void){setBusy(true);setFormError('');try{const r=await post(path,body);toast.success(r.message||'Registrado.');done?.();await refresh();onChanged?.()}catch(e){setFormError((e as Error).message);toast.error((e as Error).message)}finally{setBusy(false)}}
  const simple=(path:string,s:R)=>run(path,{operationKey:crypto.randomUUID(),stepId:s.id});
  async function submit(e:FormEvent){e.preventDefault();if(!action)return;const f=form,k=action.key,s=action.step;
