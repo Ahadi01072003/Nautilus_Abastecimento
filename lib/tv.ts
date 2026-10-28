@@ -6,6 +6,7 @@
 import {db,type Row} from './db';
 import {AppError} from './domain';
 import {type Member,isManager,requireAny} from './permissions';
+import {filterSectors} from './board';
 
 type Actor=Member&{org_scope:string[]};
 const scopeOf=(a:Actor)=>isManager(a)||!a.org_scope.length?null:a.org_scope;
@@ -47,7 +48,7 @@ export async function tvData(member:Member,url:URL){
   plans.length?db().all(`SELECT n.plan_id,m.id,m.name,n.unit,sum(n.amount)::float8 amount FROM plan_step_needs n JOIN materials m ON m.id=n.material_id JOIN plan_steps st ON st.id=n.plan_step_id AND st.included=1
    WHERE n.plan_id = ANY(?::text[]) GROUP BY n.plan_id,m.id,m.name,n.unit ORDER BY m.name`,plans):[],
   db().all('SELECT id,acronym,name,color FROM requester_orgs WHERE active=1 OR id = ANY(?::text[]) ORDER BY acronym',[...new Set(orders.map(o=>o.org_id))]),
-  db().all('SELECT code,name FROM sectors ORDER BY code'),
+  filterSectors(),
  ]);
  const list:Row[]=orders.map(o=>({...o,
   equipment:equipment.filter(e=>e.plan_id===o.current_plan_id).map(e=>({id:e.id,tag:e.tag,description:e.description,type:e.type_name,start:e.start_at,end:e.end_at,step:e.step_name})),

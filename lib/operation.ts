@@ -5,7 +5,7 @@ import {db,type Executor,type Row} from './db';
 import {AppError,required,text} from './domain';
 import {type Member,isManager,requireAny,canCancelOrders} from './permissions';
 import {audit} from './registry';
-import {loadPlan,instant,osNumber} from './planning';
+import {loadPlan,instant,osNumber,period} from './planning';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -68,7 +68,9 @@ export async function event(tx:Executor,a:Member,wo:Row,stepId:string|null,kind:
 }
 async function openInterval(tx:Executor,stepId:string,kind:'ativo'|'interrompido',eventId:string,at:string){await tx.run('INSERT INTO step_intervals(id,os_step_id,kind,start_at,start_event_id) VALUES(?,?,?,?,?)',id(),stepId,kind,at,eventId);}
 async function closeInterval(tx:Executor,stepId:string,eventId:string,at:string){await tx.run('UPDATE step_intervals SET end_at=?,end_event_id=? WHERE os_step_id=? AND end_at IS NULL',at,eventId,stepId);}
-const stepEquipment=(tx:Executor,s:Row)=>tx.all("SELECT r.equipment_id,e.tag FROM reservations r JOIN equipment e ON e.id=r.equipment_id WHERE r.plan_step_id=? AND r.status<>'liberada'",s.plan_step_id);
+const stepEquipment=(tx:Executor,s:Row)=>tx.all(`SELECT r.equipment_id,e.tag,r.start_at,r.end_at,
+ (r.start_at::timestamptz <= now() OR r.start_at::timestamptz <= p.planned_start::timestamptz) used_now
+ FROM reservations r JOIN equipment e ON e.id=r.equipment_id JOIN plan_steps p ON p.id=r.plan_step_id WHERE r.plan_step_id=? AND r.status<>'liberada'`,s.plan_step_id);
 const openBlocks=(tx:Executor,stepId:string)=>tx.all("SELECT * FROM occurrences WHERE os_step_id=? AND blocking=1 AND status='aberto'",stepId);
 
 /** Interrompe a etapa ativa (bloqueio/NC): fecha o intervalo ativo e abre o interrompido. */
@@ -112,9 +114,21 @@ async function startBlockers(tx:Executor,wo:Row,s:Row,lock=true){
   if(lock)await tx.run('SELECT 1 FROM equipment WHERE id=? FOR UPDATE',e.equipment_id);
   const imp=await tx.first('SELECT reason,kind FROM equipment_impediments WHERE equipment_id=? AND released_at IS NULL LIMIT 1',e.equipment_id);
   if(imp)out.push(`Equipamento ${e.tag} bloqueado (${imp.kind==='nc_critica'?'NC crítica':'impedimento técnico'}: ${imp.reason}). Aguarda liberação técnica ou substituição pelo Planejamento.`);
+  // Horas de uso que começam depois (OS sem fluxo): o equipamento não é usado agora, então não
+  // impede o início; a reserva dele já garante o período planejado.
+  if(!e.used_now)continue;
+  // Em uso em outra etapa aberta: equipamento da etapa inteira (até finalizar) ou dentro das horas
+  // de uso definidas agora. Horas de uso já encerradas deixam o equipamento livre (regra da reserva).
   const busy=await tx.first(`SELECT w.number,p.name FROM reservations r JOIN os_steps o ON o.plan_step_id=r.plan_step_id JOIN plan_steps p ON p.id=o.plan_step_id JOIN work_orders w ON w.id=o.work_order_id
-   WHERE r.equipment_id=? AND r.status<>'liberada' AND o.status = ANY(?::text[]) AND o.id<>? LIMIT 1`,e.equipment_id,ACTIVE,s.id);
-  if(busy)out.push(`Equipamento ${e.tag} ainda em uso na etapa “${busy.name}” da ${osNumber(busy.number)}.`);
+   WHERE r.equipment_id=? AND r.status<>'liberada' AND o.status = ANY(?::text[]) AND o.id<>?
+    AND (r.end_at::timestamptz >= p.planned_end::timestamptz OR (r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now())) LIMIT 1`,e.equipment_id,ACTIVE,s.id);
+  if(busy){out.push(`Equipamento ${e.tag} ainda em uso na etapa “${busy.name}” da ${osNumber(busy.number)}.`);continue;}
+  // Início fora do horário reservado (antecipado ou atrasado): outra OS com o equipamento reservado
+  // agora impede o início; a reserva desta etapa não cobre o momento atual.
+  const held=await tx.first(`SELECT w.number,p.name,r.start_at,r.end_at FROM reservations r JOIN plans pl ON pl.id=r.plan_id JOIN work_orders w ON w.id=pl.work_order_id JOIN plan_steps p ON p.id=r.plan_step_id
+   WHERE r.equipment_id=? AND r.status='confirmada' AND w.id<>? AND w.status IN ('programada','em_andamento','encerramento_pendente')
+    AND r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now() LIMIT 1`,e.equipment_id,wo.id);
+  if(held)out.push(`Equipamento ${e.tag} está reservado agora para a etapa “${held.name}” da ${osNumber(held.number)} (${period(held.start_at,held.end_at)}). Inicie no horário da sua reserva (${period(e.start_at,e.end_at)}) ou peça ao Planejamento para ajustar.`);
  }
  if((await openBlocks(tx,s.id)).length)out.push('Há bloqueio aberto registrado nesta etapa.');
  return out;

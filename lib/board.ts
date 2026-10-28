@@ -4,6 +4,11 @@ import {db,type Row} from './db';
 import {AppError,text} from './domain';
 import {type Member,isManager,requireAny} from './permissions';
 
+/** Setores dos filtros (Painel de OS, Lista de OS, Gantt, Apresentação e exportação da agenda): os
+ * ativos e os inativos que ainda têm OS com o seu código. Inativo sem nenhuma OS não aparece. */
+export const filterSectors=()=>db().all(`SELECT s.code,s.name,s.active FROM sectors s
+ WHERE s.active=1 OR EXISTS (SELECT 1 FROM work_orders w WHERE w.code=s.code) ORDER BY s.code`);
+
 type Actor=Member&{org_scope:string[]};
 const scopeOf=(a:Actor)=>isManager(a)||!a.org_scope.length?null:a.org_scope;
 const DAY=86400_000;
@@ -119,6 +124,6 @@ export async function opsDashboard(member:Member,url?:URL){
  ]);
  // Opções dos filtros (setores cadastrados e solicitantes do alcance de quem consulta).
  const scope=scopeOf(a);
- const [sectors,orgs]=await Promise.all([db().all('SELECT code,name,active FROM sectors ORDER BY code'),db().all(`SELECT id,name,acronym,color FROM requester_orgs${scope?' WHERE id = ANY(?::text[])':''} ORDER BY name`,...(scope?[scope]:[]))]);
+ const [sectors,orgs]=await Promise.all([filterSectors(),db().all(`SELECT id,name,acronym,color FROM requester_orgs${scope?' WHERE id = ANY(?::text[])':''} ORDER BY name`,...(scope?[scope]:[]))]);
  return {kpis:{...orders,...steps,blocks:blocks?.n||0,hoursToday:hours?.s||0} as Row,byOrg,byActivity,sectors,orgs,serverNow:now.toISOString()};
 }

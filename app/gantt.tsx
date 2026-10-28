@@ -10,12 +10,12 @@ import {OrgTag,load,clip,type R} from './kit';
 import {flatRows,type OsGroup,type OsItem} from '@/lib/os-order';
 
 const H=3600000,D=24*H,TZ=-3*H; // horário de Brasília (UTC−3, sem horário de verão)
-const MIN_SPAN=2*H,MAX_SPAN=6*365*D;
+export const MIN_SPAN=2*H,MAX_SPAN=6*365*D;
 const MONTHS=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const local=(ms:number)=>new Date(ms+TZ); // usar getUTC* para ler o horário de Brasília
 const fromLocal=(y:number,m:number,d=1,h=0)=>Date.UTC(y,m,d,h)-TZ;
 const STORE='nautilus.gantt';
-type View={start:number,span:number};
+export type View={start:number,span:number};
 const statusText:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
 const stepText:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 const hm=(ms:number)=>{const d=local(ms);return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`};
@@ -24,7 +24,7 @@ const when=(a:number,b:number)=>{const x=local(a),y=local(b),d=(z:Date)=>`${Stri
 const fmt=(ms:number)=>{const d=local(ms);return `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`};
 
 /** Marcas do cabeçalho conforme a escala: meses (ano), dias (mês) ou horas (dia). */
-function ticks(v:View,width:number){
+export function ticks(v:View,width:number){
  const end=v.start+v.span,out:{t:number,label:string,major:boolean}[]=[];let level:'ano'|'mes'|'dia';let context='';
  const s=local(v.start);
  if(v.span>=90*D){level='ano';

@@ -75,6 +75,15 @@ test('setores: cadastro com código fixo, código da OS vem do cadastro (com ou 
  const r2=await db.first('SELECT * FROM sectors WHERE id=?',s.id);
  await reg('sectors',{id:s.id,updatedAt:r2!.updated_at,name:'Logística portuária',active:false});
  await rejects(launch(40,44,'eq1','LOG.01'),400,/inativo/);
+ // Filtros: setor inativo COM OS continua (LOG.01); inativo SEM nenhuma OS sai de todos os filtros.
+ const v=await reg('sectors',{code:'VAZIO-1',name:'Sem uso'});
+ const rv=await db.first('SELECT * FROM sectors WHERE id=?',v.id);
+ await reg('sectors',{id:v.id,updatedAt:rv!.updated_at,name:'Sem uso',active:false});
+ const {ordersRefs}=await import('../lib/planning'),{tvData}=await import('../lib/tv');
+ for(const codes of [(await ordersRefs(planner)).sectors,(await opsDashboard(planner,new URL('http://x/'))).sectors,(await tvData(planner,new URL('http://x/?dias=7'))).sectors].map(l=>(l as Row[]).map(x=>x.code))){
+  assert.ok(codes.includes('LOG.01')&&codes.includes('MAN-02'),'ativo e inativo com OS aparecem');
+  assert.ok(!codes.includes('VAZIO-1'),'inativo sem OS não aparece');
+ }
 });
 
 test('cancelamento: só planejador ou gestor, com justificativa; em andamento encerra etapas e libera o equipamento',async()=>{
