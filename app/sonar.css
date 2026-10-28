@@ -239,7 +239,7 @@ body{font-family:var(--f-body)}
 .oshead .row{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .oshead .id{font:600 13px/1 var(--f-mono);letter-spacing:.06em;color:var(--accent-ink)}
 .oshead h2{font-family:var(--f-display);font-variation-settings:"wdth" 112;font-weight:800;font-size:clamp(1.6rem,2.6vw,2.2rem);line-height:1.05;letter-spacing:-.025em;color:var(--ink);text-wrap:balance}
-.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:0;overflow:hidden}
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:0;overflow:hidden}
 /* Divisórias que somem na borda: cada célula recua 1px sob a anterior (linha e coluna). */
 .facts div{padding:9px 14px;display:grid;gap:2px;min-width:0;align-content:start;border-left:1px solid var(--line);border-top:1px solid var(--line);margin:-1px 0 0 -1px}
 .facts dt{font:500 10.5px/1.2 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted-c)}
@@ -636,10 +636,9 @@ body{font-family:var(--f-body)}
 .drafts-table .draft-badges{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px}
 .drafts-table td b{display:block}
 /* Períodos: início e fim lado a lado, numa linha. */
-.period-line{white-space:nowrap;font-variant-numeric:tabular-nums}
+.period-line{font-variant-numeric:tabular-nums}
+.period-line>span{white-space:nowrap}
 .orders-table td:nth-child(5),.orders-table td:nth-child(6){white-space:nowrap}
-.facts dd .period-line{white-space:normal}
-@media (min-width:1100px){.facts dd .period-line{white-space:nowrap}}
 /* Exportar agenda: organização no diálogo (sem os filtros de solicitante/setor). */
 .agenda-arrange .arrange{padding:0;border:0}
 /* Agenda de recursos (Lista de OS programadas): uma linha por recurso, alocações no eixo das datas. */
@@ -720,3 +719,8 @@ body{font-family:var(--f-body)}
 .revision-history .text-action.on{font-weight:700;text-decoration:underline}
 /* Só leitura (detalhes da OS e versões anteriores): sem atalhos de cadastro e edição. */
 .plan-fieldset:disabled .text-action{display:none}
+/* Limites: etiqueta de solicitante e rodapé do menu nunca passam da caixa (nome completo na dica). */
+.org-tag{max-width:100%;min-width:0;overflow:hidden}
+.org-tag small{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.org-counts>span{min-width:0;max-width:100%}
+.sidebar-person small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

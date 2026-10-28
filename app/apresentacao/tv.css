@@ -142,3 +142,6 @@ html:has(.tv),body:has(.tv){background:#03161f!important;overflow:hidden}
 .tv-resf{border-top:1px solid var(--line);padding-top:calc(var(--u)*.5)}
 .tv-resk{font:600 calc(var(--u)*.8)/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
 .tv-resf .segmented button{display:inline-flex;gap:6px;align-items:center}
+/* Título e resumo da tela quebram linha sem passar da largura (TV pequena ou celular). */
+.tv-title h1{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:calc(var(--u)*1.2);row-gap:calc(var(--u)*.3)}
+.tv-title h1 small{margin-left:0;white-space:nowrap}

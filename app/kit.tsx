@@ -30,7 +30,9 @@ export function periodText(a?:string|null,b?:string|null,open='em curso'){
  const x=fmt(a);if(!b)return `${short(x)} → ${open}`;
  const y=fmt(b);return x.slice(0,10)===y.slice(0,10)?`${short(x)} → ${y.slice(11)}`:`${short(x)} → ${short(y)}`;
 }
-export function Period({a,b,open}:{a?:string|null,b?:string|null,open?:string}){return <span className="period-line" title={a?`${fmt(a)} → ${b?fmt(b):open||'em curso'}`:undefined}>{periodText(a,b,open)}</span>}
+/** Período numa linha quando cabe; sem espaço, quebra só no “→” (cada ponta inteira, nunca transborda). */
+export function Period({a,b,open}:{a?:string|null,b?:string|null,open?:string}){const t=periodText(a,b,open),i=t.indexOf(' → ');
+ return <span className="period-line" title={a?`${fmt(a)} → ${b?fmt(b):open||'em curso'}`:undefined}>{i<0?t:<><span>{t.slice(0,i)}</span> <span>{t.slice(i+1)}</span></>}</span>}
 export const unitFor=(n:number,unit:string)=>Math.abs(n)===1&&/^[a-zà-ú]{4,}s$/i.test(unit)?unit.slice(0,-1):unit;
 export async function post(path:string,body:R){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j:R=await r.json().catch(()=>({}));if(r.status===401){window.location.reload();throw new Error('Sua sessão expirou. Entre novamente.')}if(!r.ok)throw new Error(j.error||'Não foi possível salvar.');return j}
 export async function load<T>(path:string):Promise<T>{const r=await fetch('/api/'+path,{cache:'no-store'});const j=await r.json().catch(()=>({error:'Não foi possível carregar.'}));if(r.status===401){window.location.reload();throw new Error('Sua sessão expirou.')}if(!r.ok)throw new Error(j.error||'Não foi possível carregar.');return j as T}
