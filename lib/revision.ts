@@ -60,7 +60,7 @@ async function launch(a:Actor,b:Row){
  if(plan.author_id!==a.id&&!isManager(a))throw new AppError('Somente o autor da revisão ou o gestor a lança.',403);
  if(b.version!==plan.version)throw new AppError('A revisão mudou desde a sua conferência. Revise novamente antes de lançar.',409);
  const reason=required(b.reason,'Motivo da revisão',1200);
- const check=await validation(plan);
+ const check=await validation(plan,a);
  if(check.errors.length)throw new AppError(`Há ${check.errors.length} pendência(s) que impedem o lançamento da revisão. Revise o planejamento.`,409);
  try{
   return await db().tx(async tx=>{

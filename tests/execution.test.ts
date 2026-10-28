@@ -4,7 +4,7 @@ import {freshDatabase,addMember,seedOperation} from './helpers';
 import {mutate} from '../lib/service';
 import {registryMutate} from '../lib/registry';
 import {flowsMutate} from '../lib/flows';
-import {planningMutate,planDetail} from '../lib/planning';
+import {planningMutate,planDetail,availability} from '../lib/planning';
 import {conditionMutate} from '../lib/condition';
 import {orderDetail,operationMutate,startCheck} from '../lib/operation';
 import {opsBoard,opsDashboard} from '../lib/board';
@@ -161,15 +161,19 @@ test('NC crítica de equipamento: bloqueio global imediato, interrupção, sem l
  assert.equal((await step(wo,'insp-0001')).status,'em_execucao');
 });
 
-test('encerramento: pendente sem checklist pós-atividade; automático e único depois; equipamento ocupado além do previsto',async()=>{
+test('encerramento: pendente sem checklist pós-atividade; automático e único depois; equipamento ocupado até o fim previsto da etapa',async()=>{
  const wo=await launch(13,'eq2');
  const ck=await fill(wo,'CK-ATV',{'Área isolada?':{answer:'C'},'Risco de queda?':{answer:'C'}});await ops('checklist/complete',{instanceId:ck.id});
  const prep=await step(wo,'prep-0001'),insp=await step(wo,'insp-0001'),move=await step(wo,'move-0001');
  await ops('start',{stepId:insp.id});
- // Execução real em aberto: reserva planejada já terminou (13/02 10h), mas o equipamento segue ocupado.
+ // Etapa em execução: o equipamento fica ocupado até o fim previsto da etapa (13/02 10h) — ou até
+ // agora, se a etapa passar do previsto —, e não por tempo indeterminado.
  const other=await planningMutate('planning/create',{activityTypeId:flow},planner) as {id:string};
  const p=(await planDetail(planner,other.id)).plan;
- await rejects(planningMutate('planning/save',{id:other.id,version:p.version,steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:s.step_key==='insp-0001'?at(13,11):null,plannedEnd:s.step_key==='insp-0001'?at(13,12):null,needs:[],equipmentIds:s.step_key==='insp-0001'?['eq2']:[],operatorIds:[]}))},planner),409);
+ const save=(a:string,b:string)=>planningMutate('planning/save',{id:other.id,version:p.version,steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:s.step_key==='insp-0001'?a:null,plannedEnd:s.step_key==='insp-0001'?b:null,needs:[],equipmentIds:s.step_key==='insp-0001'?['eq2']:[],operatorIds:[]}))},planner);
+ await rejects(save(at(13,9,30),at(13,11)),409);
+ const later=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(13,11))}&end=${encodeURIComponent(at(13,12))}`)) as Row;
+ assert.equal(later.equipment.find((e:Row)=>e.id==='eq2').status,'livre','depois do fim previsto da etapa, o equipamento pode ser planejado');
  await ops('start',{stepId:prep.id});
  await ops('finish',{stepId:prep.id});await ops('finish',{stepId:insp.id});
  await ops('start',{stepId:move.id});

@@ -8,7 +8,7 @@ import {Fragment,useCallback,useEffect,useMemo,useRef,useState,type RefObject} f
 import {Maximize,Minimize,Pause,Play,Square,ArrowLeft,Truck,Users,Package,AlertTriangle,Radio,WifiOff,SlidersHorizontal} from 'lucide-react';
 import Link from 'next/link';
 import type {R} from '../kit';
-import {ArrangeControls,DEFAULT_VIEW,readView,writeView,type OsView} from '../os-arrange';
+import {ArrangeControls,MultiPick,DEFAULT_VIEW,readView,writeView,type OsView} from '../os-arrange';
 import {barsOf} from '../gantt';
 import {arrangeOrders,flatRows,viewFromParams,viewToParams,EMPTY_FILTER,type Flags,type OsGroup,type OsItem} from '@/lib/os-order';
 import './tv.css';
@@ -31,6 +31,27 @@ const period=(a?:string|null,b?:string|null)=>{const x=t(a),y=t(b);if(x==null)re
 const qty=(n:number)=>n.toLocaleString('pt-BR',{maximumFractionDigits:3});
 
 type Screen='os'|'res';
+/** Tela 2 · filtros de recurso: tipos (separados ou juntos) e recursos específicos. Ficam na URL
+ * (a TV volta igual depois de recarregar) e no navegador. */
+type ResKind='equipamento'|'material'|'colaborador';
+type ResFilter={kinds:ResKind[],picked:string[]};
+const RES_KINDS:{id:ResKind,label:string,one:string,icon:typeof Truck}[]=[{id:'equipamento',label:'Equipamentos',one:'Equipamento',icon:Truck},{id:'material',label:'Materiais',one:'Material',icon:Package},{id:'colaborador',label:'Colaboradores',one:'Colaborador',icon:Users}];
+const ALL_RES:ResKind[]=RES_KINDS.map(k=>k.id);
+const RES_KEY='nautilus.tv.res';
+function resFromParams(q:URLSearchParams):ResFilter|null{
+ if(!q.has('rtipos')&&!q.has('rrec'))return null;
+ const kinds=(q.get('rtipos')||'').split(',').filter((k):k is ResKind=>ALL_RES.includes(k as ResKind));
+ return {kinds:kinds.length?kinds:ALL_RES,picked:(q.get('rrec')||'').split(',').filter(x=>/^[emc]:/.test(x)).slice(0,300)};
+}
+function readRes():ResFilter{try{const v=JSON.parse(localStorage.getItem(RES_KEY)||'null');const kinds=Array.isArray(v?.kinds)?v.kinds.filter((k:string)=>ALL_RES.includes(k as ResKind)):[];
+ return {kinds:kinds.length?kinds:ALL_RES,picked:Array.isArray(v?.picked)?v.picked.filter((x:unknown)=>typeof x==='string'):[]};}catch{return {kinds:ALL_RES,picked:[]};}}
+/** Recursos das OS exibidas, para o seletor: "e:<id>" equipamento, "m:<id>|<unidade>" material, "c:<id>" colaborador. */
+function resOptions(rows:R[],kinds:ResKind[]){
+ const m=new Map<string,{value:string,label:string,k:number}>();
+ const add=(kind:ResKind,value:string,label:string)=>{if(kinds.includes(kind)&&!m.has(value))m.set(value,{value,label:`${RES_KINDS.find(x=>x.id===kind)!.one}: ${label}`,k:ALL_RES.indexOf(kind)});};
+ for(const o of rows){for(const e of o.equipment as R[])add('equipamento','e:'+e.id,e.tag);for(const x of o.materials as R[])add('material',`m:${x.id}|${x.unit}`,`${x.name} (${x.unit})`);for(const x of o.people as R[])add('colaborador','c:'+x.id,x.name);}
+ return [...m.values()].sort((a,b)=>a.k-b.k||a.label.localeCompare(b.label,'pt-BR'));
+}
 type RunState='manual'|'running'|'paused';
 type Phase='top'|'scroll'|'end'|'dwell'|'switch';
 type Settings={speed:number,read:number,dwell:number};
@@ -78,6 +99,9 @@ export default function Tv({initialDays,query}:{initialDays:number,query:string}
  // Configuração herdada da tela de origem (URL); sem ela, a última usada neste navegador.
  const [view,setViewState]=useState<OsView>(()=>{const p=viewFromParams(new URLSearchParams(query));return p.arrange?{arrange:p.arrange,filter:p.filter||EMPTY_FILTER,display:p.display==='gantt'?'gantt':'lista'}:DEFAULT_VIEW;});
  const fromUrl=useRef(new URLSearchParams(query).has('modo'));
+ const [res,setResState]=useState<ResFilter>(()=>resFromParams(new URLSearchParams(query))||{kinds:ALL_RES,picked:[]});
+ useEffect(()=>{if(!resFromParams(new URLSearchParams(query)))setResState(readRes());},[]); // eslint-disable-line react-hooks/exhaustive-deps
+ const setRes=(p:Partial<ResFilter>)=>setResState(v=>{const n={...v,...p};try{localStorage.setItem(RES_KEY,JSON.stringify(n))}catch{}return n;});
  useEffect(()=>{if(!fromUrl.current)setViewState(readView());else writeView(view);},[]); // eslint-disable-line react-hooks/exhaustive-deps
  const [settings,setSettings]=useState<Settings>({speed:45,read:8,dwell:15});
  useEffect(()=>{setSettings(readSettings());},[]);
@@ -100,10 +124,12 @@ export default function Tv({initialDays,query}:{initialDays:number,query:string}
  useEffect(()=>{void load();const i=setInterval(()=>void load(),60000);return()=>{clearInterval(i);abort.current?.abort();};},[load]);
  useEffect(()=>{const i=setInterval(()=>setTick(Date.now()),1000);return()=>clearInterval(i);},[]);
  // Configuração na URL (a TV volta igual depois de recarregar).
- useEffect(()=>{const q=viewToParams(view.arrange,view.filter,view.display);q.set('dias',String(days));history.replaceState(null,'','?'+q.toString());},[view,days]);
+ useEffect(()=>{const q=viewToParams(view.arrange,view.filter,view.display);q.set('dias',String(days));
+  if(res.kinds.length<ALL_RES.length)q.set('rtipos',res.kinds.join(','));if(res.picked.length)q.set('rrec',res.picked.join(','));
+  history.replaceState(null,'','?'+q.toString());},[view,days,res]);
  // Mudou filtro, organização, Lista/Gantt ou período: pausa, recalcula e volta ao topo da tela atual.
  const first=useRef(true);
- useEffect(()=>{if(first.current){first.current=false;return;}ctl.current.pause();if(stage.current)stage.current.scrollTop=0;},[view,days]);
+ useEffect(()=>{if(first.current){first.current=false;return;}ctl.current.pause();if(stage.current)stage.current.scrollTop=0;},[view,days,res]);
  // Rolagem manual durante a apresentação automática: pausa (sem disputa entre pessoa e sistema).
  // O palco só existe depois da primeira carga (ready).
  const ready=!!data;
@@ -127,6 +153,8 @@ export default function Tv({initialDays,query}:{initialDays:number,query:string}
  const minute=Math.floor(now/60000)*60000;
  const groups=useMemo(()=>data?arrangeOrders(data.orders as (OsItem&R)[],view.arrange,view.filter,minute):[],[data,view.arrange,view.filter,minute]);
  const rows=useMemo(()=>flatRows(groups),[groups]);
+ const resOpts=useMemo(()=>resOptions(rows.map(r=>r.item),res.kinds),[rows,res.kinds]);
+ const resPicked=res.picked.filter(p=>resOpts.some(o=>o.value===p));
  const toggleFull=()=>{if(document.fullscreenElement)void document.exitFullscreen();else void document.documentElement.requestFullscreen().catch(()=>{});};
  const goScreen=(s:Screen)=>{if(p.state==='running')p.pause();setScreen(s);requestAnimationFrame(()=>{if(stage.current)stage.current.scrollTop=0;});};
 
@@ -163,12 +191,18 @@ export default function Tv({initialDays,query}:{initialDays:number,query:string}
     <Link className="tv-ic" href="/"><ArrowLeft size={15}/> Voltar</Link>
    </div>
    <ArrangeControls dark view={view} onChange={setView} orgs={data.orgs} sectors={data.sectors}/>
+   {screen==='res'&&<div className="tv-crow tv-resf" aria-label="Filtros de recursos (tela 2)"><span className="tv-resk">Recursos</span>
+    <div className="segmented" role="group" aria-label="Tipos de recurso">{RES_KINDS.map(k=>{const I=k.icon,on=res.kinds.includes(k.id);
+     return <button key={k.id} type="button" aria-pressed={on} onClick={()=>setRes({kinds:on?(res.kinds.length>1?res.kinds.filter(x=>x!==k.id):res.kinds):ALL_RES.filter(x=>x===k.id||res.kinds.includes(x))})}><I size={14}/> {k.label}</button>;})}</div>
+    <MultiPick label="Recurso" all="Todos dos tipos marcados" options={resOpts} value={resPicked} onChange={picked=>setRes({picked})}/>
+    {(res.kinds.length<ALL_RES.length||resPicked.length>0)&&<button type="button" className="tv-ic" onClick={()=>setRes({kinds:ALL_RES,picked:[]})}>Limpar filtros de recursos</button>}
+   </div>}
   </nav>
   <main ref={stage} className="tv-stage" tabIndex={0} aria-label={screen==='os'?'Ordens de Serviço':'Recursos alocados'}>
    <div className={`tv-screen${p.fading?' fade':''}`}>
     {screen==='os'?(rows.length?(view.display==='gantt'?<TvGantt groups={groups} now={minute} from={Date.parse(data.window.from)} to={Date.parse(data.window.to)}/>:<TvList groups={groups}/>)
      :<Empty title="Nenhuma OS com estes filtros" text="Ajuste o solicitante, o setor ou o período nos controles acima."/>)
-     :<TvResources rows={rows.map(r=>r.item)}/>}
+     :<TvResources rows={rows.map(r=>r.item)} kinds={res.kinds} picked={resPicked}/>}
    </div>
   </main>
   <footer className="tv-foot">
@@ -236,11 +270,12 @@ function TvGantt({groups,now,from,to}:{groups:OsGroup<OsItem&R>[],now:number,fro
 /** Tela 2 · recursos alocados às OS exibidas: equipamentos e colaboradores por alocação (um recurso
  * em várias OS aparece em cada uma, mas conta uma vez no total de distintos) e materiais por
  * material + unidade (unidades diferentes nunca se somam). */
-function TvResources({rows}:{rows:R[]}){
+function TvResources({rows,kinds,picked}:{rows:R[],kinds:ResKind[],picked:string[]}){
+ const keep=(k:ResKind,id:string)=>kinds.includes(k)&&(!picked.length||picked.includes(id));
  const tag=(o:R)=>`${os(o.number)}${o.sector_code?` · ${o.sector_code}`:' · sem setor'}`;
- const eq=new Map<string,R>();for(const o of rows)for(const e of o.equipment as R[]){const g=eq.get(e.id)||{tag:e.tag,desc:[e.type,e.description].filter(Boolean).join(' · '),uses:[] as R[]};g.uses.push({o,start:e.start,end:e.end,step:e.step});eq.set(e.id,g);}
- const ppl=new Map<string,R>();for(const o of rows)for(const x of o.people as R[]){const g=ppl.get(x.id)||{name:x.name,fn:x.functions,uses:[] as R[]};g.uses.push({o,start:x.start,end:x.end,step:x.step});ppl.set(x.id,g);}
- const mat=new Map<string,R>();for(const o of rows)for(const m of o.materials as R[]){const k=m.id+'|'+m.unit;const g=mat.get(k)||{name:m.name,unit:m.unit,total:0,uses:[] as R[]};g.total+=m.amount;g.uses.push({o,amount:m.amount});mat.set(k,g);}
+ const eq=new Map<string,R>();for(const o of rows)for(const e of o.equipment as R[]){if(!keep('equipamento','e:'+e.id))continue;const g=eq.get(e.id)||{tag:e.tag,desc:[e.type,e.description].filter(Boolean).join(' · '),uses:[] as R[]};g.uses.push({o,start:e.start,end:e.end,step:e.step});eq.set(e.id,g);}
+ const ppl=new Map<string,R>();for(const o of rows)for(const x of o.people as R[]){if(!keep('colaborador','c:'+x.id))continue;const g=ppl.get(x.id)||{name:x.name,fn:x.functions,uses:[] as R[]};g.uses.push({o,start:x.start,end:x.end,step:x.step});ppl.set(x.id,g);}
+ const mat=new Map<string,R>();for(const o of rows)for(const m of o.materials as R[]){if(!keep('material',`m:${m.id}|${m.unit}`))continue;const k=m.id+'|'+m.unit;const g=mat.get(k)||{name:m.name,unit:m.unit,total:0,uses:[] as R[]};g.total+=m.amount;g.uses.push({o,amount:m.amount});mat.set(k,g);}
  const sortUses=(u:R[])=>u.sort((a,b)=>(t(a.start)??Infinity)-(t(b.start)??Infinity)||a.o.number-b.o.number);
  const eqList=[...eq.values()].sort((a,b)=>String(a.tag).localeCompare(String(b.tag),'pt-BR'));
  const pplList=[...ppl.values()].sort((a,b)=>String(a.name).localeCompare(String(b.name),'pt-BR'));
@@ -248,17 +283,17 @@ function TvResources({rows}:{rows:R[]}){
  const allocE=eqList.reduce((n,g)=>n+g.uses.length,0),allocP=pplList.reduce((n,g)=>n+g.uses.length,0);
  if(!rows.length)return <Empty title="Nenhuma OS com estes filtros" text="Os recursos aparecem para as OS exibidas na tela 1."/>;
  return <div className="tvr">
-  <section><h2><Truck size={20}/> Equipamentos<small>{eqList.length} distinto(s) · {allocE} alocação(ões)</small></h2>
+  {kinds.includes('equipamento')&&<section><h2><Truck size={20}/> Equipamentos<small>{eqList.length} distinto(s) · {allocE} alocação(ões)</small></h2>
    {eqList.length?<div className="tvr-grid">{eqList.map(g=><article key={g.tag}><header><b>{g.tag}</b><span>{g.desc||'—'}</span><em>{g.uses.length}× alocado</em></header>
     <ul>{sortUses(g.uses).map((u:R,i:number)=><li key={i}><b>{tag(u.o)}</b><span>{period(u.start,u.end)}</span>{u.step&&<small>{u.step}</small>}</li>)}</ul></article>)}</div>
-   :<p className="tvr-none">Nenhum equipamento alocado nas OS exibidas.</p>}</section>
-  <section><h2><Package size={20}/> Materiais<small>{matList.length} item(ns) por material e unidade</small></h2>
+   :<p className="tvr-none">{picked.length?'Nenhum dos equipamentos escolhidos está alocado nas OS exibidas.':'Nenhum equipamento alocado nas OS exibidas.'}</p>}</section>}
+  {kinds.includes('material')&&<section><h2><Package size={20}/> Materiais<small>{matList.length} item(ns) por material e unidade</small></h2>
    {matList.length?<div className="tvr-grid">{matList.map(g=><article key={g.name+g.unit}><header><b>{g.name}</b><span>Total {qty(g.total)} {g.unit}</span><em>{g.uses.length} OS</em></header>
     <ul>{g.uses.sort((a:R,b:R)=>a.o.number-b.o.number).map((u:R,i:number)=><li key={i}><b>{tag(u.o)}</b><span>{qty(u.amount)} {g.unit}</span></li>)}</ul></article>)}</div>
-   :<p className="tvr-none">Nenhum material previsto nas OS exibidas.</p>}</section>
-  <section><h2><Users size={20}/> Colaboradores<small>{pplList.length} distinto(s) · {allocP} alocação(ões)</small></h2>
+   :<p className="tvr-none">{picked.length?'Nenhum dos materiais escolhidos está previsto nas OS exibidas.':'Nenhum material previsto nas OS exibidas.'}</p>}</section>}
+  {kinds.includes('colaborador')&&<section><h2><Users size={20}/> Colaboradores<small>{pplList.length} distinto(s) · {allocP} alocação(ões)</small></h2>
    {pplList.length?<div className="tvr-grid">{pplList.map(g=><article key={g.name}><header><b>{g.name}</b><span>{g.fn||'Sem função cadastrada'}</span><em>{g.uses.length}× alocado</em></header>
     <ul>{sortUses(g.uses).map((u:R,i:number)=><li key={i}><b>{tag(u.o)}</b><span>{period(u.start,u.end)}</span>{u.step&&<small>{u.step}</small>}</li>)}</ul></article>)}</div>
-   :<p className="tvr-none">Nenhum colaborador alocado nas OS exibidas.</p>}</section>
+   :<p className="tvr-none">{picked.length?'Nenhum dos colaboradores escolhidos está alocado nas OS exibidas.':'Nenhum colaborador alocado nas OS exibidas.'}</p>}</section>}
  </div>;
 }
