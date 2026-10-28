@@ -2,10 +2,10 @@ import {db,type Executor,type Row} from './db';
 import {Profile} from './permissions';
 import {emailSetup,sendResendEmail} from './resend';
 export type NoticeKind='requested'|'scheduled'|'completed'|'minimum'|'cancelled';
-const recipientSQL="active=1 AND email IS NOT NULL AND (profile='manager' OR (?='requested' AND profile='planner' AND notify_requests=1) OR (?='scheduled' AND profile='fueler' AND notify_schedule=1))";
+const recipientSQL="active=1 AND email IS NOT NULL AND (profile='manager' OR (?='requested' AND profile='planner' AND notify_requests=1 AND 'abastecimento'=ANY(capabilities)) OR (?='scheduled' AND profile='fueler' AND notify_schedule=1))";
 // Em failed, locked_at guarda a próxima tentativa; em sending, guarda o início.
 const eligibleSQL="(status='pending' OR (status='failed' AND (locked_at IS NULL OR locked_at<=?)) OR (status='sending' AND locked_at<?))";
-export function recipientAllowed(member:{active:number;profile:Profile;notify_requests:number;notify_schedule:number;email?:string|null},kind:NoticeKind){return !!member.active&&member.email!==null&&(member.profile==='manager'||kind==='requested'&&member.profile==='planner'&&!!member.notify_requests||kind==='scheduled'&&member.profile==='fueler'&&!!member.notify_schedule);}
+export function recipientAllowed(member:{active:number;profile:Profile;notify_requests:number;notify_schedule:number;email?:string|null;capabilities?:string[]|null},kind:NoticeKind){return !!member.active&&member.email!==null&&(member.profile==='manager'||kind==='requested'&&member.profile==='planner'&&!!member.notify_requests&&!!member.capabilities?.includes('abastecimento')||kind==='scheduled'&&member.profile==='fueler'&&!!member.notify_schedule);}
 /** Cria o evento e um aviso por destinatário elegível, na mesma transação da operação. */
 export async function enqueue(tx:Executor,kind:NoticeKind,entityId:string,time:string,version=0,entityType='appointments'){
  const eventId=`${kind}:${entityType}:${entityId}:${version}`;
@@ -35,7 +35,7 @@ async function message(event:Row,origin:string){
  if(event.kind==='minimum'&&!['open','purchasing','partial'].includes(r.status))return null;
  return (event.kind==='minimum'?'Um combustível atingiu o estoque mínimo. Consulte a solicitação de reposição.':'Uma solicitação de reposição foi cancelada.')+footer('alertas');
 }
-const memberColumns='m.email,m.active,m.profile,m.notify_requests,m.notify_schedule';
+const memberColumns='m.email,m.active,m.profile,m.notify_requests,m.notify_schedule,m.capabilities';
 export async function flushNotifications(origin:string){
  const setup=emailSetup();if(!setup.ready||!setup.enabled)return;
  if(!/^https?:\/\//.test(origin))return;

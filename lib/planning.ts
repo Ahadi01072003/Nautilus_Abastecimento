@@ -3,7 +3,7 @@
 // lançamento idempotente e cancelamento. O banco garante o intertravamento (reservation_guard).
 import {db,type Executor,type Row} from './db';
 import {AppError,required,text} from './domain';
-import {type Member,isManager,requireAny,canSeeOrders} from './permissions';
+import {type Member,isManager,requireAny,canSeeOrders,canCancelOrders} from './permissions';
 import {audit,idList} from './registry';
 import {preventiveRows} from './maintenance';
 
@@ -177,8 +177,8 @@ export async function availability(member:Member,url:URL){
 }
 
 /** Pendências (impedem o lançamento) e avisos. Só depende dos dados carregados. */
-export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impediments:Row[],orgs:Row[],locations:Row[],frozen?:Set<string>,carried?:(stepKey:string,equipmentId:string)=>boolean}){
- const errors:{step?:string,message:string}[]=[],warnings:{step?:string,message:string}[]=[];
+export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impediments:Row[],orgs:Row[],locations:Row[],functions?:Row[],frozen?:Set<string>,carried?:(stepKey:string,equipmentId:string)=>boolean}){
+ const errors:{step?:string,message:string}[]=[],warnings:{step?:string,kind?:string,message:string}[]=[];
  if(plan.free&&!String(plan.title||'').trim())errors.push({message:'Informe o título da atividade.'});
  if(!plan.org_id)errors.push({message:'Informe a organização solicitante.'});
  else if(!ctx.orgs.find(o=>o.id===plan.org_id)?.active)errors.push({message:'A organização solicitante está inativa.'});
@@ -206,8 +206,9 @@ export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impe
     const have=s.equipment_ids.filter((e:string)=>ctx.equipment.find(x=>x.id===e)?.type_id===n.equipment_type_id).length;
     if(have<n.quantity)errors.push({step:s.step_key,message:`${name}: faltam ${n.quantity-have} equipamento(s) do tipo exigido.`});
    }else{
+    // Função e colaborador não bloqueiam o lançamento (só equipamento bloqueia): é aviso.
     const have=s.operator_ids.filter((o:string)=>(ctx.operators.find(x=>x.id===o)?.function_ids||[]).includes(n.function_id)).length;
-    if(have<n.quantity)errors.push({step:s.step_key,message:`${name}: faltam ${n.quantity-have} colaborador(es) com a função exigida.`});
+    if(have<n.quantity)warnings.push({step:s.step_key,kind:'funcao',message:`${name}: faltam ${n.quantity-have} de ${n.quantity} colaborador(es) com a função ${ctx.functions?.find(f=>f.id===n.function_id)?.name||'exigida'} (${have} escolhido(s)).`});
    }
   }
   for(const e of s.equipment_ids as string[]){
@@ -217,7 +218,7 @@ export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impe
    if(block&&ctx.carried?.(s.step_key,e))warnings.push({step:s.step_key,message:`${name}: equipamento ${eq?.tag} continua bloqueado por impedimento técnico (${block.reason}). A etapa só começa ou retoma após a liberação técnica ou a substituição.`});
    else if(block)errors.push({step:s.step_key,message:`${name}: equipamento ${eq?.tag} bloqueado por impedimento técnico (${block.reason}). Substitua o equipamento.`});
   }
-  for(const o of s.operator_ids as string[])if(!ctx.operators.find(x=>x.id===o)?.active)errors.push({step:s.step_key,message:`${name}: colaborador inativo na seleção.`});
+  for(const o of s.operator_ids as string[])if(!ctx.operators.find(x=>x.id===o)?.active)warnings.push({step:s.step_key,kind:'colaborador',message:`${name}: colaborador inativo na seleção (revise a equipe).`});
  }
  return {errors,warnings};
 }
@@ -239,25 +240,26 @@ export async function revisionContext(plan:Plan){
 
 export async function validation(plan:Plan){
  const revision=await revisionContext(plan);
- const [equipment,operators,impediments,orgs,locations]=await Promise.all([
+ const [equipment,operators,impediments,orgs,locations,functions]=await Promise.all([
   all('SELECT id,tag,type_id,active FROM equipment'),
   all("SELECT o.id,o.active,coalesce(array_agg(f.function_id) FILTER (WHERE f.function_id IS NOT NULL),'{}') function_ids FROM operators o LEFT JOIN operator_functions f ON f.operator_id=o.id GROUP BY o.id"),
   all('SELECT equipment_id,reason,opened_at FROM equipment_impediments WHERE released_at IS NULL'),
-  all('SELECT id,active FROM requester_orgs'),all('SELECT id,active FROM locations'),
+  all('SELECT id,active FROM requester_orgs'),all('SELECT id,active FROM locations'),all('SELECT id,name FROM job_functions'),
  ]);
- const result=validatePlan(plan,{equipment,operators,impediments,orgs,locations,frozen:revision?.frozen,carried:revision?.carried});
+ const result=validatePlan(plan,{equipment,operators,impediments,orgs,locations,functions,frozen:revision?.frozen,carried:revision?.carried});
  // Manutenção: equipamento com preventiva vencida é aviso (o bloqueio, quando existe, já é pendência).
  const used=new Set(plan.steps.filter(s=>s.included&&!revision?.frozen.has(s.step_key)).flatMap(s=>s.equipment_ids as string[]));
  if(used.size)for(const r of (await preventiveRows()).filter(x=>used.has(x.equipmentId)&&(x.status==='atrasada'||x.status==='pendente')))
   result.warnings.push({message:`Equipamento ${r.tag}: preventiva “${r.name}” ${r.status==='atrasada'?'atrasada':'pendente'} (marco ${r.firstOpenLabel}). Combine com a Manutenção antes da atividade.`});
  // Colaborador em etapas sobrepostas: aviso (não há reserva exclusiva de pessoas).
  for(const s of plan.steps.filter(x=>x.included&&x.planned_start&&x.planned_end&&x.operator_ids.length&&!revision?.frozen.has(x.step_key))){
-  const clash=await all(`SELECT DISTINCT o.name FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id JOIN plans p ON p.id=pp.plan_id JOIN operators o ON o.id=pp.operator_id
+  const clash=await all(`SELECT DISTINCT o.name,st.name step_name,st.planned_start,st.planned_end,w.number FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id JOIN plans p ON p.id=pp.plan_id JOIN operators o ON o.id=pp.operator_id LEFT JOIN work_orders w ON w.id=p.work_order_id
    WHERE pp.operator_id = ANY(?::text[]) AND pp.plan_step_id<>? AND p.status IN ('draft','launched') AND st.included=1 AND st.planned_start IS NOT NULL
    AND st.planned_start::timestamptz < ?::timestamptz AND st.planned_end::timestamptz > ?::timestamptz
    AND (p.status='launched' OR p.id=?) AND (p.id=? OR p.work_order_id IS DISTINCT FROM ?::text)
    AND NOT EXISTS (SELECT 1 FROM work_orders cw WHERE cw.id=p.work_order_id AND cw.status='cancelada')`,s.operator_ids,s.id,s.planned_end,s.planned_start,plan.id,plan.id,plan.work_order_id||null);
-  if(clash.length)result.warnings.push({step:s.step_key,message:`Etapa “${s.name}”: ${clash.map(c=>c.name).join(', ')} também está em outra etapa no mesmo horário.`});
+  // Paralelismo de pessoas: só sinaliza (não bloqueia), dizendo quem, onde e quando.
+  for(const c of clash)result.warnings.push({step:s.step_key,kind:'paralelismo',message:`Etapa “${s.name}”: ${c.name} também está na etapa “${c.step_name}”${c.number?` da ${osNumber(c.number)}`:' de um rascunho'}, em ${period(c.planned_start,c.planned_end)}.`});
  }
  return result;
 }
@@ -341,11 +343,37 @@ export async function ordersList(member:Member,url:URL){
  return {orders:rows.map((r):Row=>({...r,late:r.status==='programada'&&ms(r.planned_start)<t})),counts,total:counted.reduce((n,r)=>n+r.n,0),more,scoped:!!scope};
 }
 
+/** Agenda de uso dos recursos das OS da lista (mesmos filtros): equipamentos (reservas), funções e
+ * materiais das etapas incluídas, cada alocação com a OS, a etapa e o período planejado. */
+export async function ordersResources(member:Member,url:URL){
+ const list=await ordersList(member,url);
+ const orders=(list.orders as Row[]).filter(o=>o.status!=='cancelada');
+ const plans=orders.map(o=>o.current_plan_id);
+ if(!plans.length)return {allocations:[],more:list.more};
+ const byPlan=new Map(orders.map(o=>[o.current_plan_id,o]));
+ const [eq,needs]=await Promise.all([
+  all(`SELECT r.plan_id,r.start_at,r.end_at,e.id,e.tag,e.description,et.name type_name,s.name step_name
+   FROM reservations r JOIN equipment e ON e.id=r.equipment_id LEFT JOIN equipment_types et ON et.id=e.type_id JOIN plan_steps s ON s.id=r.plan_step_id
+   WHERE r.plan_id = ANY(?::text[]) AND r.status<>'liberada' ORDER BY r.start_at::timestamptz`,plans),
+  all(`SELECT n.plan_id,n.function_id,n.material_id,n.quantity,n.amount::float8 amount,n.unit,f.name function_name,m.name material_name,s.name step_name,s.planned_start,s.planned_end
+   FROM plan_step_needs n JOIN plan_steps s ON s.id=n.plan_step_id AND s.included=1 LEFT JOIN job_functions f ON f.id=n.function_id LEFT JOIN materials m ON m.id=n.material_id
+   WHERE n.plan_id = ANY(?::text[]) AND (n.function_id IS NOT NULL OR n.material_id IS NOT NULL)`,plans),
+ ]);
+ const os=(planId:string)=>{const o=byPlan.get(planId)!;return {orderId:o.id,number:o.number,activity:o.activity_name,status:o.status,orgId:o.org_id,sector:o.sector_code||null};};
+ const allocations=[
+  ...eq.map(r=>({kind:'equipamento',key:r.id,label:r.tag,sub:[r.type_name,r.description].filter(Boolean).join(' · '),start:r.start_at,end:r.end_at,step:r.step_name,quantity:1,unit:null,...os(r.plan_id)})),
+  ...needs.map(n=>{const o=byPlan.get(n.plan_id)!;const start=n.planned_start||o.planned_start,end=n.planned_end||o.planned_end;
+   return n.function_id?{kind:'funcao',key:n.function_id,label:n.function_name,sub:'Função',start,end,step:n.step_name,quantity:n.quantity,unit:'pessoa(s)',...os(n.plan_id)}
+    :{kind:'material',key:`${n.material_id}|${n.unit}`,label:n.material_name,sub:`Material · ${n.unit}`,start,end,step:n.step_name,quantity:Number(n.amount),unit:n.unit,...os(n.plan_id)};}),
+ ];
+ return {allocations,more:list.more};
+}
+
 export async function ordersRefs(member:Member){
  const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
  const scope=scopeOf(a);
  const data=await refs();
- return {sectors:data.sectors,orgs:data.orgs.filter(o=>!scope||scope.includes(o.id)),people:data.people.filter(p=>!scope||scope.includes(p.org_id)),locations:data.locations,activityTypes:data.activityTypes,equipment:data.equipment,equipmentTypes:data.equipmentTypes,operators:data.operators,functions:data.functions,materials:data.materials,scoped:!!scope,canPlan:isManager(a)||(a.capabilities||[]).includes('planejamento')};
+ return {sectors:data.sectors,orgs:data.orgs.filter(o=>!scope||scope.includes(o.id)),people:data.people.filter(p=>!scope||scope.includes(p.org_id)),locations:data.locations,activityTypes:data.activityTypes,equipment:data.equipment,equipmentTypes:data.equipmentTypes,operators:data.operators,functions:data.functions,materials:data.materials,scoped:!!scope,canPlan:isManager(a)||(a.capabilities||[]).includes('planejamento'),canCancel:canCancelOrders(a)};
 }
 
 /** Tipo de atividade de sistema da OS sem fluxo: criado na primeira vez, com uma etapa de execução

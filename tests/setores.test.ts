@@ -21,7 +21,7 @@ const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects
 const key=()=>crypto.randomUUID();
 const H=3600000;
 const at=(h:number)=>new Date(Date.now()+h*H).toISOString();
-const set=async(who:Member,caps:string[],profile='requester')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
+const set=async(who:Member,caps:string[],profile='fueler')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
 const reg=(p:string,b:Row,who:Member=manager)=>registryMutate('registry/'+p,b,who) as Promise<Row>;
 const ops=(path:string,b:Row,who:Member=operator)=>operationMutate('ops/'+path,{operationKey:key(),...b},who) as Promise<Row>;
 const q=(text:string)=>({text,required:true,critical:false,target:'atividade',allowNa:true,noteOn:['NC']});
@@ -30,7 +30,7 @@ before(async()=>{
  ctx=await freshDatabase();db=ctx.database;await seedOperation(db);
  manager=await addMember(db,'manager',{mustChange:false});
  planner=await set(await addMember(db,'planner'),['planejamento'],'planner');
- operator=await set(await addMember(db,'none'),['operacao'],'none');
+ operator=await set(await addMember(db,'operator'),[],'operator');
  org=(await reg('orgs',{name:'Operação',acronym:'OPS',category:'interna',color:'#103B52'})).id;
  loc=(await reg('locations',{kind:'unidade',name:'Base'})).id;
  type=(await reg('equipment-types',{name:'Empilhadeira'})).id;
@@ -42,6 +42,8 @@ after(async()=>{await ctx.drop();});
 
 /** OS com fluxo de duas etapas, equipamento na segunda; código do setor opcional. */
 async function launch(s:number,e:number,eq='eq1',code='',people:string[]=[]){
+ // Um instante só por chamada: sem diferença de milissegundos entre a janela da OS e a das etapas.
+ const T=Date.now(),at=(h:number)=>new Date(T+h*H).toISOString();
  const {id}=await planningMutate('planning/create',{activityTypeId:flow},planner) as Row;
  const p=(await planDetail(planner,id)).plan;
  const mid=(s+e)/2;
@@ -107,7 +109,7 @@ test('OS cancelada libera equipamento e equipe: outra OS no mesmo horário não 
  assert.equal(free.operators.find((o:Row)=>o.id==='op1')?.status,'livre','colaborador da OS cancelada fica livre');
  const b=await launch(110,114,'eq1','',['op1']);
  const v=await validateDraft(planner,b.plan);
- assert.ok(!v.warnings.some((w:Row)=>/também está em outra etapa/.test(w.message)),'colaborador da OS cancelada não conta como ocupado');
+ assert.ok(!v.warnings.some((w:Row)=>w.kind==='paralelismo'),'colaborador da OS cancelada não conta como ocupado');
 });
 
 test('cancelar OS com revisão em aberto libera as reservas da revisão',async()=>{
@@ -213,4 +215,42 @@ test('disponibilidade segue a regra do banco: equipamento de etapa em execução
  const e=later.equipment.find((x:Row)=>x.id==='eq2')!;
  assert.equal(e.status,'reservado');assert.match(e.detail,/ainda não finalizada/);
  await rejects(launch(140,144,'eq2'),409);
+});
+
+test('perfis: módulo principal + acessos adicionais; cancelar OS só Planejador ou Gestão',async()=>{
+ const {modules}=await import('../lib/permissions');
+ // Abastecedor com Planejamento adicional vê o Planejamento, mas não cancela OS.
+ const fueler=await set(await addMember(db,'fueler'),['planejamento'],'fueler');
+ assert.ok(modules(fueler).includes('plan-os')&&modules(fueler).includes('abastecimentos'));
+ assert.ok(!modules(fueler).includes('op-os'),'sem Operação adicional, a Operação não aparece');
+ const a=await launch(150,154,'eq1');
+ await rejects(cancelOrder({workOrderId:a.wo,reason:'Teste'},fueler),403,/Planejador ou Gestão/);
+ // Planejador sem acessos adicionais: só o Planejamento (sem Abastecimento nem Operação).
+ const pl=await set(await addMember(db,'planner'),[],'planner');
+ assert.deepEqual(modules(pl).filter(m=>m!=='painel'&&m!=='exportacao'),['plan-fluxos','plan-atividade','plan-os']);
+ await cancelOrder({workOrderId:a.wo,reason:'Prioridade mudou'},pl);
+ // O módulo principal não é repetido como acesso adicional na tela, mas fica gravado (regras do banco).
+ const stored=(await db.first('SELECT capabilities FROM members WHERE id=?',pl.id))!.capabilities;
+ assert.deepEqual(stored,['planejamento']);
+});
+
+test('função e colaborador só avisam (não bloqueiam o lançamento); agenda de recursos e exportação única de equipamentos',async()=>{
+ const fn=(await reg('functions',{name:'Sinaleiro'})).id;
+ const {id}=await planningMutate('planning/create',{activityTypeId:flow},planner) as Row;
+ const p=(await planDetail(planner,id)).plan;
+ await planningMutate('planning/save',{id,version:p.version,orgId:org,locationId:loc,plannedStart:at(160),plannedEnd:at(164),steps:p.steps.map((x:Row)=>({key:x.step_key,included:true,plannedStart:x.step_key==='prep-0001'?at(160):at(162),plannedEnd:x.step_key==='prep-0001'?at(162):at(164),needs:x.step_key==='prep-0001'?[{functionId:fn,quantity:2}]:[],equipmentIds:x.step_key==='move-0001'?['eq1']:[],operatorIds:[]}))},planner);
+ const v=await validateDraft(planner,id) as Row;
+ assert.equal(v.errors.length,0,JSON.stringify(v.errors));
+ assert.ok(v.warnings.some((w:Row)=>w.kind==='funcao'&&/faltam 2 de 2 colaborador\(es\) com a função Sinaleiro/.test(w.message)));
+ const ver=(await planDetail(planner,id)).plan.version;
+ const r=await planningMutate('planning/launch',{id,version:ver,launchKey:key()},planner) as Row;
+ const {ordersResources}=await import('../lib/planning');
+ const res=await ordersResources(planner,new URL('http://x/?status=todas')) as Row;
+ const mine=(res.allocations as Row[]).filter(x=>x.orderId===r.workOrderId);
+ assert.ok(mine.some(x=>x.kind==='equipamento'&&x.label==='EMP-01'),'equipamento reservado');
+ assert.ok(mine.some(x=>x.kind==='funcao'&&x.label==='Sinaleiro'&&x.quantity===2),'função pedida, com quantidade');
+ const {exportData}=await import('../lib/exports');
+ const csv=await (await exportData(manager,new URL('http://x/?sets=equipamentos&format=csv'))).text();
+ const header=csv.replace(/^\uFEFF/,'').split(/\r?\n/)[0].replaceAll('"','');
+ assert.equal(header,'OS;Data;Atividade;Etapa;Tipo de equipamento;TAG do equipamento;Horas planejadas');
 });

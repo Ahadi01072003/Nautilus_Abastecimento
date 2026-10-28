@@ -1,5 +1,5 @@
 import {scheduledDate,appointmentVersion} from './scheduling';
-import {Member,Profile,isManager,canPlan,canRecord,requireProfile,modules,profiles,capabilities as allCapabilities} from './permissions';
+import {Member,Profile,isManager,canPlan,canRecord,canRequest,has,requireProfile,modules,profiles,PROFILE_MODULE,capabilities as allCapabilities} from './permissions';
 import {enqueue,enqueueMinimum} from './notifications';
 import {emailSetup,sendResendEmail} from './resend';
 import {db,type Executor,type Row} from './db';
@@ -28,9 +28,10 @@ const flag=(value:unknown)=>value===false?0:1;
 
 export async function state(a:Member,page=0){
  if(!Number.isSafeInteger(page)||page<0||page>10000)throw new AppError('Página inválida.');
- const manager=isManager(a),requester=a.profile==='requester',fueler=a.profile==='fueler',limit=100,offset=page*limit;
- // Perfil sem abastecimento (ex.: clientes) não vê agenda nem registros de abastecimento.
- const appointmentWhere=a.profile==='none'?' WHERE false':requester?' WHERE a.requester_id=?':fueler?" WHERE a.status='scheduled' OR EXISTS(SELECT 1 FROM supplies own WHERE own.appointment_id=a.id AND own.author_id=?)":'';
+ // Abastecimento: o abastecedor registra, o planejador com o módulo agenda e os demais com o módulo
+ // apenas solicitam (e veem só as próprias solicitações). Sem o módulo, nada de abastecimento.
+ const manager=isManager(a),access=has(a,'abastecimento'),fueler=a.profile==='fueler',requester=access&&!manager&&!fueler&&!canPlan(a),limit=100,offset=page*limit;
+ const appointmentWhere=!access?' WHERE false':requester?' WHERE a.requester_id=?':fueler?" WHERE a.status='scheduled' OR EXISTS(SELECT 1 FROM supplies own WHERE own.appointment_id=a.id AND own.author_id=?)":'';
  const appointmentArgs=requester||fueler?[a.id]:[];
  const supplyWhere=manager?'':' WHERE s.author_id=?',supplyArgs=manager?[]:[a.id];
  const none=Promise.resolve([] as Row[]);
@@ -54,7 +55,7 @@ export async function state(a:Member,page=0){
  await requireFresh(a);
  const setup=emailSetup();
  return {
-  actor:{id:a.id,name:a.name,username:a.username,role:a.profile,capabilities:a.capabilities||[],canFuel:canRecord(a),canPlan:canPlan(a),canRequest:a.profile==='requester'||manager,modules:modules(a)},
+  actor:{id:a.id,name:a.name,username:a.username,role:a.profile,capabilities:a.capabilities||[],canFuel:canRecord(a),canPlan:canPlan(a),canRequest:canRequest(a),modules:modules(a)},
   fuels,equipment,operators,supplies,movements,requests,holidays,stats,daily,appointments,executors,notifications,
   pagination:{page,limit,appointments:appointmentCount?.total||0,supplies:supplyCount?.total||0},
   emailReady:setup.ready&&setup.enabled,...(manager?{emailSetup:setup}:{}),generatedAt:now()
@@ -65,7 +66,7 @@ export async function mutate(path:string,b:Row,a:Member){
  await requireFresh(a);
  const t=now();
  if(path==='appointments'){
-  requireProfile(a,['requester','manager']);
+  if(!canRequest(a))throw new AppError('Seu acesso não inclui o Abastecimento.',403);
   const key=required(b.operationKey,'Identificador da solicitação',100);
   const previous=await first('SELECT id,requester_id FROM appointments WHERE operation_key=?',key);
   if(previous){if(previous.requester_id!==a.id)throw new AppError('Esta solicitação pertence a outra pessoa.',403);return {id:previous.id,repeated:true};}
@@ -81,7 +82,7 @@ export async function mutate(path:string,b:Row,a:Member){
   return {id:created};
  }
  if(path==='appointments/schedule'){
-  requireProfile(a,['planner','manager']);const aid=idOf(b.id,'Solicitação'),version=appointmentVersion(b.version),date=scheduledDate(b.scheduledAt);
+  if(!canPlan(a))throw new AppError('Seu perfil não permite agendar abastecimentos.',403);const aid=idOf(b.id,'Solicitação'),version=appointmentVersion(b.version),date=scheduledDate(b.scheduledAt);
   const assigned=b.assignedMemberId?await first("SELECT id,name FROM members WHERE id=? AND active=1 AND profile IN ('fueler','manager')",idOf(b.assignedMemberId,'Responsável previsto')):null;
   if(b.assignedMemberId&&!assigned)throw new AppError('Escolha uma pessoa ativa da equipe de abastecimento.');
   const previous=await first('SELECT * FROM appointments WHERE id=?',aid);
@@ -95,11 +96,12 @@ export async function mutate(path:string,b:Row,a:Member){
   return {ok:true};
  }
  if(path==='appointments/cancel'){
-  requireProfile(a,['requester','planner','manager']);
+  if(!canRequest(a))throw new AppError('Seu acesso não inclui o Abastecimento.',403);
+  const own=!canPlan(a);
   const aid=idOf(b.id,'Solicitação'),version=appointmentVersion(b.version),reason=required(b.reason,'Justificativa',1200);
-  const previous=await first('SELECT * FROM appointments WHERE id=?'+(a.profile==='requester'?' AND requester_id=?':''),aid,...(a.profile==='requester'?[a.id]:[]));
+  const previous=await first('SELECT * FROM appointments WHERE id=?'+(own?' AND requester_id=?':''),aid,...(own?[a.id]:[]));
   if(!previous||!['requested','scheduled'].includes(previous.status))throw new AppError('Solicitação já encerrada ou não encontrada.',409);
-  if(!canPlan(a)&&!(a.profile==='requester'&&previous.requester_id===a.id&&previous.status==='requested'))throw new AppError('Seu perfil não permite cancelar esta solicitação.',403);
+  if(own&&previous.status!=='requested')throw new AppError('Seu perfil não permite cancelar esta solicitação.',403);
   await db().tx(async tx=>{
    const changed=await tx.run("UPDATE appointments SET status='cancelled',cancel_reason=?,cancelled_by_id=?,cancelled_by_name=?,updated_at=?,version=version+1 WHERE id=? AND version=? AND status IN ('requested','scheduled')",reason,a.id,a.name,t,aid,version);
    if(!changed)throw new AppError('A solicitação mudou. Atualize a tela antes de cancelar.',409);
@@ -178,7 +180,9 @@ export async function mutate(path:string,b:Row,a:Member){
   if(b.capabilities!=null&&(!Array.isArray(b.capabilities)||b.capabilities.some((c:unknown)=>!allCapabilities.includes(c as never))))throw new AppError('Acesso adicional inválido.');
   // O gestor já tem todos os acessos; os adicionais valem para os demais perfis.
   // Liberação técnica é feita na tela de equipamentos, por isso inclui Cadastros gerais.
-  const asked=new Set<string>(b.capabilities||[]);if(asked.has('manutencao'))asked.add('cadastros');
+  const asked=new Set<string>(b.capabilities||[]);if(asked.has('manutencao')||profile==='maintainer')asked.add('cadastros');
+  // O módulo principal do perfil é gravado junto (as regras do banco conferem pelos acessos gravados).
+  if(profile!=='manager')asked.add(PROFILE_MODULE[profile]);
   const caps=profile==='manager'?[]:allCapabilities.filter(c=>asked.has(c));
   if(b.orgScope!=null&&(!Array.isArray(b.orgScope)||b.orgScope.length>100||b.orgScope.some((o:unknown)=>typeof o!=='string')))throw new AppError('Escopo de organizações inválido.');
   const scope=profile==='manager'?[]:[...new Set<string>(b.orgScope||[])];

@@ -17,7 +17,7 @@ let org:string,loc:string;
 const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects(p,(e:{status?:number;message:string})=>{if(status)assert.equal(e.status,status,e.message);if(pattern)assert.match(e.message,pattern);return true;});
 const key=()=>crypto.randomUUID();
 const ago=(h:number)=>new Date(Date.now()-h*3600000).toISOString();
-const set=async(who:Member,caps:string[],profile='requester')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
+const set=async(who:Member,caps:string[],profile='fueler')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
 const body=(p:Row,header:Row,step:Row={})=>({id:p.id,version:p.version,title:p.title,code:p.code,orgId:p.org_id,locationId:p.location_id,plannedStart:p.planned_start,plannedEnd:p.planned_end,description:p.description,...header,
  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,needs:s.needs.map((n:Row)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,...step}))});
 
@@ -25,8 +25,8 @@ before(async()=>{
  ctx=await freshDatabase();db=ctx.database;await seedOperation(db);
  manager=await addMember(db,'manager',{mustChange:false});
  planner=await set(await addMember(db,'planner'),['planejamento'],'planner');
- operator=await set(await addMember(db,'none'),['operacao'],'none');
- viewer=await set(await addMember(db,'none'),['acompanhamento'],'none');
+ operator=await set(await addMember(db,'operator'),[],'operator');
+ viewer=await set(await addMember(db,'fueler'),['acompanhamento'],'fueler');
  const reg=(p:string,b:Row)=>registryMutate('registry/'+p,b,manager) as Promise<{id:string}>;
  org=(await reg('orgs',{name:'Operação',acronym:'OPS',category:'interna',color:'#103B52'})).id;
  loc=(await reg('locations',{kind:'unidade',name:'Base Açu'})).id;

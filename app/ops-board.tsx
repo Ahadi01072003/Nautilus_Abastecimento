@@ -11,6 +11,8 @@ import {Input} from '@/components/ui/input';
 import {Choice,Field,OrgTag,post,load,type R} from './kit';
 import {osLabel} from './planning';
 import OsRuler,{effective,dur,RulerLegend} from './os-ruler';
+import {ArrangeControls,DEFAULT_VIEW,readView,type OsView} from './os-arrange';
+import {viewToParams,EMPTY_FILTER} from '@/lib/os-order';
 
 const dmhmFmt=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 const dmhm={format:(t:number)=>dmhmFmt.format(t).replace(',','')};
@@ -106,21 +108,26 @@ export default function OpsBoard({onOpen,refreshKey}:{onOpen:(id:string)=>void;r
 /** Exportar agenda: datas de início e fim (sem horas) e, opcionalmente, o código do setor. */
 function AgendaDialog({sectors,initial,onClose}:{sectors:R[],initial:{from:string,to:string,sector:string},onClose:()=>void}){
  const [from,setFrom]=useState(initial.from||today()),[to,setTo]=useState(initial.to||plusDays(initial.from||today(),6)),[sector,setSector]=useState(initial.sector);
+ // Visualização e organização: as mesmas da Lista de OS e da Apresentação (começa pela última usada).
+ const [view,setView]=useState<OsView>(()=>typeof window==='undefined'?DEFAULT_VIEW:readView());
  const days=from&&to?Math.round((Date.parse(to)-Date.parse(from))/86400000)+1:0;
  const error=!from||!to?'':to<from?'A data de fim deve ser igual ou posterior à de início.':days>92?'Escolha um período de até 92 dias.':'';
  const ready=!!from&&!!to&&!error;
  const chosen=sectors.find(s=>s.code===sector);
  function submit(e:FormEvent){e.preventDefault();if(!ready)return;
-  const url='/agenda?'+new URLSearchParams({inicio:from,fim:to,...(sector?{setor:sector}:{}),imprimir:'1'}).toString();
+  const q=viewToParams(view.arrange,EMPTY_FILTER,view.display);
+  const url='/agenda?'+new URLSearchParams({inicio:from,fim:to,...(sector?{setor:sector}:{}),...Object.fromEntries(q),imprimir:'1'}).toString();
   // Nova aba para a agenda; se o navegador bloquear a aba, abre na mesma.
   const w=window.open(url,'_blank');if(w)w.opener=null;else window.open(url,'_self');onClose();}
  return <Dialog open onOpenChange={v=>{if(!v)onClose()}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><FileDown size={16}/> Operação · Painel de OS</div><DialogTitle>Exportar agenda</DialogTitle>
-  <DialogDescription>Agenda em PDF (A4 paisagem) com o resumo do período, os recursos e um Gantt por data. Sem código de setor, entram todas as OS programadas no período.</DialogDescription></DialogHeader>
+  <DialogDescription>Agenda em PDF (A4 paisagem) com o resumo do período, os recursos e as OS em Gantt ou em lista, na organização escolhida. Sem código de setor, entram todas as OS programadas no período.</DialogDescription></DialogHeader>
   <form onSubmit={submit}><div className="form-grid">
    <Field label="Data de início *"><Input type="date" required value={from} max={to||undefined} onChange={e=>setFrom(e.target.value)}/></Field>
    <Field label="Data de fim *"><Input type="date" required value={to} min={from||undefined} onChange={e=>setTo(e.target.value)}/></Field>
    <Field label="Código do setor" wide hint={chosen?chosen.name:'Opcional. Lista dos setores cadastrados em Cadastros gerais › Setores.'}><Choice value={sector||'all'} onChange={v=>setSector(v==='all'?'':v)} options={[{value:'all',label:'Todos os setores (sem distinção)'},...sectors.map(s=>({value:s.code,label:`${s.code} · ${s.name}${s.active?'':' (inativo)'}`}))]}/></Field>
-   {ready&&<p className="wide notice"><ClipboardCheck size={16}/> {days} dia(s) · {sector?`setor ${sector}`:'todos os setores'}. A janela de impressão abre em seguida: escolha “Salvar como PDF”.</p>}
+   <div className="n-field wide"><label>Visualização</label><div className="segmented" role="group" aria-label="Visualização da agenda"><button type="button" aria-pressed={view.display==='gantt'} onClick={()=>setView(v=>({...v,display:'gantt'}))}>Gantt</button><button type="button" aria-pressed={view.display==='lista'} onClick={()=>setView(v=>({...v,display:'lista'}))}>Lista</button></div></div>
+   <div className="n-field wide agenda-arrange"><label>Organização</label><ArrangeControls view={{...view,filter:EMPTY_FILTER}} onChange={p=>setView(v=>({...v,...(p.arrange?{arrange:p.arrange}:{})}))} orgs={[]} sectors={[]} noFilters/></div>
+   {ready&&<p className="wide notice"><ClipboardCheck size={16}/> {days} dia(s) · {sector?`setor ${sector}`:'todos os setores'} · {view.display==='gantt'?'Gantt':'lista'}. A janela de impressão abre em seguida: escolha “Salvar como PDF”.</p>}
   </div>{error&&<div className="form-error" role="alert">{error}</div>}
   <div className="modal-footer"><Button type="button" variant="outline" onClick={onClose}>Voltar</Button><Button type="submit" className="primary-action" disabled={!ready}><FileDown size={16}/> Exportar agenda em PDF</Button></div></form>
  </DialogContent></Dialog>;

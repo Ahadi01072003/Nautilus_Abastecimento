@@ -9,7 +9,7 @@ import {realizeActivity} from '@/lib/realized';
 import {cancelOrder} from '@/lib/cancel';
 import {centralState} from '@/lib/central';
 import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
-import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps} from '@/lib/planning';
+import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps,ordersResources} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
@@ -95,6 +95,7 @@ export async function GET(req:Request){try{
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}
  if(path==='orders/steps'){await rateLimit(member.id,'read');return json(await ordersSteps(member,url));}
  if(path==='orders/refs'){await rateLimit(member.id,'read');return json(await ordersRefs(member));}
+ if(path==='orders/resources'){await rateLimit(member.id,'read');return json(await ordersResources(member,url));}
  if(path==='ops/board'){await rateLimit(member.id,'read');return json(await opsBoard(member,url));}
  if(path==='ops/dashboard'){await rateLimit(member.id,'read');return json(await opsDashboard(member,url));}
  if(path==='ops/order.xlsx'){await rateLimit(member.id,'export');return await orderWorkbook(member,url.searchParams.get('id')||'');}

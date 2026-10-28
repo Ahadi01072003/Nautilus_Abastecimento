@@ -4,7 +4,7 @@
 // ficar livres: as reservas de equipamento são liberadas e a equipe deixa de contar como ocupada.
 import {db,type Row} from './db';
 import {AppError,required} from './domain';
-import {type Member,isManager,requireAny} from './permissions';
+import {type Member,isManager,requireAny,canCancelOrders} from './permissions';
 import {audit} from './registry';
 import {osNumber} from './planning';
 import {event} from './operation';
@@ -17,6 +17,8 @@ const OPEN=['nao_iniciada','em_execucao','bloqueada','pausada'];
 
 export async function cancelOrder(b:Row,member:Member){
  const a=await requireAny(member,['planejamento']) as Actor;
+ // Cancelar é do perfil Planejador ou Gestão; o acesso adicional ao Planejamento não basta.
+ if(!canCancelOrders(a))throw new AppError('Só o perfil Planejador ou Gestão pode cancelar OS.',403);
  const reason=required(b.reason,'Justificativa do cancelamento',1200);
  // A tela da Lista de OS envia o planejamento; a dos Apontamentos, a OS.
  const ref=b.workOrderId?await db().first('SELECT id FROM work_orders WHERE id=?',idOf(b.workOrderId,'OS'))

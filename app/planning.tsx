@@ -1,6 +1,6 @@
 'use client';
 // Planejamento de atividade (rascunho com salvamento automático, reservas, documentos,
-// revisão e lançamento), Rascunhos e Lista de OS (também usada na Operação).
+// revisão e lançamento) com a lista de rascunhos, e Lista de OS (também usada na Operação).
 import {Fragment,useCallback,useEffect,useMemo,useRef,useState,FormEvent,ReactNode} from 'react';
 import {History,Package,PackagePlus,Shapes,ClipboardCheck,Plus,AlertTriangle,LoaderCircle,CheckCircle2,CircleDashed,CloudOff,Rocket,Trash2,X,Wand2,ClipboardList,CalendarRange,Lock,Info,Unlock,Filter,Clock,Users,Truck,MapPin,MonitorPlay} from 'lucide-react';
 import {toast} from 'sonner';
@@ -11,9 +11,10 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
-import {Choice,Badge,Empty,Field,Toggle,OrgTag,UNITS,fmt,post,load,clip,toLocalInput,fromLocalInput,localIssue,INPUT_MIN,INPUT_MAX,type R} from './kit';
+import {Choice,Badge,Empty,Field,Toggle,OrgTag,UNITS,fmt,post,load,clip,toLocalInput,fromLocalInput,localIssue,INPUT_MIN,INPUT_MAX,Period,type R} from './kit';
 import {layers,hhmm} from './flows';
 import Gantt from './gantt';
+import ResourceAgenda from './resource-agenda';
 import {ArrangeControls,useOsView,useNow} from './os-arrange';
 import {arrangeOrders,flatRows,viewToParams,type Flags,type OsGroup,type OsItem} from '@/lib/os-order';
 
@@ -25,8 +26,8 @@ const dateIssue=(f:Form,free=false)=>{for(const [label,v] of [['Início',f.start
 const minutesBetween=(a?:string|null,b?:string|null)=>a&&b?Math.round((Date.parse(b)-Date.parse(a))/60000):null;
 export const osLabel=(n:number)=>'OS '+String(n).padStart(6,'0');
 const statusNames:Record<string,[string,string]>={programada:['Programada','info'],em_andamento:['Em andamento','success'],encerramento_pendente:['Encerramento pendente','warning'],concluida:['Concluída','muted'],cancelada:['Cancelada','danger']};
-/** Período com data e hora nas duas pontas; quebra de linha só entre início e fim. */
-const range=(a?:string|null,b?:string|null)=>a&&b?<><span className="nw">{fmt(a)} →</span> <span className="nw">{fmt(b)}</span></>:a?<><span className="nw">{fmt(a)} →</span> <span className="nw">em curso</span></>:'—';
+/** Período numa linha só (início e fim lado a lado). */
+const range=(a?:string|null,b?:string|null)=><Period a={a} b={b}/>;
 
 type Need={equipmentTypeId:string|null,functionId:string|null,materialId:string|null,quantity:number|null,amount:number|null,unit:string|null};
 /** Período de uso de um equipamento (OS sem fluxo), em horário local; ausente = a OS inteira. */
@@ -74,11 +75,10 @@ export default function Planning({view,planId,openPlan,navigate,openOrder,refres
  return <>
   {view==='plan-atividade'&&(planId?<PlanEditor key={planId} planId={planId} refs={data} onRefs={refresh} onClose={()=>{openPlan(null);void refresh()}} onReplaced={id=>openPlan(id)} onLaunched={()=>{openPlan(null);navigate('plan-os')}}/>:
    <section className="n-panel"><div className="panel-heading"><div><h2>Planejar uma atividade</h2><p>Escolha o tipo de atividade (as etapas, dependências e necessidades do fluxo vigente são carregadas no rascunho) ou planeje uma OS sem fluxo, só com título, início, fim e recursos.</p></div>{newButton}</div>
-    {data.drafts.length?<div className="draft-quick">{data.drafts.slice(0,6).map((d:R)=><button key={d.id} type="button" onClick={()=>openPlan(d.id)}>{draftLabel(d)}<b>{d.activity_name}</b><span>{d.description||'Sem descrição'}</span><small>Salvo em {fmt(d.updated_at)}</small></button>)}</div>:<Empty icon={ClipboardList} title="Nenhum rascunho em andamento" description={types.length?'Comece um planejamento novo. Ele fica salvo como rascunho até você revisar e lançar a OS.':'Sem fluxo cadastrado ainda: planeje uma OS sem fluxo ou cadastre um fluxo em Planejamento › Cadastro de fluxo.'} action={newButton}/>}
+    {data.drafts.length?<><p className="drafts-note">{data.actor.manager?'Rascunhos de todos os planejadores. Rascunhos com reservas seguram equipamentos: libere os esquecidos.':'Seus planejamentos ainda não lançados. Só você e o gestor os veem.'}</p>
+     <div className="table-scroll drafts-table"><Table><TableHeader><TableRow><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Período previsto</TableHead><TableHead>Reservas provisórias</TableHead><TableHead>Última gravação</TableHead>{data.actor.manager&&<TableHead>Responsável</TableHead>}<TableHead/></TableRow></TableHeader><TableBody>{data.drafts.map((d:R)=><TableRow key={d.id} className="clickable" onClick={()=>openPlan(d.id)}><TableCell><span className="draft-badges">{draftLabel(d)}</span><b>{d.activity_name}</b><small>{d.description||'Sem descrição'}</small></TableCell><TableCell><OrgTag org={orgs.find(o=>o.id===d.org_id)}/></TableCell><TableCell>{range(d.planned_start,d.planned_end)}</TableCell><TableCell>{d.reservations?<Badge tone="info">{d.reservations} equipamento(s)</Badge>:'—'}</TableCell><TableCell className="nw">{fmt(d.updated_at)}</TableCell>{data.actor.manager&&<TableCell>{d.author_name}</TableCell>}<TableCell><div className="access-actions"><Button size="sm" variant="outline" onClick={e=>{e.stopPropagation();openPlan(d.id)}}>Abrir</Button>{data.actor.manager&&d.author_id!==data.actor.id&&d.reservations>0&&<button className="icon-action" title="Liberar reservas" aria-label={`Liberar reservas do rascunho de ${d.author_name}`} onClick={e=>{e.stopPropagation();setReleaseFor(d)}}><Unlock size={16}/></button>}</div></TableCell></TableRow>)}</TableBody></Table></div></>
+    :<Empty icon={ClipboardList} title="Nenhum rascunho em andamento" description={types.length?'Comece um planejamento novo. Ele fica salvo como rascunho até você revisar e lançar a OS.':'Sem fluxo cadastrado ainda: planeje uma OS sem fluxo ou cadastre um fluxo em Planejamento › Cadastro de fluxo.'} action={newButton}/>}
    </section>)}
-  {view==='plan-rascunhos'&&<section className="n-panel"><div className="panel-heading"><div><h2>Rascunhos</h2><p>{data.actor.manager?'Todos os rascunhos. Rascunhos com reservas seguram equipamentos: libere os esquecidos.':'Seus planejamentos ainda não lançados. Só você e o gestor os veem.'}</p></div>{newButton}</div>
-   {data.drafts.length?<div className="table-scroll"><Table><TableHeader><TableRow><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Período previsto</TableHead><TableHead>Reservas provisórias</TableHead><TableHead>Última gravação</TableHead>{data.actor.manager&&<TableHead>Responsável</TableHead>}<TableHead/></TableRow></TableHeader><TableBody>{data.drafts.map((d:R)=><TableRow key={d.id}><TableCell>{draftLabel(d)} <b>{d.activity_name}</b><small>{d.description||'Sem descrição'}</small></TableCell><TableCell><OrgTag org={orgs.find(o=>o.id===d.org_id)}/></TableCell><TableCell>{range(d.planned_start,d.planned_end)}</TableCell><TableCell>{d.reservations?<Badge tone="info">{d.reservations} equipamento(s)</Badge>:'—'}</TableCell><TableCell>{fmt(d.updated_at)}</TableCell>{data.actor.manager&&<TableCell>{d.author_name}</TableCell>}<TableCell><div className="access-actions"><Button size="sm" variant="outline" onClick={()=>{openPlan(d.id);navigate('plan-atividade')}}>Abrir</Button>{data.actor.manager&&d.author_id!==data.actor.id&&d.reservations>0&&<button className="icon-action" title="Liberar reservas" aria-label={`Liberar reservas do rascunho de ${d.author_name}`} onClick={()=>setReleaseFor(d)}><Unlock size={16}/></button>}</div></TableCell></TableRow>)}</TableBody></Table></div>:<Empty icon={ClipboardList} title="Nenhum rascunho" description="Rascunhos aparecem aqui até serem lançados ou descartados." action={newButton}/>}
-  </section>}
   {view==='plan-os'&&<Orders refreshKey={refreshKey} onExec={openOrder} onRevise={id=>{openPlan(id);navigate('plan-atividade')}}/>}
 
   <Dialog open={creating} onOpenChange={setCreating}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><CalendarRange size={16}/> PLANEJAMENTO</div><DialogTitle>Novo planejamento</DialogTitle><DialogDescription>As etapas do fluxo vigente do tipo escolhido são copiadas para o rascunho. Mudanças futuras no fluxo não alteram este planejamento.</DialogDescription></DialogHeader>
@@ -185,13 +185,31 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched}:{planId:s
     <div className="review-grid"><div><small>Solicitante</small><OrgTag org={org}/></div><div><small>Local</small><b>{paths.get(form.locationId)||'—'}</b></div><div><small>{realized?'Execução':'Janela prevista'}</small><b>{range(toISO(form.start),toISO(form.end))}</b></div>{form.code&&<div><small>Código</small><b>{form.code}</b></div>}</div>
     <ol className="review-steps">{steps.filter(s=>s.included).map(s=><li key={s.key}><b>{free?'Início → Fim':s.name}</b><span>{range(toISO(s.start),toISO(s.end))}</span><small>{[...s.equipmentIds.map(e=>{const t=refs.equipment.find((x:R)=>x.id===e)?.tag,u=free?s.uses?.[e]:null;return u?`${t} (uso ${u.start.slice(8,10)}/${u.start.slice(5,7)} ${u.start.slice(11)} → ${u.end.slice(8,10)}/${u.end.slice(5,7)} ${u.end.slice(11)})`:t}),...s.operatorIds.map(o=>refs.operators.find((x:R)=>x.id===o)?.name)].filter(Boolean).join(' · ')||'Sem recursos identificados'}</small>{s.needs.length>0&&<small>Necessidades: {s.needs.map(n=>needLabel(n,refs)).join(' · ')}</small>}</li>)}</ol>
     {revision&&<div className="revision-changes"><b>O que muda</b>{review.changes?.length?<ul>{review.changes.map((c:string,i:number)=><li key={i}>{c}</li>)}</ul>:<p>Nenhuma diferença em relação à versão vigente.</p>}</div>}
-    {review.errors.length?<div className="form-error"><AlertTriangle size={17}/><div><b>{review.errors.length} pendência(s) impedem {realized?'o registro':'o lançamento'}</b><ul>{review.errors.map((e:R,i:number)=><li key={i}>{e.message}</li>)}</ul></div></div>:<div className="notice"><CheckCircle2 size={17}/><span>Sem pendências. Pronto para {realized?'registrar':'lançar'}.</span></div>}
-    {review.warnings.length>0&&<div className="notice warn"><Info size={17}/><div><b>Avisos</b><ul>{review.warnings.map((e:R,i:number)=><li key={i}>{e.message}</li>)}</ul></div></div>}
+    {review.errors.length?<ReviewErrors errors={review.errors} realized={realized}/>:<div className="notice"><CheckCircle2 size={17}/><span>Sem pendências. Pronto para {realized?'registrar':'lançar'}.</span></div>}
+    {review.warnings.length>0&&<ReviewWarnings warnings={review.warnings}/>}
     {revision&&<div className="form-grid"><Field label="Motivo da revisão *" wide hint="Fica no histórico da OS e na auditoria. Etapas retiradas são dispensadas com este motivo."><Textarea required maxLength={1200} value={revisionReason} onChange={e=>setRevisionReason(e.target.value)}/></Field></div>}
    </div>}
    <div className="modal-footer"><Button variant="outline" onClick={()=>setReview(null)} disabled={launching}>Voltar e corrigir</Button><Button className="primary-action" onClick={()=>void launch()} disabled={launching||!!review?.errors.length||(revision&&(!revisionReason.trim()||!review?.changes?.length))}>{launching?<><LoaderCircle className="animate-spin" size={16}/> {realized?'Registrando…':'Lançando…'}</>:<>{realized?<ClipboardCheck size={16}/>:<Rocket size={16}/>} {realized?'Registrar atividade':revision?'Lançar revisão':'Lançar OS'}</>}</Button></div>
   </DialogContent></Dialog>
  </div>;
+}
+
+/** Avisos da revisão: não impedem o lançamento. Agrupados por tipo, com a etapa em destaque e o
+ * texto em linhas próprias (paralelismo de pessoas e funções incompletas não bloqueiam; só equipamento bloqueia). */
+const WARN_KINDS:Record<string,string>={paralelismo:'Colaborador em outra etapa no mesmo horário (paralelismo)',funcao:'Funções com menos colaboradores que o pedido',colaborador:'Equipe a revisar'};
+function ReviewWarnings({warnings}:{warnings:R[]}){
+ const groups=new Map<string,R[]>();for(const w of warnings){const k=w.kind||'outros';groups.set(k,[...(groups.get(k)||[]),w]);}
+ const split=(m:string)=>{const x=/^(Etapa “[^”]+”): (.*)$/.exec(m);return x?[x[1],x[2]]:['',m];};
+ return <div className="review-warnings" role="status"><div className="rw-head"><Info size={17}/><b>Avisos ({warnings.length})</b><span>Não impedem o lançamento: entre os recursos, só o equipamento bloqueia.</span></div>
+  {[...groups.entries()].map(([k,list])=><section key={k}><h4>{WARN_KINDS[k]||'Outros avisos'}</h4><ul>{list.map((w,i)=>{const [step,text]=split(w.message);return <li key={i}>{step&&<b>{step.replace('Etapa ','')}</b>}<span>{text}</span></li>;})}</ul></section>)}
+ </div>;
+}
+
+/** Pendências que impedem o lançamento, uma por linha, com a etapa em destaque. */
+function ReviewErrors({errors,realized}:{errors:R[],realized:boolean}){
+ const split=(m:string)=>{const x=/^(Etapa “[^”]+”): (.*)$/.exec(m);return x?[x[1],x[2]]:['',m];};
+ return <div className="review-errors" role="alert"><div className="rw-head"><AlertTriangle size={17}/><b>{errors.length} pendência(s) impedem {realized?'o registro':'o lançamento'}</b><span>Corrija e confira de novo. Datas, dependências e equipamentos bloqueiam.</span></div>
+  <ul>{errors.map((e,i)=>{const [step,text]=split(e.message);return <li key={i}>{step&&<b>{step.replace('Etapa ','')}</b>}<span>{text}</span></li>;})}</ul></div>;
 }
 
 /** Necessidade legível: “2× Empilhadeira”, “3× Operador”, “12,5 L Óleo hidráulico”. */
@@ -307,9 +325,14 @@ function NeedAdder({refs,needs,onRefs,onAdd}:{refs:R,needs:Need[],onRefs:()=>Pro
 /* ───────────────────────── Lista de OS (Planejamento) ───────────────────────── */
 
 // A execução da OS fica em Operação › Apontamentos; daqui ela é aberta por onExec.
+// Filtros da Lista de OS: ficam na sessão do navegador e voltam iguais ao retornar à tela.
+const ORDER_FILTERS='nautilus.orders.filters';
+const EMPTY_FILTERS={from:'',to:'',type:'',location:'',status:'',number:'',code:''};
+function readOrderFilters():R{try{const v=JSON.parse(sessionStorage.getItem(ORDER_FILTERS)||'null');if(v&&typeof v==='object')return {...EMPTY_FILTERS,...Object.fromEntries(Object.entries(v).filter(([k,x])=>k in EMPTY_FILTERS&&typeof x==='string'))};}catch{}return EMPTY_FILTERS;}
 export function Orders({refreshKey,onExec,onRevise}:{refreshKey:number,onExec:(id:string)=>void,onRevise:(planId:string)=>void}){
- const [refs,setRefs]=useState<R|null>(null),[rows,setRows]=useState<R|null>(null),[error,setError]=useState(''),[filters,setFilters]=useState<R>({from:'',to:'',type:'',location:'',status:'',number:'',code:''}),[detail,setDetail]=useState<R|null>(null),[cancel,setCancel]=useState(''),[busy,setBusy]=useState(false);
+ const [refs,setRefs]=useState<R|null>(null),[rows,setRows]=useState<R|null>(null),[error,setError]=useState(''),[filters,setFilters]=useState<R>(readOrderFilters),[detail,setDetail]=useState<R|null>(null),[cancel,setCancel]=useState(''),[busy,setBusy]=useState(false);
  const query=useMemo(()=>new URLSearchParams(Object.entries({...filters,from:filters.from?toISO(filters.from)||'':'',to:filters.to?toISO(filters.to)||'':''}).filter(([,v])=>v) as [string,string][]).toString(),[filters]);
+ useEffect(()=>{try{sessionStorage.setItem(ORDER_FILTERS,JSON.stringify(filters))}catch{}},[filters]);
  const refresh=useCallback(async()=>{try{const [r,o]=await Promise.all([load<R>('orders/refs'),load<R>('orders?'+query)]);setRefs(r);setRows(o);setError('')}catch(e){setError((e as Error).message)}},[query]);
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Lista vinda do servidor (mesma fonte para lista e contagens).
  useEffect(()=>{void refresh()},[refresh,refreshKey]);
@@ -320,6 +343,11 @@ export function Orders({refreshKey,onExec,onRevise}:{refreshKey:number,onExec:(i
  // na Lista, no Gantt e na Apresentação. Uma coleção só, filtrada e ordenada por lib/os-order.
  const [view,setView]=useOsView();
  const now=useNow();
+ // Agenda de recursos: terceira exibição da lista (fica na sessão, como os filtros).
+ const [resources,setResources]=useState(false);
+ // eslint-disable-next-line react-hooks/set-state-in-effect -- Preferência da sessão lida após montar.
+ useEffect(()=>{try{if(sessionStorage.getItem('nautilus.orders.resview')==='1')setResources(true)}catch{}},[]);
+ const showResources=(v:boolean)=>{setResources(v);try{sessionStorage.setItem('nautilus.orders.resview',v?'1':'0')}catch{}};
  const groups=useMemo(()=>rows?arrangeOrders(rows.orders as R[] as (OsItem&R)[],view.arrange,view.filter,now):[],[rows,view.arrange,view.filter,now]);
  const shown=useMemo(()=>flatRows(groups),[groups]);
  async function openDetail(o:R){try{const r=await load<R>('planning/plan?id='+encodeURIComponent(o.current_plan_id));setDetail({order:o,...r})}catch(e){toast.error((e as Error).message)}}
@@ -343,16 +371,17 @@ export function Orders({refreshKey,onExec,onRevise}:{refreshKey:number,onExec:(i
    <Choice label="Situação" value={filters.status||'padrao'} onChange={v=>f('status',v==='padrao'?'':v)} options={[{value:'padrao',label:'Sem canceladas'},{value:'todas',label:'Todas, inclusive canceladas'},...Object.entries(statusNames).map(([value,[label]])=>({value,label}))]}/>
    <Input className="number-filter" aria-label="Número da OS" placeholder="Nº da OS" inputMode="numeric" value={filters.number} onChange={e=>f('number',e.target.value)}/>
    <Input className="number-filter" aria-label="Código da atividade" placeholder="Código" value={filters.code} onChange={e=>f('code',e.target.value.toUpperCase())}/>
-   {Object.values(filters).some(Boolean)&&<button className="text-action" onClick={()=>setFilters({from:'',to:'',type:'',location:'',status:'',number:'',code:''})}>Limpar</button>}
+   {Object.values(filters).some(Boolean)&&<button className="text-action" onClick={()=>setFilters(EMPTY_FILTERS)}>Limpar</button>}
   </div>
   <ArrangeControls view={view} onChange={setView} orgs={refs.orgs} sectors={refs.sectors||[]}/>
-  <div className="display-toggle"><div className="segmented" role="group" aria-label="Exibição"><button type="button" aria-pressed={view.display==='lista'} onClick={()=>setView({display:'lista'})}>Lista</button><button type="button" aria-pressed={view.display==='gantt'} onClick={()=>setView({display:'gantt'})}>Gantt</button></div>
-   <small>{view.display==='gantt'?'Mesmas OS e mesma ordem da lista; a posição das barras segue as datas.':'Mesmas OS e mesma ordem do Gantt.'}</small>
+  <div className="display-toggle"><div className="segmented" role="group" aria-label="Exibição"><button type="button" aria-pressed={!resources&&view.display==='lista'} onClick={()=>{showResources(false);setView({display:'lista'})}}>Lista</button><button type="button" aria-pressed={!resources&&view.display==='gantt'} onClick={()=>{showResources(false);setView({display:'gantt'})}}>Gantt</button><button type="button" aria-pressed={resources} onClick={()=>showResources(true)}>Agenda de recursos</button></div>
+   <small>{resources?'Uso de equipamentos, funções e materiais das OS desta lista, por data.':view.display==='gantt'?'Mesmas OS e mesma ordem da lista; a posição das barras segue as datas.':'Mesmas OS e mesma ordem do Gantt.'}</small>
    <a className="chip present-link" href={presentation} target="_blank" rel="noopener" title="Abre a Apresentação (TV) com esta organização e estes filtros"><MonitorPlay size={14} className="inline"/> Apresentação</a></div>
   <div className="org-counts" aria-label="OS por organização solicitante">{[...counts.entries()].sort((a,b)=>b[1]-a[1]).map(([org,n])=><span key={org}><OrgTag org={orgOf(org)}/><b>{n}</b><small>{Math.round(100*n/Math.max(1,shown.length))}%</small></span>)}<span className="org-total">{shown.length} OS{filtering?` de ${rows.total} (filtros de solicitante e setor)`:''}{rows.scoped?' no seu escopo':''}{filters.from||filters.to?' com programação no período':''}{rows.more?' · lista limitada às 1.000 primeiras':''}</span></div>
   {!shown.length?<Empty icon={ClipboardList} title="Nenhuma OS encontrada" description={filtering?'Nenhuma OS atende aos filtros de solicitante e setor. Limpe os filtros ou escolha outros valores.':'OS lançadas aparecem aqui. Rascunhos ficam em Planejamento › Rascunhos.'}/>
+  :resources?<ResourceAgenda query={query} orderIds={shown.map(r=>r.item.id)}/>
   :view.display==='gantt'?<Gantt groups={groups} orgs={refs.orgs} now={now} onOpen={onExec}/>:<>
-   <div className="table-scroll orders-table"><Table><TableHeader><TableRow><TableHead>OS</TableHead><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Local</TableHead><TableHead>Período planejado</TableHead><TableHead>Real</TableHead><TableHead>Situação</TableHead><TableHead>Etapas</TableHead></TableRow></TableHeader><TableBody>{groups.map(g=><Fragment key={g.key}>{g.label&&<TableRow className="group-row"><TableCell colSpan={8}><div className="group-head">{head(g)}</div></TableCell></TableRow>}{g.rows.map(({item:o,flags:fl})=><TableRow key={o.id} className="clickable" onClick={()=>void openDetail(o)}><TableCell><button className="tag-label" onClick={e=>{e.stopPropagation();void openDetail(o)}}>{osLabel(o.number)}</button>{o.sector_code&&<small>{o.sector_code}</small>}</TableCell><TableCell><b>{o.activity_name}</b><small title={o.description||undefined}>{[o.activity_code,clip(o.description)].filter(Boolean).join(' · ')||'—'}</small></TableCell><TableCell><OrgTag org={orgOf(o.org_id)}/></TableCell><TableCell>{paths.get(o.location_id)||'—'}</TableCell><TableCell>{o.planned_start?range(o.planned_start,o.planned_end):<span className="pending-text">Sem início planejado</span>}</TableCell><TableCell>{o.actual_start?range(o.actual_start,o.actual_end):'—'}</TableCell><TableCell>{status(o,fl)}</TableCell><TableCell>{o.steps_done}/{o.steps_total}</TableCell></TableRow>)}</Fragment>)}</TableBody></Table></div>
+   <div className="table-scroll orders-table"><Table><TableHeader><TableRow><TableHead>OS</TableHead><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Local</TableHead><TableHead>Período planejado</TableHead><TableHead>Real</TableHead><TableHead>Situação</TableHead><TableHead>Etapas</TableHead></TableRow></TableHeader><TableBody>{groups.map(g=><Fragment key={g.key}>{g.label&&<TableRow className="group-row"><TableCell colSpan={8}><div className="group-head">{head(g)}</div></TableCell></TableRow>}{g.rows.map(({item:o,flags:fl})=><TableRow key={o.id} className="clickable" onClick={()=>void openDetail(o)}><TableCell><button className="tag-label" onClick={e=>{e.stopPropagation();void openDetail(o)}}>{osLabel(o.number)}</button>{o.sector_code&&<small>{o.sector_code}</small>}</TableCell><TableCell><b>{o.activity_name}</b><small title={o.description||undefined}>{[o.activity_code,clip(o.description)].filter(Boolean).join(' · ')||'—'}</small></TableCell><TableCell><OrgTag org={orgOf(o.org_id)}/></TableCell><TableCell><span className="loc-cell" title={paths.get(o.location_id)||undefined}>{(()=>{const parts=(paths.get(o.location_id)||'—').split(' › ');return <><b>{parts[parts.length-1]}</b>{parts.length>1&&<small>{parts[parts.length-2]}</small>}</>;})()}</span></TableCell><TableCell>{o.planned_start?range(o.planned_start,o.planned_end):<span className="pending-text">Sem início planejado</span>}</TableCell><TableCell>{o.actual_start?range(o.actual_start,o.actual_end):'—'}</TableCell><TableCell>{status(o,fl)}</TableCell><TableCell>{o.steps_done}/{o.steps_total}</TableCell></TableRow>)}</Fragment>)}</TableBody></Table></div>
    <ul className="order-cards">{groups.map(g=><Fragment key={g.key}>{g.label&&<li className="group-head">{head(g)}</li>}{g.rows.map(({item:o,flags:fl})=><li key={o.id}><button type="button" onClick={()=>void openDetail(o)}><div><b>{osLabel(o.number)}{o.sector_code?` · ${o.sector_code}`:''}</b><OrgTag org={orgOf(o.org_id)}/></div><span>{o.activity_name}</span><small><CalendarRange size={12} className="inline"/> {o.planned_start?range(o.planned_start,o.planned_end):'Sem início planejado'}</small><small><MapPin size={12} className="inline"/> {paths.get(o.location_id)||'—'}</small>{status(o,fl)}</button></li>)}</Fragment>)}</ul>
   </>}
   </section>
@@ -360,7 +389,7 @@ export function Orders({refreshKey,onExec,onRevise}:{refreshKey:number,onExec:(i
   <Dialog open={!!detail} onOpenChange={v=>{if(!busy&&!v){setDetail(null);setCancel('')}}}><DialogContent className="n-dialog n-dialog-wide">{detail&&<><DialogHeader><div className="modal-eyebrow"><ClipboardList size={16}/> {osLabel(detail.order.number)} · PLANEJAMENTO</div><DialogTitle>{detail.plan.activity_name}</DialogTitle><DialogDescription>Lançada por {detail.order.launched_by_name} em {fmt(detail.order.launched_at)} · {detail.plan.free?'OS sem fluxo':`fluxo ${detail.plan.activity_code} v${detail.plan.flow_version}`}{detail.order.revision?` · revisão ${detail.order.revision}`:''}</DialogDescription></DialogHeader>
    <OrderSummary detail={detail} refs={refs} paths={paths} status={status}/>
    <div className="access-actions"><Button variant="outline" onClick={()=>{const id=detail.order.id;setDetail(null);onExec(id)}}>Abrir em Apontamentos</Button>{refs.canPlan&&['programada','em_andamento'].includes(detail.order.status)&&<Button variant="outline" onClick={()=>{const id=detail.order.id;setDetail(null);void startRevision(id,onRevise)}}><History size={15}/> Revisar OS</Button>}</div>
-   {refs.canPlan&&['programada','em_andamento'].includes(detail.order.status)&&<form onSubmit={doCancel} className="cancel-box"><Field label="Cancelar OS · justificativa" wide hint={detail.order.status==='em_andamento'?'A OS já começou: as etapas abertas são encerradas agora como canceladas, o que foi executado fica registrado e os equipamentos são liberados.':'Libera as reservas. A OS continua consultável como cancelada.'}><Textarea required maxLength={1200} value={cancel} onChange={e=>setCancel(e.target.value)}/></Field><Button type="submit" variant="outline" disabled={busy||!cancel.trim()}>Cancelar OS</Button></form>}
+   {refs.canCancel&&['programada','em_andamento'].includes(detail.order.status)&&<form onSubmit={doCancel} className="cancel-box"><Field label="Cancelar OS · justificativa" wide hint={detail.order.status==='em_andamento'?'A OS já começou: as etapas abertas são encerradas agora como canceladas, o que foi executado fica registrado e os equipamentos são liberados.':'Libera as reservas. A OS continua consultável como cancelada.'}><Textarea required maxLength={1200} value={cancel} onChange={e=>setCancel(e.target.value)}/></Field><Button type="submit" variant="outline" disabled={busy||!cancel.trim()}>Cancelar OS</Button></form>}
   </>}</DialogContent></Dialog>
  </div>;
 }

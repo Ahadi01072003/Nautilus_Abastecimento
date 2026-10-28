@@ -14,6 +14,8 @@ const tone:Record<string,string>={requested:'warning',scheduled:'info',completed
 const date=(value:string)=>new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(new Date(value)).replace(',','');
 const number=(value:number)=>new Intl.NumberFormat('pt-BR',{maximumFractionDigits:3}).format(value);
 export default function Appointments({rows,actor,now,onOpen,onExecute,onViewSupply}:Props){
+ // Só solicita (sem agendar nem registrar): vê apenas as próprias solicitações.
+ const onlyRequests=!actor.canPlan&&!actor.canFuel&&actor.role!=='manager';
  const [tab,setTab]=useState(actor.role==='fueler'?'schedule':'requests'),[query,setQuery]=useState(''),[status,setStatus]=useState('all');
  const filtered=useMemo(()=>rows.filter(row=>(status==='all'||row.status===status)&&(!query||[row.equipment_tag,row.equipment_name,row.fuel_name,row.requester_name,row.assigned_name,row.id].join(' ').toLowerCase().includes(query.toLowerCase()))),[rows,query,status]);
  const scheduled=useMemo(()=>rows.filter(row=>row.status==='scheduled').sort((a,b)=>a.scheduled_at.localeCompare(b.scheduled_at)),[rows]);
@@ -29,9 +31,9 @@ export default function Appointments({rows,actor,now,onOpen,onExecute,onViewSupp
    <div><CalendarDays size={22}/><strong>{scheduled.length}</strong><span>Agendadas</span></div>
    <div><CheckCircle2 size={22}/><strong>{rows.filter(r=>r.status==='completed').length}</strong><span>Realizadas</span></div>
   </div>
-  {actor.role==='requester'&&<div className="notice appointment-notice"><UserRound size={18}/><span>Solicite o abastecimento e acompanhe o andamento. O planejador define o horário; a equipe de abastecimento realiza o registro.</span></div>}
+  {onlyRequests&&<div className="notice appointment-notice"><UserRound size={18}/><span>Solicite o abastecimento e acompanhe o andamento. O planejador define o horário; a equipe de abastecimento realiza o registro.</span></div>}
   <Tabs value={tab} onValueChange={setTab}>
-   <TabsList className="n-tabs">{actor.role!=='fueler'&&<TabsTrigger value="requests">{actor.role==='requester'?'Minhas solicitações':'Solicitações'}</TabsTrigger>}{actor.role!=='requester'&&<TabsTrigger value="schedule">Agenda de abastecimentos</TabsTrigger>}</TabsList>
+   <TabsList className="n-tabs">{actor.role!=='fueler'&&<TabsTrigger value="requests">{onlyRequests?'Minhas solicitações':'Solicitações'}</TabsTrigger>}{!onlyRequests&&<TabsTrigger value="schedule">Agenda de abastecimentos</TabsTrigger>}</TabsList>
    {actor.role!=='fueler'&&<TabsContent value="requests">
     <section className="n-panel">
      <div className="panel-heading"><div><h2>Solicitações de abastecimento</h2><p>Do pedido até o registro realizado, com cada etapa e autor identificados.</p></div><span className="count-label">{filtered.length} nesta página</span></div>
@@ -39,14 +41,14 @@ export default function Appointments({rows,actor,now,onOpen,onExecute,onViewSupp
      {filtered.length?<div className="table-scroll"><Table><TableHeader><TableRow><TableHead>Equipamento / TAG</TableHead><TableHead>Solicitante</TableHead><TableHead>Horímetro atual</TableHead><TableHead>Tipo de abastecimento</TableHead><TableHead>Agendamento</TableHead><TableHead>Situação</TableHead><TableHead>Ações</TableHead></TableRow></TableHeader><TableBody>
       {filtered.map(row=><TableRow key={row.id}><TableCell><b>{row.equipment_tag}</b><small>{row.equipment_name}</small></TableCell><TableCell>{row.requester_name}<small>{date(row.created_at)}</small></TableCell><TableCell className="numeric">{number(row.hourmeter_milli/1000)} h</TableCell><TableCell>{row.fuel_name}</TableCell><TableCell>{row.scheduled_at?<><b>{date(row.scheduled_at)}</b><small>{row.assigned_name||'Equipe de abastecimento'}</small>{row.status==='scheduled'&&Date.parse(row.scheduled_at)<now&&<small className="danger-text">Horário vencido: registre ou reagende</small>}</>:<span className="pending-text">A definir</span>}</TableCell><TableCell><span className={`n-badge ${tone[row.status]}`}>{labels[row.status]}</span>{row.status==='cancelled'&&<small className="appointment-cancel-reason">{row.cancel_reason}</small>}</TableCell><TableCell><div className="appointment-row-actions">
        {['requested','scheduled'].includes(row.status)&&actor.canPlan&&<button className="text-action" onClick={()=>onOpen('schedule',row)}>{row.status==='scheduled'?'Reagendar':'Agendar'}</button>}
-       {row.status==='scheduled'&&actor.role!=='requester'&&<button className="text-action" onClick={()=>setTab('schedule')}>Ver agenda</button>}
+       {row.status==='scheduled'&&!onlyRequests&&<button className="text-action" onClick={()=>setTab('schedule')}>Ver agenda</button>}
        {row.status==='completed'&&row.supply_id&&actor.canFuel&&<button className="text-action" onClick={()=>onViewSupply(row)}>Ver registro</button>}
        {['requested','scheduled'].includes(row.status)&&(actor.canPlan||row.status==='requested'&&row.requester_id===actor.id)&&<button className="text-action danger-text" onClick={()=>onOpen('appointmentCancel',row)}>Cancelar</button>}
       </div></TableCell></TableRow>)}
      </TableBody></Table></div>:<div className="n-empty"><span><ClipboardList size={26}/></span><h3>{rows.length?'Nenhuma solicitação neste filtro':'A primeira solicitação começa aqui'}</h3><p>{rows.length?'Ajuste a busca ou a situação selecionada.':'Use Solicitar abastecimento no topo para informar o equipamento, a TAG, o horímetro e o combustível.'}</p></div>}
     </section>
    </TabsContent>}
-   {actor.role!=='requester'&&<TabsContent value="schedule">
+   {!onlyRequests&&<TabsContent value="schedule">
     <section className="n-panel"><div className="panel-heading"><div><h2>Agenda da equipe</h2><p>Horários de Brasília · somente solicitações agendadas e ainda não realizadas.</p></div><CalendarDays size={21}/></div>
      {scheduled.length?<div className="appointment-agenda">{scheduled.map(row=>{
       const overdue=new Date(row.scheduled_at).valueOf()<now;

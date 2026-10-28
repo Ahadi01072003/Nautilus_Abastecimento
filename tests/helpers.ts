@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import postgres from 'postgres';
 import {connect,setTestDatabase,type Database} from '../lib/db';
 import {hashPassword} from '../lib/auth';
-import type {Member} from '../lib/permissions';
+import {effectiveCaps,type Member} from '../lib/permissions';
 
 export const ADMIN_URL=process.env.TEST_DATABASE_URL||'postgres://postgres@127.0.0.1:55432/postgres';
 process.env.DEFAULT_PASSWORD='Primeiro@2026';
@@ -28,7 +28,7 @@ export async function freshDatabase(){
 let counter=0;
 export async function addMember(database:Database,profile:Member['profile'],opts:{username?:string;email?:string|null;password?:string;mustChange?:boolean;active?:boolean}={}){
  const id=crypto.randomUUID(),username=opts.username||`${profile}${++counter}`,t=new Date().toISOString();
- await database.run('INSERT INTO members(id,username,email,name,profile,active,created_at,password_hash,must_change_password,password_changed_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,username,opts.email===undefined?`${username}@example.com`:opts.email,'Pessoa '+username,profile,opts.active===false?0:1,t,await hashPassword(opts.password||'Primeiro@2026'),opts.mustChange===false?0:1,t);
+ await database.run('INSERT INTO members(id,username,email,name,profile,active,created_at,password_hash,must_change_password,password_changed_at,capabilities) VALUES(?,?,?,?,?,?,?,?,?,?,?::text[])',id,username,opts.email===undefined?`${username}@example.com`:opts.email,'Pessoa '+username,profile,opts.active===false?0:1,t,await hashPassword(opts.password||'Primeiro@2026'),opts.mustChange===false?0:1,t,effectiveCaps(profile,[]).filter(c=>profile!=='manager'&&!!c));
  return {id,username,name:'Pessoa '+username,profile,active:1} as Member&{username:string};
 }
 

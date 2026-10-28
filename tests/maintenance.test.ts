@@ -15,7 +15,7 @@ const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects
 const key=()=>crypto.randomUUID();
 const ago=(h:number)=>new Date(Date.now()-h*3600000).toISOString();
 const today=()=>localDay(Date.now());
-const set=async(who:Member,caps:string[],profile='requester')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
+const set=async(who:Member,caps:string[],profile='fueler')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
 const m=(path:string,b:Row,who:Member=tech)=>maintenanceMutate('maint/'+path,b,who) as Promise<Row>;
 const panel=async(who:Member=tech)=>maintenancePanel(who,new URL('http://x/?periodo=30'));
 const row=async(planId:string)=>(await panel()).rows.find((r:Row)=>r.planId===planId)!;
@@ -23,10 +23,10 @@ const row=async(planId:string)=>(await panel()).rows.find((r:Row)=>r.planId===pl
 before(async()=>{
  ctx=await freshDatabase();db=ctx.database;await seedOperation(db);
  manager=await addMember(db,'manager',{mustChange:false});
- tech=await set(await addMember(db,'none'),['manutencao'],'none');
- operator=await set(await addMember(db,'none'),['operacao'],'none');
+ tech=await set(await addMember(db,'maintainer'),[],'maintainer');
+ operator=await set(await addMember(db,'operator'),[],'operator');
  planner=await set(await addMember(db,'planner'),['planejamento'],'planner');
- requester=await addMember(db,'requester');
+ requester=await addMember(db,'fueler');// só Abastecimento: sem Manutenção, Planejamento nem Operação
  const type=(await registryMutate('registry/equipment-types',{name:'Empilhadeira'},manager) as Row).id;
  await db.run("UPDATE equipment SET type_id=? WHERE id IN ('eq1','eq2')",type);
 });

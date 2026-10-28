@@ -1,6 +1,8 @@
 // Agenda de OS para imprimir ou salvar em PDF (A4 paisagem). Cabeçalho com o resumo para o gestor
 // (quantidades, solicitantes, horas, recursos e alertas) e o cronograma: cada linha é uma OS inteira
-// (eixo vertical) e as datas do período ficam no eixo horizontal. Sempre a mesma quantidade de OS por folha.
+// (eixo vertical) e as datas do período ficam no eixo horizontal; ou, na visualização em Lista, uma
+// tabela com as mesmas OS. Organização (execução, setor ou status) igual à da Lista de OS e da
+// Apresentação (lib/os-order). Sempre a mesma quantidade de linhas por folha.
 import type {Metadata} from 'next';
 import type {CSSProperties} from 'react';
 import {cookies} from 'next/headers';
@@ -13,6 +15,7 @@ import {audit} from '@/lib/registry';
 import {rateLimit} from '@/lib/security';
 import {AppError} from '@/lib/domain';
 import AgendaPrint from './print';
+import {arrangeOrders,viewFromParams,DEFAULT_ARRANGE,EMPTY_FILTER,type Flags,type OsItem} from '@/lib/os-order';
 export const dynamic='force-dynamic';
 
 type Search=Promise<Record<string,string|string[]|undefined>>;
@@ -132,6 +135,26 @@ body{font:9pt/1.35 var(--f-body);margin:0}
 .legend i.l{box-shadow:inset 0 0 0 .3mm #0b1d25}
 .legend i.c{border-right:.6mm dashed #0b1d25;border-left-style:dashed}
 .foot{display:flex;justify-content:space-between;gap:4mm;font:500 6.6pt/1.2 var(--f-mono);letter-spacing:.06em;color:#6c7c82}
+/* Cabeçalho de grupo (setor ou status) ocupa uma linha, igual na Lista e no Gantt. */
+.orow.grp{background:#e8eeec!important;flex:0 0 6mm}
+.orow.grp .oinfo{border-left:0;flex-direction:row;align-items:center;justify-content:flex-start;gap:2mm;font:800 7.6pt/1 var(--f-body);color:#0b1d25}
+.orow.grp .oinfo small{font:600 6.4pt/1 var(--f-mono);color:#087f77}
+.orow.grp .otime{background-image:none}
+.ltab{flex:1;min-height:0;display:flex;flex-direction:column;border:.3mm solid #9fb0ad}
+.ltab .lh,.ltab .lr{display:grid;grid-template-columns:30mm 30mm 1fr 30mm 56mm 52mm}
+.ltab .lh{background:#eef1f0;border-bottom:.4mm solid #9fb0ad}
+.ltab .lh span{font:700 6.2pt/1 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:#4b5f66;padding:2.2mm 2.4mm;border-right:.3mm solid #c7d0ce}
+.ltab .lr{flex:1 1 0;min-height:0;border-bottom:.3mm solid #c7d0ce;overflow:hidden}
+.ltab .lr:last-of-type{border-bottom:0}.ltab .lr:nth-of-type(even){background:#f7f9f8}
+.ltab .lr>div{padding:1.2mm 2.4mm;border-right:.3mm solid #dde3e1;overflow:hidden;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:.4mm;font-size:7pt;line-height:1.25;color:#33474e}
+.ltab .lr>div:first-child{border-left:1.4mm solid var(--c)}
+.ltab .lr b{color:#0b1d25}.ltab .lr .k{font:700 7pt var(--f-mono);color:#0b1d25}
+.ltab .lr .ln{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ltab .lr .mut{color:#6c7c82}.ltab .lr .warn{color:#b42318;font-weight:700}
+.ltab .lr.grp{flex:0 0 6mm;background:#e8eeec!important}
+.ltab .lr.grp>div{grid-column:1/-1;flex-direction:row;align-items:center;justify-content:flex-start;gap:2mm;border-left:0;font:800 7.6pt/1 var(--f-body);color:#0b1d25}
+.ltab .lr.grp small{font:600 6.4pt/1 var(--f-mono);color:#087f77}
+.ltab .lr.blank>div:first-child{border-left:0}
 @media print{html,body{background:#fff!important}.noprint{display:none}.page{margin:0;box-shadow:none;break-after:page}.page:last-child{break-after:auto}@page{size:A4 landscape;margin:0}}
 `;
 
@@ -145,8 +168,21 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
  catch(e){if(!(e instanceof AppError))throw e;return <main><style>{css}</style><div className="err"><h1>Agenda indisponível</h1><p>{e.message}</p></div></main>;}
  await db().tx(tx=>audit(tx,member,'Exportação: agenda de OS',`agenda:${one(s.inicio)}:${one(s.fim)}:${one(s.setor)||'todos'}`,{from:one(s.inicio),to:one(s.fim),sector:one(s.setor)||null,orders:r.orders.length}));
  const t0=Date.parse(r.period.from),t1=Date.parse(r.period.to),sum=r.summary;
- const pages:Row[][]=[];for(let i=0;i<r.orders.length;i+=PER_PAGE)pages.push(r.orders.slice(i,i+PER_PAGE));
- if(!pages.length)pages.push([]);
+ // Visualização (Gantt ou Lista) e organização escolhidas ao exportar; sem escolha, Gantt por ordem de execução.
+ const q=new URLSearchParams(Object.entries(s).map(([k,v])=>[k,one(v)]));
+ const chosen=viewFromParams(q),arrange=chosen.arrange||DEFAULT_ARRANGE,asList=one(s.vis)==='lista';
+ const groups=arrangeOrders(r.orders as (OsItem&Row)[],arrange,EMPTY_FILTER,Date.parse(r.generatedAt),c=>{const o=(r.orders as Row[]).find(x=>x.sector_code===c);return o?.sector_name?`${c} · ${o.sector_name}`:c;});
+ // Linhas da folha: cabeçalho de grupo e OS ocupam uma linha cada; o grupo que continua na folha
+ // seguinte repete o cabeçalho ("continuação").
+ type Slot={kind:'grp',label:string,count:number,cont?:boolean}|{kind:'os',o:Row,flags:Flags,n:number};
+ const pages:Slot[][]=[];let cur:Slot[]=[],n=0;
+ for(const g of groups){g.rows.forEach((x,i)=>{
+  if(g.label&&i===0&&cur.length>=PER_PAGE-1){pages.push(cur);cur=[];}
+  if(cur.length>=PER_PAGE){pages.push(cur);cur=[];}
+  if(g.label&&(i===0||cur.length===0))cur.push({kind:'grp',label:g.label,count:g.rows.length,cont:i>0});
+  cur.push({kind:'os',o:x.item,flags:x.flags,n:++n});});}
+ if(cur.length||!pages.length)pages.push(cur);
+ const modeLabel=arrange.mode==='setor'?`por setor (${arrange.sectorDir==='asc'?'A→Z':'Z→A'})`:arrange.mode==='status'?'por status (prioridade operacional)':`ordem de execução (${arrange.dir==='asc'?'crescente':'decrescente'})`;
  // Eixo horizontal: os dias do período (com horas quando o período é curto).
  const days=r.period.days,span=t1-t0,colW=TIME_W/days;
  const pct=(t:number)=>Math.max(0,Math.min(100,(t-t0)/span*100));
@@ -166,13 +202,15 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
  // Período curto: "26/10 07:00–17:00" no mesmo dia; com data nas duas pontas quando passa de um dia.
  const per=(a:string,b:string)=>{const x=Date.parse(a),y=Date.parse(b);return dm.format(x)===dm.format(y)?`${dm.format(x)} ${hm.format(x)}–${hm.format(y)}`:`${dm.format(x)} ${hm.format(x)} → ${dm.format(y)} ${hm.format(y)}`;};
  const osShort=(n:number)=>osNumber(n).replace('OS ','');
- const resPages:Row[][]=[];for(let i=0;i<r.orders.length;i+=RES_PER_PAGE)resPages.push(r.orders.slice(i,i+RES_PER_PAGE));
+ // Recursos por OS na mesma ordem da organização escolhida.
+ const ordered=groups.flatMap(g=>g.rows.map(x=>x.item as Row));
+ const resPages:Row[][]=[];for(let i=0;i<ordered.length;i+=RES_PER_PAGE)resPages.push(ordered.slice(i,i+RES_PER_PAGE));
  const sheets=pages.length+resPages.length;
  const header=<>
   <div className="top">
    {/* eslint-disable-next-line @next/next/no-img-element -- Logo estático, mesmo arquivo na impressão. */}
    <img src="/logo-color.png" alt="OceanPact | CBO" width={285} height={79}/>
-   <div><div className="eye">NAUTILUS · agenda de OS programadas</div><h1>{range}<i>.</i></h1><div className="sec">{sectorLabel} · {r.period.days} dia(s) · horários de Brasília</div></div>
+   <div><div className="eye">NAUTILUS · agenda de OS programadas · {asList?'lista':'Gantt'}</div><h1>{range}<i>.</i></h1><div className="sec">{sectorLabel} · {r.period.days} dia(s) · {modeLabel} · horários de Brasília</div></div>
    <div className="meta">{issued}<br/>{sum.realized?`${sum.realized} realizada(s) sem planejamento incluída(s)`:'Somente OS lançadas (sem canceladas)'}</div>
   </div>
   <dl className="kpis">
@@ -213,20 +251,34 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
  </>;
 
  return <main><style>{css}</style><AgendaPrint auto={one(s.imprimir)==='1'}/>
-  {pages.map((list,p)=>{
+  {pages.map((slots,p)=>{
    // Altura estimada da linha (a 1ª folha tem o resumo completo): decide quanto texto cabe no bloco.
    const row=Math.max(ROW_MIN,Math.min(ROW_MAX,(p===0?AVAIL_FIRST:AVAIL_NEXT)/PER_PAGE));
    const lines=row>=10?2:1,meta=row>=(lines===2?13.5:10.5);
-   const first=p*PER_PAGE+1,last=p*PER_PAGE+list.length;
+   const nums=slots.flatMap(x=>x.kind==='os'?[x.n]:[]),first=nums[0],last=nums[nums.length-1];
+   const groupRow=(x:Slot&{kind:'grp'},i:number,cls:string)=><div key={'g'+i} className={cls}><div className="oinfo">{x.label}{x.cont?' (continuação)':''}<small>{x.count} OS</small></div>{cls.startsWith('orow')&&<div className="otime"/>}</div>;
    return <section key={p} className="page">
-    {p===0?header:<div className="mini"><span><b>Agenda de OS · {range}</b>{r.sector?`Setor ${r.sector.code}`:'Todos os setores'}</span><span>Folha {p+1} de {sheets}</span></div>}
-    <div className="gantt">
+    {p===0?header:<div className="mini"><span><b>Agenda de OS · {range}</b>{r.sector?`Setor ${r.sector.code}`:'Todos os setores'} · {modeLabel}</span><span>Folha {p+1} de {sheets}</span></div>}
+    {asList?<div className="ltab">
+     <div className="lh"><span>OS · setor</span><span>Situação</span><span>Atividade · local</span><span>Solicitante</span><span>Planejado</span><span>Real</span></div>
+     {slots.map((x,i)=>x.kind==='grp'?<div key={'g'+i} className="lr grp"><div>{x.label}{x.cont?' (continuação)':''}<small>{x.count} OS</small></div></div>:(()=>{const o=x.o;
+      return <div key={o.id} className="lr" style={{['--c' as string]:o.org_color} as CSSProperties}>
+       <div><span className="k">{osNumber(o.number)}</span><span>{o.sector_code||<span className="mut">sem setor</span>}</span></div>
+       <div><span>{STATUS[o.status]||o.status}</span>{x.flags.late&&<span className="warn">início vencido</span>}{x.flags.overdue&&<span className="warn">prazo vencido</span>}</div>
+       <div><b className="ln">{o.activity_name}</b><span className="ln">{o.location_name||'Local não informado'}</span></div>
+       <div><b>{o.org_acronym}</b><span className="ln mut">{o.requester_name||o.org_name}</span></div>
+       <div><span className="ln">{per(o.planned_start,o.planned_end)}</span></div>
+       <div><span className="ln">{o.actual_start?(o.actual_end?per(o.actual_start,o.actual_end):`${dm.format(Date.parse(o.actual_start))} ${hm.format(Date.parse(o.actual_start))} → em curso`):<span className="mut">não iniciada</span>}</span></div>
+      </div>;})())}
+     {Array.from({length:Math.max(0,PER_PAGE-slots.length)},(_,i)=><div key={'lb'+i} className="lr blank" aria-hidden="true"><div/><div/><div/><div/><div/><div/></div>)}
+     {!slots.length&&<p className="empty" style={{left:0}}>Nenhuma OS programada {r.sector?`para o setor ${r.sector.code} `:''}entre {range}.</p>}
+    </div>:<div className="gantt">
      <div className="gh"><div className="lbl">OS · atividade</div>
       <div className="days">{dayList.map((d,i)=>{const w=wdNum(d),m=new Date(d+OFF).getUTCDate()===1;
        return <span key={d} className={[w===0||w===6?'we':'',m&&i>0?'mo':'',nowIn&&now>=d&&now<d+DAY?(hourStep?'todayh':'today'):''].filter(Boolean).join(' ')} style={{left:`${i/days*100}%`,width:`${100/days}%`,justifyContent:hourStep?'flex-start':'center',paddingTop:hourStep?'.8mm':0}}>
         {colW>=7?wd.format(d+OFF).replace('.',''):wd.format(d+OFF).slice(0,1)}<b>{colW>=9?dm.format(d+OFF):new Date(d+OFF).getUTCDate()}</b></span>;})}
        {hourStep>0&&<div className="hours">{hourTicks.map(t=><i key={t} style={{left:`${pct(t)}%`}}>{String(new Date(t-OFF).getUTCHours()).padStart(2,'0')}h</i>)}</div>}</div></div>
-     {list.map(o=>{const s0=Date.parse(o.planned_start),e0=Date.parse(o.planned_end),l=pct(s0),wPct=Math.max(.6,pct(e0)-l),wMm=wPct*TIME_W/100;
+     {slots.map((x,i)=>{if(x.kind==='grp')return groupRow(x,i,'orow grp');const o=x.o;const s0=Date.parse(o.planned_start),e0=Date.parse(o.planned_end),l=pct(s0),wPct=Math.max(.6,pct(e0)-l),wMm=wPct*TIME_W/100;
       const contL=s0<t0,contR=e0>t1,live=['em_andamento','encerramento_pendente'].includes(o.status);
       const sameDay=dm.format(s0)===dm.format(e0);
       const when=sameDay?`${dm.format(s0)} ${hm.format(s0)}–${hm.format(e0)}`:`${dm.format(s0)} ${hm.format(s0)} → ${dm.format(e0)} ${hm.format(e0)}`;
@@ -250,17 +302,17 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
         {nowIn&&<i className="now" style={{left:`${pct(now)}%`}}/>}
        </div>
       </div>;})}
-     {Array.from({length:PER_PAGE-list.length},(_,i)=><div key={'blank'+i} className="orow blank" aria-hidden="true">
+     {Array.from({length:Math.max(0,PER_PAGE-slots.length)},(_,i)=><div key={'blank'+i} className="orow blank" aria-hidden="true">
       <div className="oinfo"/>
       <div className="otime" style={{['--grid' as string]:grid} as CSSProperties}>
        {dayList.filter(d=>{const w=wdNum(d);return w===0||w===6;}).map(d=><i key={d} className="we" style={{left:`${pct(d)}%`,width:`${100/days}%`}}/>)}
        {nowIn&&<i className="now" style={{left:`${pct(now)}%`}}/>}
       </div>
      </div>)}
-     {!list.length&&<p className="empty">Nenhuma OS programada {r.sector?`para o setor ${r.sector.code} `:''}entre {range}.</p>}
-    </div>
-    <div className="legend"><span>Cor = solicitante · barra = período planejado da OS inteira</span><span><i/>Programada</span><span><i className="l"/>● Em andamento</span><span><i className="d"/>✓ Concluída</span><span><i className="c"/>◂ ▸ Começa ou termina fora do período</span><span><i className="t"/>Hoje</span><span>R = realizada sem planejamento</span></div>
-    <div className="foot"><span>Folha {p+1} de {sheets} · {list.length?`OS ${first}–${last} de ${totalLabel(sum.total)}`:'sem OS'} · {PER_PAGE} OS por folha</span><span>Horários de Brasília · NAUTILUS</span></div>
+     {!slots.length&&<p className="empty">Nenhuma OS programada {r.sector?`para o setor ${r.sector.code} `:''}entre {range}.</p>}
+    </div>}
+    {asList?<div className="legend"><span>Lista na organização escolhida ({modeLabel}) · cor = solicitante · horários de Brasília</span></div>:<div className="legend"><span>Cor = solicitante · barra = período planejado da OS inteira</span><span><i/>Programada</span><span><i className="l"/>● Em andamento</span><span><i className="d"/>✓ Concluída</span><span><i className="c"/>◂ ▸ Começa ou termina fora do período</span><span><i className="t"/>Hoje</span><span>R = realizada sem planejamento</span></div>}
+    <div className="foot"><span>Folha {p+1} de {sheets} · {nums.length?`OS ${first}–${last} de ${totalLabel(sum.total)}`:'sem OS'} · {PER_PAGE} linhas por folha</span><span>Horários de Brasília · NAUTILUS</span></div>
    </section>;})}
   {resPages.map((list,q)=>{const sheet=pages.length+q+1;
    return <section key={'res'+q} className="page">

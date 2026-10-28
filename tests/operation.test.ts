@@ -6,14 +6,16 @@ import {exportData} from '../lib/exports';
 import {registryState} from '../lib/registry';
 import type {Database} from '../lib/db';
 import type {Member} from '../lib/permissions';
+/** Quem só solicita abastecimento: perfil de outro módulo com o acesso adicional Abastecimento. */
+const solicitante=async(d:Database)=>{const m=await addMember(d,'operator');await d.run("UPDATE members SET capabilities='{operacao,abastecimento}' WHERE id=?",m.id);return {...m,capabilities:['operacao','abastecimento']};};
 
 let ctx:Awaited<ReturnType<typeof freshDatabase>>,db:Database;
 let manager:Member,requester:Member,requester2:Member,planner:Member,fueler:Member,fueler2:Member;
 before(async()=>{
  ctx=await freshDatabase();db=ctx.database;await seedOperation(db);
  manager=await addMember(db,'manager',{mustChange:false});
- requester=await addMember(db,'requester');requester2=await addMember(db,'requester');
- planner=await addMember(db,'planner',{email:null});
+ requester=await solicitante(db);requester2=await solicitante(db);
+ planner=await addMember(db,'planner',{email:null});await db.run("UPDATE members SET capabilities='{planejamento,abastecimento}' WHERE id=?",planner.id);planner={...planner,capabilities:['planejamento','abastecimento']};
  fueler=await addMember(db,'fueler');fueler2=await addMember(db,'fueler');
  // Entrada física inicial: 500 L de diesel e 6 cilindros.
  await mutate('stock',{operationKey:key(),fuelId:'diesel',quantity:500,reason:'Carga inicial'},manager);

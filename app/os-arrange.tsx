@@ -54,7 +54,7 @@ export function MultiPick({label,options,value,onChange,all}:{label:string,optio
 
 const MODES:[Arrange['mode'],string][]=[['execucao','Ordem de execução'],['setor','Por setor'],['status','Por status']];
 /** Barra de organização: modo, sentido e filtros (solicitante e setor), com os filtros ativos à vista. */
-export function ArrangeControls({view,onChange,orgs,sectors,dark=false}:{view:OsView,onChange:(p:Partial<OsView>)=>void,orgs:{id:string,acronym:string,name:string}[],sectors:{code:string,name?:string|null}[],dark?:boolean}){
+export function ArrangeControls({view,onChange,orgs,sectors,dark=false,noFilters=false}:{view:OsView,onChange:(p:Partial<OsView>)=>void,orgs:{id:string,acronym:string,name:string}[],sectors:{code:string,name?:string|null}[],dark?:boolean,noFilters?:boolean}){
  const a=view.arrange,f=view.filter;
  const set=(p:Partial<Arrange>)=>onChange({arrange:{...a,...p}});
  const sectorOpts=[...sectors.map(s=>({value:s.code,label:s.name?`${s.code} · ${s.name}`:s.code})),{value:NO_SECTOR,label:'Sem setor'}];
@@ -70,13 +70,13 @@ export function ArrangeControls({view,onChange,orgs,sectors,dark=false}:{view:Os
     <div className="arrange-field"><span>OS em cada setor</span>{dirButton(a.dir,'dir',['Do início planejado mais antigo para o mais distante','Do início planejado mais distante para o mais antigo'])}</div></>}
    {a.mode==='status'&&<p className="arrange-note" title={STATUS_GROUPS.map(g=>`${g.label}: ${g.note}`).join('\n')}>Prioridade fixa: em andamento → em atraso → previstas → canceladas. O sentido não se aplica a este modo.</p>}
   </div>
-  <div className="arrange-row">
+  {!noFilters&&<div className="arrange-row">
    <MultiPick label="Solicitante" all="Todos" options={orgs.map(o=>({value:o.id,label:`${o.acronym} · ${o.name}`}))} value={f.orgs} onChange={orgs=>onChange({filter:{...f,orgs}})}/>
    <MultiPick label="Setor" all="Todos" options={sectorOpts} value={f.sectors} onChange={sectors=>onChange({filter:{...f,sectors}})}/>
    {(f.orgs.length>0||f.sectors.length>0)&&<div className="arrange-active" aria-label="Filtros ativos">
     {f.orgs.map(o=><button key={'o'+o} type="button" onClick={()=>onChange({filter:{...f,orgs:f.orgs.filter(x=>x!==o)}})} aria-label={`Remover solicitante ${orgName(o)}`}>{orgName(o)} <X size={12} aria-hidden/></button>)}
     {f.sectors.map(s=><button key={'s'+s} type="button" onClick={()=>onChange({filter:{...f,sectors:f.sectors.filter(x=>x!==s)}})} aria-label={`Remover setor ${sectorName(s)}`}>{sectorName(s)} <X size={12} aria-hidden/></button>)}
     <button type="button" className="text-action" onClick={()=>onChange({filter:EMPTY_FILTER})}>Limpar filtros</button></div>}
-  </div>
+  </div>}
  </div>;
 }
