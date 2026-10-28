@@ -21,6 +21,16 @@ export function Toggle({title,description,checked,onChange}:{title:string,descri
 export function OrgTag({org}:{org?:R|null}){if(!org)return <span className="pending-text">Sem organização</span>;const hex=org.color.replace('#','');const [r,g,b]=[0,2,4].map(i=>{const c=parseInt(hex.slice(i,i+2),16)/255;return c<=0.03928?c/12.92:((c+0.055)/1.055)**2.4});const light=0.2126*r+0.7152*g+0.0722*b>0.179;return <span className="org-tag" style={{background:org.color,color:light?'#071d2b':'#fff'}} title={org.name}>{org.acronym}<small>{org.name}</small></span>}
 export const fmt=(s:string,short=false)=>new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',...(short?{}:{year:'numeric',hour:'2-digit',minute:'2-digit'})}).format(new Date(s)).replace(',','');
 /** Unidade no singular quando a quantidade é 1 (1 cilindro, 2 cilindros); siglas (L, kg, m³) não mudam. */
+/** Período numa linha só: "24/10/2026 07:00 → 14:00" no mesmo dia; data nas duas pontas quando
+ * muda o dia; "→ em curso" sem fim. Usado em listas e cabeçalhos (início e fim lado a lado). */
+export function periodText(a?:string|null,b?:string|null,open='em curso'){
+ if(!a)return '—';
+ // Ano corrente fica implícito (mais curto); outro ano aparece por extenso.
+ const year=String(new Date().getFullYear()),short=(v:string)=>v.slice(6,10)===year?v.slice(0,5)+v.slice(10):v;
+ const x=fmt(a);if(!b)return `${short(x)} → ${open}`;
+ const y=fmt(b);return x.slice(0,10)===y.slice(0,10)?`${short(x)} → ${y.slice(11)}`:`${short(x)} → ${short(y)}`;
+}
+export function Period({a,b,open}:{a?:string|null,b?:string|null,open?:string}){return <span className="period-line" title={a?`${fmt(a)} → ${b?fmt(b):open||'em curso'}`:undefined}>{periodText(a,b,open)}</span>}
 export const unitFor=(n:number,unit:string)=>Math.abs(n)===1&&/^[a-zà-ú]{4,}s$/i.test(unit)?unit.slice(0,-1):unit;
 export async function post(path:string,body:R){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const j:R=await r.json().catch(()=>({}));if(r.status===401){window.location.reload();throw new Error('Sua sessão expirou. Entre novamente.')}if(!r.ok)throw new Error(j.error||'Não foi possível salvar.');return j}
 export async function load<T>(path:string):Promise<T>{const r=await fetch('/api/'+path,{cache:'no-store'});const j=await r.json().catch(()=>({error:'Não foi possível carregar.'}));if(r.status===401){window.location.reload();throw new Error('Sua sessão expirou.')}if(!r.ok)throw new Error(j.error||'Não foi possível carregar.');return j as T}

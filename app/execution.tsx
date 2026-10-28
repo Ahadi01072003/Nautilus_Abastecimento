@@ -3,7 +3,7 @@
 // apontamentos, checklists e histórico. Os horários vêm do servidor; o relógio da tela
 // só anda entre as atualizações (nunca é a referência gravada).
 import {useCallback,useEffect,useMemo,useState,FormEvent} from 'react';
-import {Play,Pause,Square,Ban,RotateCcw,MessageSquarePlus,ListChecks,History,AlertTriangle,CheckCircle2,Lock,Clock,LoaderCircle,Truck,Users,ShieldAlert,ArrowRight,FileText,FileSpreadsheet} from 'lucide-react';
+import {Play,Pause,Square,Ban,RotateCcw,MessageSquarePlus,ListChecks,History,AlertTriangle,CheckCircle2,Lock,Clock,LoaderCircle,Truck,Users,ShieldAlert,ArrowRight,FileText} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
@@ -11,7 +11,7 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
-import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,fromLocalInput,type R} from './kit';
+import {Choice,Badge,Empty,Field,Toggle,OrgTag,fmt,post,load,fromLocalInput,Period,type R} from './kit';
 import {osLabel} from './planning';
 import OsRuler,{effective} from './os-ruler';
 import {Digits,hms} from './ops-board';
@@ -61,7 +61,8 @@ export default function OrderExecution({orderId,onChanged}:{orderId:string,onCha
   if(s.status==='concluida')return deviation(Date.parse(s.actual_end),pe);
   return s.status==='cancelada'?'Cancelada com a OS':'Dispensada';};
  const active=steps.filter(s=>['em_execucao','bloqueada','pausada'].includes(s.status));
- const occ=(data.occurrences as R[]).filter(o=>!sel||o.os_step_id===sel.id);
+ // Apontamentos (ocorrências, impactos e bloqueios juntos): do registro mais recente para o mais antigo.
+ const occ=(data.occurrences as R[]).filter(o=>!sel||o.os_step_id===sel.id).sort((x,y)=>Date.parse(y.registered_at)-Date.parse(x.registered_at)||String(y.id).localeCompare(String(x.id)));
  const name=(id:string)=>steps.find(s=>s.id===id)?.plan.name||'—';
  const open=(kind:Action['kind'],step?:R,item?:R)=>{setFormError('');setAction({kind,step,item,key:crypto.randomUUID()});setForm({kind:'ocorrencia',categoryId:'',description:'',reason:'',resolution:'',occurredAt:localNow(),severity:'media',blocking:false,impactStart:'',impactEnd:'',equipmentId:''})};
  const iso=fromLocalInput;
@@ -92,7 +93,9 @@ export default function OrderExecution({orderId,onChanged}:{orderId:string,onCha
     <div className="row"><span className="id">{osLabel(order.number)} · {plan.free?(order.activity_code||'sem fluxo'):`${plan.activity_code} v${plan.flow_version}`}{order.origin==='realizada'?' · realizada sem planejamento':''}{order.revision?` · revisão ${order.revision}`:''}</span><span className="row" style={{gap:10}}>{active.some(s=>s.status==='bloqueada')&&<span className="st bloqueada"><i/>Etapa bloqueada</span>}<span className={`st ${order.status}`}><i/>{orderNames[order.status][0]}</span></span></div>
     <h2>{order.activity_name}</h2>
    </div>
-   <dl className="facts"><div><dt>Solicitante</dt><dd><OrgOf data={data}/></dd></div><div><dt>Planejado</dt><dd>{fmt(order.planned_start)} → {fmt(order.planned_end)}</dd></div><div><dt>Real</dt><dd>{order.actual_start?`${fmt(order.actual_start)} → ${order.actual_end?fmt(order.actual_end):'em curso'}`:'Não iniciada'}</dd></div><div><dt>Etapas</dt><dd>{done} de {steps.length} concluídas{order.closed_at?` · encerrada ${fmt(order.closed_at)}`:''}</dd></div></dl>
+   <dl className="facts"><div><dt>Solicitante</dt><dd><OrgOf data={data}/></dd></div><div><dt>Planejado</dt><dd><Period a={order.planned_start} b={order.planned_end}/></dd></div><div><dt>Real</dt><dd>{order.actual_start?<Period a={order.actual_start} b={order.actual_end}/>:'Não iniciada'}</dd></div><div><dt>Etapas</dt><dd>{done} de {steps.length} concluídas{order.closed_at?` · encerrada ${fmt(order.closed_at)}`:''}</dd></div></dl>
+   {/* Descrição da atividade: entre o cabeçalho da OS e a régua. */}
+   <section className="os-desc" aria-label="Descrição da atividade"><span className="lab">Descrição da atividade</span><p>{plan.description?.trim()||'Sem descrição informada no planejamento.'}</p></section>
    {data.impediments.length>0&&<div className="form-error"><ShieldAlert size={17}/><span>{(data.impediments as R[]).map(i=>`${i.tag} bloqueado (${i.kind==='nc_critica'?'NC crítica':'impedimento técnico'}): ${i.reason}`).join(' · ')}. Aguardando liberação técnica ou substituição pelo Planejamento.</span></div>}
    {order.status==='cancelada'&&<div className="form-error"><Ban size={17}/><span>OS cancelada{order.cancelled_at?` em ${fmt(order.cancelled_at)}`:''}: {order.cancel_reason||'sem justificativa registrada'}</span></div>}
    {order.status==='encerramento_pendente'&&<div className="notice warn"><AlertTriangle size={17}/><span>Todas as etapas terminaram. Falta concluir checklist obrigatório para encerrar a OS (aba Checklists).</span></div>}
@@ -143,7 +146,7 @@ export default function OrderExecution({orderId,onChanged}:{orderId:string,onCha
    </div>:<div className="stepbox"><span className="lab">Etapas</span><span className="note">Escolha uma etapa na régua (passe o mouse para abrir) ou nos botões abaixo dela para iniciar, pausar, bloquear, finalizar ou registrar apontamentos.</span>
     {active.length>0&&<div className="acts">{active.map(s=><button key={s.id} type="button" onClick={()=>setSelected(s.id)}>{s.plan.name} · {stepNames[s.status][0].toLowerCase()}</button>)}</div>}</div>}
    {!can.execute&&<span className="note">Consulta: registrar execução exige o acesso “Operação”.</span>}
-   <div className="links"><a href={`/relatorio/${order.id}`} target="_blank" rel="noopener"><FileText size={14}/>Relatório PDF</a><a href={`/api/ops/order.xlsx?id=${encodeURIComponent(order.id)}`}><FileSpreadsheet size={14}/>Planilha Excel</a>{can.plan&&['programada','em_andamento'].includes(order.status)&&<button type="button" className="danger-link" onClick={()=>open('cancel')} title="Somente planejador ou gestor, com justificativa"><Ban size={14}/>Cancelar OS</button>}</div>
+   <div className="links"><a href={`/relatorio/${order.id}`} target="_blank" rel="noopener"><FileText size={14}/>Relatório PDF</a>{can.cancel&&['programada','em_andamento'].includes(order.status)&&<button type="button" className="danger-link" onClick={()=>open('cancel')} title="Somente perfil Planejador ou Gestão, com justificativa"><Ban size={14}/>Cancelar OS</button>}</div>
   </aside>
 
   <Dialog open={!!action} onOpenChange={v=>{if(!busy&&!v)setAction(null)}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><Clock size={16}/> {osLabel(order.number)}{action?.step?` · ${action.step.plan.name}`:''}</div><DialogTitle>{{block:'Bloquear etapa',note:'Registrar apontamento',pause:'Pausar etapa',finish:'Finalizar etapa',resolve:'Registrar resolução',dispense:'Dispensar etapa',cancel:'Cancelar OS'}[action?.kind||'block']}</DialogTitle><DialogDescription>{action?.kind==='cancel'?(order.status==='em_andamento'?'A OS já começou: as etapas abertas serão encerradas agora como canceladas, os períodos de trabalho ficam registrados e os equipamentos são liberados. Não pode ser desfeito.':'A OS deixa de valer e as reservas de equipamento são liberadas. Não pode ser desfeito.'):action?.kind==='block'?'Interrompe o tempo efetivo da etapa; o prazo continua correndo. A retomada exige resolver o bloqueio.':action?.kind==='finish'?'Registra o término real agora. Etapa bloqueada só termina informando como o impedimento foi resolvido.':action?.kind==='dispense'?'A etapa não será executada. Dependentes deixam de esperar por ela e as reservas dela são liberadas.':action?.kind==='resolve'?'A resolução fica registrada. Retomar a etapa é uma ação separada.':'O registro fica ligado à etapa e não pode ser apagado.'}</DialogDescription></DialogHeader>

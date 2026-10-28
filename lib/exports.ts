@@ -10,6 +10,8 @@ import {xlsx,csv,zip,type Sheet,type Cell} from './files';
 
 const LIMIT=10000,TOTAL=30000;
 const d=(v:unknown):Cell=>v?new Date(String(v)):null;
+/** Só a data (dd/mm/aaaa), no horário de Brasília. */
+const day=(v:unknown):Cell=>v?new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo'}).format(new Date(String(v))):null;
 const min=(v:unknown)=>v===null||v===undefined?null:Math.round(Number(v)/60);
 const local=(v:unknown)=>v?new Date(String(v)).toLocaleString('sv-SE',{timeZone:'America/Sao_Paulo'}):'';
 const ORDER:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
@@ -18,7 +20,6 @@ const KIND:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto',blo
 const EVENT:Record<string,string>={pausa:'Pausa',bloqueio:'Bloqueio',nc_critica:'NC crítica',interrupcao_tecnica:'Interrupção técnica'};
 const MOMENT:Record<string,string>={pre_atividade:'Pré-atividade',pre_uso:'Pré-uso',durante:'Durante',pos_atividade:'Pós-atividade'};
 const SUPPLY:Record<string,string>={confirmed:'Confirmado',cancelled:'Cancelado'};
-const RESERVATION:Record<string,string>={confirmada:'Confirmada',provisoria:'Provisória',liberada:'Liberada'};
 /** Horas com uma casa (planilha soma e filtra como número). */
 const hours=(seconds:unknown)=>Math.round(Number(seconds||0)/360)/10;
 
@@ -78,28 +79,17 @@ export const DATASETS:Record<string,Def>={
   select:'x.*,c.name category_name,p.name step_name,w.number',where:osWhere,
   columns:['OS','Etapa','Tipo','Bloqueia','Categoria','Descrição','Severidade','Ocorrido em','Registrado em','Lançamento tardio','Autor','Impacto: início','Impacto: fim','Situação','Resolução','Resolvido por','Resolvido em','ID da OS'],
   map:r=>[osNumber(r.number),r.step_name,KIND[r.kind],r.blocking?'Sim':'Não',r.category_name,r.description,r.severity,d(r.occurred_at),d(r.registered_at),r.late?'Sim':'Não',r.author_name,d(r.impact_start),d(r.impact_end),r.status==='resolvido'?'Resolvido':'Aberto',r.resolution,r.resolved_by_name,d(r.resolved_at),r.work_order_id]},
- equipamentos_os:{label:'Equipamentos por OS',group:'operacao',
-  from:`FROM work_orders w JOIN activity_types t ON t.id=w.activity_type_id JOIN requester_orgs o ON o.id=w.org_id LEFT JOIN locations l ON l.id=w.location_id`,order:'w.planned_start,w.number',
-  // Planejados: equipamentos reservados na versão vigente da OS. Usados: os das etapas que tiveram trabalho registrado.
-  select:`w.*,coalesce(nullif(w.title,''),t.name) activity_name,o.acronym org_acronym,l.name location_name,
-   (SELECT count(DISTINCT r.equipment_id) FROM reservations r WHERE r.plan_id=w.current_plan_id)::int planned,
-   (SELECT count(DISTINCT r.equipment_id) FROM reservations r JOIN os_steps s ON s.plan_step_id=r.plan_step_id WHERE r.plan_id=w.current_plan_id AND EXISTS(SELECT 1 FROM step_intervals i WHERE i.os_step_id=s.id AND i.kind='ativo'))::int used,
-   (SELECT string_agg(DISTINCT e.tag,', ') FROM reservations r JOIN equipment e ON e.id=r.equipment_id WHERE r.plan_id=w.current_plan_id) tags,
-   (SELECT coalesce(sum(extract(epoch FROM (r.end_at::timestamptz-r.start_at::timestamptz))),0) FROM reservations r WHERE r.plan_id=w.current_plan_id AND r.status<>'liberada')::float8 reserved_s,
-   (SELECT coalesce(sum(extract(epoch FROM (coalesce(i.end_at::timestamptz,now())-i.start_at::timestamptz))),0) FROM reservations r JOIN os_steps s ON s.plan_step_id=r.plan_step_id JOIN step_intervals i ON i.os_step_id=s.id AND i.kind='ativo' WHERE r.plan_id=w.current_plan_id)::float8 used_s`,
-  where:osWhere,
-  columns:['OS','Código','Atividade','Situação','Solicitante (sigla)','Local','Início planejado','Fim planejado','Equipamentos planejados','Equipamentos usados','TAGs','Horas reservadas (ativas)','Horas de uso (trabalho das etapas)','ID da OS'],
-  map:r=>[osNumber(r.number),r.code,r.activity_name,ORDER[r.status],r.org_acronym,r.location_name,d(r.planned_start),d(r.planned_end),r.planned,r.used,r.tags,hours(r.reserved_s),hours(r.used_s),r.id]},
- equipamentos:{label:'Usos de equipamentos',group:'operacao',
-  from:`FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id JOIN activity_types t ON t.id=w.activity_type_id JOIN requester_orgs o ON o.id=w.org_id LEFT JOIN locations l ON l.id=w.location_id
-   JOIN plan_steps ps ON ps.id=r.plan_step_id LEFT JOIN locations sl ON sl.id=ps.location_id LEFT JOIN os_steps s ON s.plan_step_id=ps.id JOIN equipment e ON e.id=r.equipment_id LEFT JOIN equipment_types et ON et.id=e.type_id`,
-  order:'w.number,ps.position,e.tag',
-  select:`r.start_at,r.end_at,r.status reservation_status,r.release_reason,e.tag,e.description equipment_description,et.name type_name,ps.name step_name,s.status step_status,w.id wid,w.number,w.status,w.code,
-   coalesce(nullif(w.title,''),t.name) activity_name,o.acronym org_acronym,coalesce(sl.name,l.name) location_name,extract(epoch FROM (r.end_at::timestamptz-r.start_at::timestamptz))::float8 reserved_s,
-   (SELECT coalesce(sum(extract(epoch FROM (coalesce(i.end_at::timestamptz,now())-i.start_at::timestamptz))),0) FROM step_intervals i WHERE i.os_step_id=s.id AND i.kind='ativo')::float8 used_s`,
-  where:osWhere,
-  columns:['OS','Código','Atividade','Situação da OS','Solicitante (sigla)','Etapa','Situação da etapa','Local','TAG','Equipamento','Tipo','Reserva: início','Reserva: fim','Horas reservadas','Horas de uso (trabalho da etapa)','Usado','Situação da reserva','Motivo da liberação','ID da OS'],
-  map:r=>[osNumber(r.number),r.code,r.activity_name,ORDER[r.status],r.org_acronym,r.step_name,r.step_status?STEP[r.step_status]:null,r.location_name,r.tag,r.equipment_description,r.type_name,d(r.start_at),d(r.end_at),hours(r.reserved_s),hours(r.used_s),Number(r.used_s)>0?'Sim':'Não',RESERVATION[r.reservation_status]||r.reservation_status,r.release_reason,r.wid]},
+ // Uma exportação só de equipamentos: uma linha por OS × etapa × equipamento planejado (OS
+ // canceladas ficam de fora), com a data do uso e as horas planejadas da reserva.
+ equipamentos:{label:'Equipamentos por OS',group:'operacao',
+  from:`FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id JOIN activity_types t ON t.id=w.activity_type_id
+   JOIN plan_steps ps ON ps.id=r.plan_step_id JOIN equipment e ON e.id=r.equipment_id LEFT JOIN equipment_types et ON et.id=e.type_id`,
+  order:'r.start_at::timestamptz,w.number,ps.position,e.tag',
+  select:`r.start_at,e.tag,et.name type_name,ps.name step_name,t.system free,w.number,coalesce(nullif(w.title,''),t.name) activity_name,
+   extract(epoch FROM (r.end_at::timestamptz-r.start_at::timestamptz))::float8 planned_s`,
+  where:(f,v)=>{const [w,x]=osWhere(f,v);return [[...w,"w.status<>'cancelada'"],x];},
+  columns:['OS','Data','Atividade','Etapa','Tipo de equipamento','TAG do equipamento','Horas planejadas'],
+  map:r=>[osNumber(r.number),day(r.start_at),r.activity_name,r.free?null:r.step_name,r.type_name,r.tag,hours(r.planned_s)]},
  checklists:{label:'Checklists',group:'operacao',from:`FROM checklist_instances i JOIN checklist_versions v ON v.id=i.version_id JOIN checklist_templates ct ON ct.id=v.template_id ${OS_JOIN}i.work_order_id LEFT JOIN equipment eq ON eq.id=i.equipment_id`,order:'w.number,i.created_at',
   select:`i.*,v.title,v.version,v.moment,ct.code,eq.tag equipment_tag,w.number,(SELECT count(*) FROM checklist_answers a WHERE a.instance_id=i.id)::int answers,(SELECT count(*) FROM checklist_answers a WHERE a.instance_id=i.id AND a.answer='NC')::int nc`,
   where:osWhere,columns:['OS','Checklist','Versão','Momento','Equipamento','Situação','Respostas','NC','Iniciado por','Iniciado em','Concluído por','Concluído em','ID da OS'],

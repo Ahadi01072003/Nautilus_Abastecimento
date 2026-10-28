@@ -1,7 +1,7 @@
 // Painel central: resumo de cada módulo e avisos de todo o sistema, conforme o acesso de quem vê.
 // Cada aviso leva à tela (e ao item) de origem. Nenhum dado de fora do escopo da pessoa entra aqui.
 import {db,type Row} from './db';
-import {type Member,isManager,has,canSeeOrders,loadAccess} from './permissions';
+import {type Member,isManager,has,canPlan,canSeeOrders,loadAccess} from './permissions';
 import {preventiveRows} from './maintenance';
 import {osNumber} from './planning';
 import {localDay,dateOf} from './maintenance-cycle';
@@ -32,12 +32,14 @@ export async function centralState(member:Member){
   for(const r of requests){const late=Date.parse(r.deadline)<t;alerts.push({id:'req:'+r.id,module:'abastecimento',severity:late?'critico':'atencao',title:`Reposição de ${r.name} ${late?'vencida':'pendente'}`,detail:`${qty(r.requested_milli-r.received_milli,r.unit)} a receber · prazo ${new Date(r.deadline).toLocaleDateString('pt-BR',{timeZone:'America/Sao_Paulo'})}`,at:r.opened_at,link:{view:'alertas'}});}
   out.sections.abastecimento={fuels:fuels.map(f=>({id:f.id,name:f.name,unit:f.unit,stock:f.stock_milli/1000,minimum:f.minimum_milli/1000,capacity:f.capacity_milli/1000,low:f.stock_milli<=f.minimum_milli})),requests:requests.length};
  }
- if(a.profile!=='none'){
-  const mine=a.profile==='requester'?' AND requester_id=?':'';
+ if(has(a,'abastecimento')){
+  // Quem tem o módulo sem agendar nem registrar acompanha só as próprias solicitações.
+  const own=!manager&&a.profile!=='fueler'&&!canPlan(a);
+  const mine=own?' AND requester_id=?':'';
   const ap=await all(`SELECT status,count(*)::int n,count(*) FILTER (WHERE status='scheduled' AND scheduled_at::timestamptz < now())::int late FROM appointments WHERE status IN ('requested','scheduled')${mine} GROUP BY status`,...(mine?[a.id]:[]));
   const requested=ap.find(x=>x.status==='requested')?.n||0,scheduled=ap.find(x=>x.status==='scheduled')?.n||0,lateScheduled=ap.find(x=>x.status==='scheduled')?.late||0;
-  out.sections.solicitacoes={requested,scheduled,lateScheduled,own:a.profile==='requester'};
-  if((a.profile==='planner'||manager)&&requested)alerts.push({id:'appt:requested',module:'abastecimento',severity:'atencao',title:`${requested} solicitação(ões) de abastecimento aguardando agendamento`,detail:'Defina horário e responsável.',at:null,link:{view:'solicitacoes'}});
+  out.sections.solicitacoes={requested,scheduled,lateScheduled,own};
+  if(canPlan(a)&&requested)alerts.push({id:'appt:requested',module:'abastecimento',severity:'atencao',title:`${requested} solicitação(ões) de abastecimento aguardando agendamento`,detail:'Defina horário e responsável.',at:null,link:{view:'solicitacoes'}});
   if((a.profile==='fueler'||manager)&&lateScheduled)alerts.push({id:'appt:late',module:'abastecimento',severity:'atencao',title:`${lateScheduled} abastecimento(s) agendado(s) com horário vencido`,detail:'Registre o abastecimento ou reagende.',at:null,link:{view:a.profile==='fueler'?'abastecimentos':'solicitacoes'}});
  }
 
@@ -76,7 +78,7 @@ export async function centralState(member:Member){
   const drafts=await all(`SELECT p.id,p.updated_at,p.author_name,p.work_order_id,(SELECT count(*)::int FROM reservations r WHERE r.plan_id=p.id AND r.status='provisoria') reservations
    FROM plans p WHERE p.status='draft'${manager?'':' AND p.author_id=?'}`,...(manager?[]:[a.id]));
   const stale=drafts.filter(d=>d.reservations>0&&t-Date.parse(d.updated_at)>3*DAY);
-  if(stale.length)alerts.push({id:'drafts:stale',module:'planejamento',severity:'info',title:`${stale.length} rascunho(s) parado(s) há mais de 3 dias segurando equipamentos`,detail:manager?'Libere as reservas dos esquecidos ou peça para lançar.':'Lance ou descarte para liberar os equipamentos.',at:null,link:{view:'plan-rascunhos'}});
+  if(stale.length)alerts.push({id:'drafts:stale',module:'planejamento',severity:'info',title:`${stale.length} rascunho(s) parado(s) há mais de 3 dias segurando equipamentos`,detail:manager?'Libere as reservas dos esquecidos ou peça para lançar.':'Lance ou descarte para liberar os equipamentos.',at:null,link:{view:'plan-atividade'}});
   out.sections.planejamento={drafts:drafts.length,revisions:drafts.filter(d=>d.work_order_id).length,stale:stale.length};
  }
 

@@ -16,18 +16,18 @@ let orgA:string,orgB:string,loc:string,typeEmp:string,fnOp:string,flow:string,op
 const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects(p,(e:{status?:number;message:string})=>{if(status)assert.equal(e.status,status,e.message);if(pattern)assert.match(e.message,pattern);return true;});
 const pgRejects=(p:Promise<unknown>,pattern:RegExp)=>assert.rejects(p,(e:{message:string})=>{assert.match(e.message,pattern);return true;});
 const at=(day:number,h:number,m=0)=>new Date(Date.UTC(2031,0,day,h+3,m)).toISOString(); // horário de Brasília em janeiro de 2031
-const set=async(who:Member,caps:string[],profile='requester',orgScope:string[]=[])=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps,orgScope},manager);return {...who,profile,capabilities:caps.includes('manutencao')?[...new Set([...caps,'cadastros'])]:caps} as Member;};
+const set=async(who:Member,caps:string[],profile='fueler',orgScope:string[]=[])=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps,orgScope},manager);return {...who,profile,capabilities:caps.includes('manutencao')?[...new Set([...caps,'cadastros'])]:caps} as Member;};
 
 before(async()=>{
  ctx=await freshDatabase();db=ctx.database;await seedOperation(db);
  manager=await addMember(db,'manager',{mustChange:false});
  planner=await set(await addMember(db,'planner'),['planejamento'],'planner');
- planner2=await set(await addMember(db,'requester'),['planejamento']);
+ planner2=await set(await addMember(db,'fueler'),['planejamento']);
  tech=await set(await addMember(db,'fueler'),['manutencao'],'fueler');
  const reg=(p:string,b:Row)=>registryMutate('registry/'+p,b,manager) as Promise<{id:string}>;
  orgA=(await reg('orgs',{name:'Operação interna',acronym:'OPS',category:'interna',color:'#103B52'})).id;
  orgB=(await reg('orgs',{name:'Cliente B',acronym:'CLB',category:'cliente',color:'#F2C94C'})).id;
- client=await set(await addMember(db,'requester'),['acompanhamento'],'none',[orgB]);
+ client=await set(await addMember(db,'fueler'),['acompanhamento'],'fueler',[orgB]);
  loc=(await reg('locations',{kind:'unidade',name:'Base Açu'})).id;
  typeEmp=(await reg('equipment-types',{name:'Empilhadeira'})).id;
  await db.run('UPDATE equipment SET type_id=? WHERE id IN (\'eq1\',\'eq2\')',typeEmp);
@@ -59,8 +59,10 @@ const complete=(day:number,eq='eq1')=>({patch:{orgId:orgA,locationId:loc,planned
 }});
 
 test('acessos: módulos do planejamento, da operação e do cliente',()=>{
- assert.ok(modules(planner).includes('plan-atividade')&&modules(planner).includes('op-os'));
- assert.deepEqual(modules(client),['painel','op-painel','op-os','exportacao']);
+ // Só o módulo principal do perfil e os módulos dos acessos adicionais.
+ assert.ok(modules(planner).includes('plan-atividade')&&!modules(planner).includes('plan-rascunhos'));
+ assert.equal(modules(planner).includes('op-os'),(planner.capabilities||[]).includes('operacao')||planner.profile==='manager');
+ assert.deepEqual(modules(client),['painel','solicitacoes','abastecimentos','op-painel','op-os','exportacao']);
  assert.ok(!modules(tech).includes('plan-atividade'));
 });
 
@@ -114,7 +116,8 @@ test('lançamento: pendências impedem; lançamento idempotente congela o planej
  assert.ok(v.errors.some(e=>/começa antes do fim de “Preparação”/.test(e.message)));
  assert.ok(v.warnings.some(w=>/Conferência.*não foi incluída/.test(w.message))===false,'aviso só para quem depende da opcional');
  await save(id,{},{'move-0001':{plannedStart:at(20,10),plannedEnd:at(20,12),operatorIds:[]}});
- assert.ok((await validateDraft(planner,id)).errors.some(e=>/faltam 1 colaborador/.test(e.message)));
+ // Falta de colaborador na função: aviso, não pendência (só equipamento bloqueia).
+ {const w=await validateDraft(planner,id);assert.ok(w.warnings.some(e=>/faltam 1 de 1 colaborador/.test(e.message)));assert.ok(!w.errors.some(e=>/colaborador/.test(e.message)));}
  await save(id,{},{'move-0001':{operatorIds:[opIds[0]]}});
  assert.deepEqual((await validateDraft(planner,id)).errors,[]);
  const version=(await plan(id)).version;
@@ -183,7 +186,7 @@ test('escopo: cliente vê só as OS da sua organização, sem abastecimento',asy
  await rejects(planningMutate('planning/create',{activityTypeId:flow},client),403);
  assert.deepEqual((await state(client)).appointments,[]);
  // O escopo é editável pelo gestor: sem escopo, vê todas.
- const all=await set(client,['acompanhamento'],'none',[]);
+ const all=await set(client,['acompanhamento'],'fueler',[]);
  assert.ok((await ordersList(all,new URL('http://x/'))).orders.some(o=>o.id===a.workOrderId));
- await set(client,['acompanhamento'],'none',[orgB]);
+ await set(client,['acompanhamento'],'fueler',[orgB]);
 });

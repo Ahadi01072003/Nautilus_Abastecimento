@@ -20,7 +20,7 @@ const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects
 const pgRejects=(p:Promise<unknown>,pattern:RegExp)=>assert.rejects(p,(e:{message:string})=>{assert.match(e.message,pattern);return true;});
 const at=(day:number,h:number,m=0)=>new Date(Date.UTC(2031,1,day,h+3,m)).toISOString();
 const key=()=>crypto.randomUUID();
-const set=async(who:Member,caps:string[],profile='requester')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
+const set=async(who:Member,caps:string[],profile='fueler')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
 const ops=(path:string,b:Row,who:Member=operator)=>operationMutate('ops/'+path,{operationKey:key(),...b},who) as Promise<Row>;
 const q=(c:string)=>({text:c,required:true,critical:false,target:'atividade',allowNa:true,noteOn:['NC']});
 
@@ -28,8 +28,8 @@ before(async()=>{
  ctx=await freshDatabase();db=ctx.database;await seedOperation(db);
  manager=await addMember(db,'manager',{mustChange:false});
  planner=await set(await addMember(db,'planner'),['planejamento'],'planner');
- operator=await set(await addMember(db,'none'),['operacao'],'none');
- viewer=await set(await addMember(db,'none'),['acompanhamento'],'none');
+ operator=await set(await addMember(db,'operator'),[],'operator');
+ viewer=await set(await addMember(db,'fueler'),['acompanhamento'],'fueler');
  const reg=(p:string,b:Row)=>registryMutate('registry/'+p,b,manager) as Promise<{id:string}>;
  org=(await reg('orgs',{name:'Operação',acronym:'OPS',category:'interna',color:'#103B52'})).id;
  loc=(await reg('locations',{kind:'unidade',name:'Base Açu'})).id;
@@ -246,8 +246,8 @@ test('painel de OS, planilha, relatório e exportação: escopo, tempo efetivo s
 
  // Escopo: quem só vê outra organização não enxerga a OS em nenhuma saída.
  const other=(await registryMutate('registry/orgs',{name:'Cliente B',acronym:'CLB',category:'cliente',color:'#F47A04'},manager) as {id:string}).id;
- const scoped=await addMember(db,'none');const m=await db.first('SELECT * FROM members WHERE id=?',scoped.id);
- await mutate('members',{id:scoped.id,username:m!.username,name:m!.name,role:'none',capabilities:['acompanhamento'],orgScope:[other]},manager);
+ const scoped=await addMember(db,'operator');const m=await db.first('SELECT * FROM members WHERE id=?',scoped.id);
+ await mutate('members',{id:scoped.id,username:m!.username,name:m!.name,role:'fueler',capabilities:['acompanhamento'],orgScope:[other]},manager);
  assert.ok(!(await opsBoard(scoped,url('ops/board?group=todas'))).orders.some(o=>o.id===wo));
  await rejects(orderWorkbook(scoped,wo),404);
  assert.equal((await exportPreview(scoped,url('export/preview?sets=os,apontamentos'))).counts.os,0);

@@ -13,8 +13,8 @@ let manager:Member,clerk:Member,planner:Member,requester:Member;
 before(async()=>{
  ctx=await freshDatabase();db=ctx.database;await seedOperation(db);
  manager=await addMember(db,'manager',{mustChange:false});
- clerk=await addMember(db,'requester');planner=await addMember(db,'planner');requester=await addMember(db,'requester');
- await mutate('members',{id:clerk.id,username:(clerk as Member&{username:string}).username,name:clerk.name,role:'requester',capabilities:['cadastros']},manager);
+ clerk=await addMember(db,'fueler');planner=await addMember(db,'planner');requester=await addMember(db,'fueler');
+ await mutate('members',{id:clerk.id,username:(clerk as Member&{username:string}).username,name:clerk.name,role:'fueler',capabilities:['cadastros']},manager);
  await mutate('members',{id:planner.id,username:(planner as Member&{username:string}).username,name:planner.name,role:'planner',capabilities:['planejamento']},manager);
  clerk={...clerk,capabilities:['cadastros']};planner={...planner,capabilities:['planejamento']};
 });
@@ -35,12 +35,12 @@ test('acessos: módulos por capacidade, revogação imediata e gestão de usuár
  const view=await registryState(clerk);
  assert.deepEqual(view.members,[]);assert.deepEqual(view.audits,[]);assert.equal('access' in view,false);
  // Capacidade inválida e gestor sem lista própria (já tem tudo).
- await rejects(mutate('members',{username:'x.y',name:'X',role:'requester',capabilities:['root']},manager),400,/inválido/);
+ await rejects(mutate('members',{username:'x.y',name:'X',role:'fueler',capabilities:['root']},manager),400,/inválido/);
  // Revogar o acesso vale na próxima ação, mesmo com a sessão aberta.
- const temp=await addMember(db,'requester');
- await mutate('members',{id:temp.id,username:(temp as Member&{username:string}).username,name:temp.name,role:'requester',capabilities:['cadastros']},manager);
+ const temp=await addMember(db,'fueler');
+ await mutate('members',{id:temp.id,username:(temp as Member&{username:string}).username,name:temp.name,role:'fueler',capabilities:['cadastros']},manager);
  await reg('functions',{name:'Sinaleiro'},{...temp,capabilities:['cadastros']});
- await mutate('members',{id:temp.id,username:(temp as Member&{username:string}).username,name:temp.name,role:'requester',capabilities:[]},manager);
+ await mutate('members',{id:temp.id,username:(temp as Member&{username:string}).username,name:temp.name,role:'fueler',capabilities:[]},manager);
  await rejects(reg('functions',{name:'Amarrador'},{...temp,capabilities:['cadastros']}),403);
 });
 

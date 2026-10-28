@@ -10,13 +10,15 @@ import {centralState} from '../lib/central';
 import {dateOf,localDay} from '../lib/maintenance-cycle';
 import type {Member} from '../lib/permissions';
 import type {Database,Row} from '../lib/db';
+/** Quem só solicita abastecimento: perfil de outro módulo com o acesso adicional Abastecimento. */
+const solicitante=async(d:Database)=>{const m=await addMember(d,'operator');await d.run("UPDATE members SET capabilities='{operacao,abastecimento}' WHERE id=?",m.id);return {...m,capabilities:['operacao','abastecimento']};};
 
 let ctx:Awaited<ReturnType<typeof freshDatabase>>,db:Database;
 let manager:Member,planner:Member,tech:Member,client:Member,requester:Member;
 let orgA:string,orgB:string,loc:string,flow:string;
 const key=()=>crypto.randomUUID();
 const ago=(h:number)=>new Date(Date.now()-h*3600000).toISOString();
-const set=async(who:Member,caps:string[],profile='requester',orgScope:string[]=[])=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps,orgScope},manager);return {...who,profile,capabilities:caps} as Member;};
+const set=async(who:Member,caps:string[],profile='fueler',orgScope:string[]=[])=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps,orgScope},manager);return {...who,profile,capabilities:caps} as Member;};
 const ids=(s:Row)=>(s.alerts as Row[]).map(a=>a.id as string);
 
 before(async()=>{
@@ -27,9 +29,9 @@ before(async()=>{
  orgB=(await reg('orgs',{name:'Cliente B',acronym:'CLB',category:'cliente',color:'#7A2B5F'})).id;
  loc=(await reg('locations',{kind:'unidade',name:'Base Açu'})).id;
  planner=await set(await addMember(db,'planner'),['planejamento'],'planner');
- tech=await set(await addMember(db,'none'),['manutencao'],'none');
- client=await set(await addMember(db,'none'),['acompanhamento'],'none',[orgA]);
- requester=await addMember(db,'requester');
+ tech=await set(await addMember(db,'maintainer'),[],'maintainer');
+ client=await set(await addMember(db,'fueler'),['acompanhamento'],'fueler',[orgA]);
+ requester=await solicitante(db);
  flow=(await flowsMutate('flows/save',{code:'CEN',name:'Atividade central',steps:[{key:'a-0001',name:'Única'}]},manager) as {id:string}).id;
 });
 after(async()=>{await ctx.drop();});
@@ -74,7 +76,8 @@ test('painel central: avisos e resumo conforme o acesso de cada pessoa',async()=
 
  // Solicitante: só o resumo das próprias solicitações.
  const r=await centralState(requester);
- assert.deepEqual(r.alerts,[]);assert.equal(r.sections.solicitacoes.own,true);assert.equal(r.sections.operacao,undefined);
+ // Perfil de outro módulo com o acesso Abastecimento: avisos de estoque e agenda são da equipe de abastecimento.
+ assert.ok(!r.alerts.some((x:Row)=>x.module==='abastecimento'));assert.equal(r.sections.solicitacoes.own,true);assert.equal(r.sections.abastecimento,undefined);
 });
 
 test('planejamento avisa quando o equipamento reservado tem preventiva vencida',async()=>{

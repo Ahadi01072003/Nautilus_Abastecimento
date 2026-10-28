@@ -18,7 +18,7 @@ let flow:string,org:string,loc:string;
 const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects(p,(e:{status?:number;message:string})=>{if(status)assert.equal(e.status,status,e.message);if(pattern)assert.match(e.message,pattern);return true;});
 const at=(day:number,h:number,m=0)=>new Date(Date.UTC(2032,2,day,h+3,m)).toISOString();
 const key=()=>crypto.randomUUID();
-const set=async(who:Member,caps:string[],profile='requester')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
+const set=async(who:Member,caps:string[],profile='fueler')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
 const ops=(path:string,b:Row,who:Member=operator)=>operationMutate('ops/'+path,{operationKey:key(),...b},who) as Promise<Row>;
 const revise=(path:string,b:Row,who:Member=planner)=>revisionMutate('planning/revision/'+path,b,who) as Promise<Row>;
 
@@ -27,8 +27,8 @@ before(async()=>{
  manager=await addMember(db,'manager',{mustChange:false});
  planner=await set(await addMember(db,'planner'),['planejamento'],'planner');
  planner2=await set(await addMember(db,'planner'),['planejamento'],'planner');
- operator=await set(await addMember(db,'none'),['operacao'],'none');
- viewer=await set(await addMember(db,'none'),['acompanhamento'],'none');
+ operator=await set(await addMember(db,'operator'),[],'operator');
+ viewer=await set(await addMember(db,'fueler'),['acompanhamento'],'fueler');
  const reg=(p:string,b:Row)=>registryMutate('registry/'+p,b,manager) as Promise<{id:string}>;
  org=(await reg('orgs',{name:'Operação',acronym:'OPS',category:'interna',color:'#103B52'})).id;
  loc=(await reg('locations',{kind:'unidade',name:'Base Açu'})).id;

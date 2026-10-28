@@ -2,7 +2,7 @@ import {pbkdf2,randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import {promisify} from 'node:util';
 import {db,env,type Executor} from './db';
 import {AppError} from './domain';
-import {profiles,type Member} from './permissions';
+import {profiles,effectiveCaps,type Member} from './permissions';
 
 const derive=promisify(pbkdf2);
 const ITERATIONS=310000,KEY_BYTES=32;
@@ -80,7 +80,8 @@ export async function sessionMember(token:string|undefined|null):Promise<(Member
  // Renova a validade por inatividade no máximo a cada 5 minutos.
  if(Date.parse(row.last_seen_at)<t-300_000)await db().run('UPDATE sessions SET last_seen_at=?,expires_at=? WHERE id=?',new Date(t).toISOString(),new Date(t+SESSION_IDLE_MS).toISOString(),id);
  const {session_created:_c,expires_at:_e,last_seen_at:_l,...member}=row;void _c;void _e;void _l;
- return member as Member&{must_change_password:number};
+ // Acessos efetivos: o módulo principal do perfil entra junto com os adicionais.
+ return {...member,capabilities:effectiveCaps(member.profile,member.capabilities)} as Member&{must_change_password:number};
 }
 
 const INVALID='Usuário ou senha inválidos.';

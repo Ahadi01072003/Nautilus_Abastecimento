@@ -29,7 +29,7 @@ test('política da senha definitiva',()=>{
 });
 
 test('primeiro acesso: login com senha padrão exige troca e libera depois',async()=>{
- const m=await addMember(db,'requester',{username:'joao.silva'});
+ const m=await addMember(db,'fueler',{username:'joao.silva'});
  const first=await login('JOAO.SILVA','Primeiro@2026');
  assert.equal(first.mustChangePassword,true);
  const session=await sessionMember(first.token);
@@ -66,20 +66,20 @@ test('bloqueio após 5 tentativas e desbloqueio pelo gestor',async()=>{
 });
 
 test('senha provisória expira após 7 dias',async()=>{
- await addMember(db,'requester',{username:'expirado'});
+ await addMember(db,'fueler',{username:'expirado'});
  await db.run("UPDATE members SET password_changed_at=? WHERE username='expirado'",new Date(Date.now()-8*86400000).toISOString());
  await rejects(login('expirado','Primeiro@2026'),401,/expirou/);
 });
 
 test('sessão expira por inatividade e é revogada ao desativar o usuário',async()=>{
  const manager=await addMember(db,'manager',{mustChange:false});
- const m=await addMember(db,'requester');
+ const m=await addMember(db,'fueler');
  const token=await createSession(m.id);
  assert.ok(await sessionMember(token));
  await db.run('UPDATE sessions SET expires_at=? WHERE member_id=?',new Date(Date.now()-1000).toISOString(),m.id);
  assert.equal(await sessionMember(token),null);
  const token2=await createSession(m.id);
- await mutate('members',{id:m.id,username:m.username,name:m.name,role:'requester',active:false},manager);
+ await mutate('members',{id:m.id,username:m.username,name:m.name,role:'fueler',active:false},manager);
  assert.equal(await sessionMember(token2),null);
  assert.equal(await sessionMember('token-invalido'),null);
  assert.equal(await sessionMember(undefined),null);
@@ -101,11 +101,11 @@ test('gestor cria usuário, redefine senha e não pode rebaixar a si mesmo',asyn
  assert.equal(await sessionMember(first.token),null);
  const again=await login('maria.souza','Temp1234');
  assert.equal(again.mustChangePassword,true);
- await rejects(mutate('members',{username:'outra',name:'X',role:'requester'},{...created,profile:'fueler',name:'Maria'}),403);
- await rejects(mutate('members',{username:'maria.souza',name:'Duplicada',role:'requester'},manager),409,/já está em uso/);
+ await rejects(mutate('members',{username:'outra',name:'X',role:'fueler'},{...created,profile:'fueler',name:'Maria'}),403);
+ await rejects(mutate('members',{username:'maria.souza',name:'Duplicada',role:'fueler'},manager),409,/já está em uso/);
  await rejects(mutate('members',{id:manager.id,username:manager.username,name:manager.name,role:'planner'},manager),400,/próprio acesso/);
  await rejects(mutate('members/reset-password',{id:manager.id},manager),400,/Minha conta/);
- await rejects(mutate('members',{username:'x y',name:'Inválido',role:'requester'},manager),400,/Usuário deve/);
+ await rejects(mutate('members',{username:'x y',name:'Inválido',role:'fueler'},manager),400,/Usuário deve/);
 });
 
 test('o banco preserva ao menos um gestor ativo',async()=>{
