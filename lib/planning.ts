@@ -6,6 +6,7 @@ import {AppError,required,text} from './domain';
 import {type Member,isManager,requireAny,canSeeOrders,canCancelOrders} from './permissions';
 import {audit,idList} from './registry';
 import {preventiveRows} from './maintenance';
+import {filterSectors} from './board';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -387,7 +388,9 @@ export async function ordersRefs(member:Member){
  const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
  const scope=scopeOf(a);
  const data=await refs();
- return {sectors:data.sectors,orgs:data.orgs.filter(o=>!scope||scope.includes(o.id)),people:data.people.filter(p=>!scope||scope.includes(p.org_id)),locations:data.locations,activityTypes:data.activityTypes,equipment:data.equipment,equipmentTypes:data.equipmentTypes,operators:data.operators,functions:data.functions,materials:data.materials,scoped:!!scope,canPlan:isManager(a)||(a.capabilities||[]).includes('planejamento'),canCancel:canCancelOrders(a)};
+ // Filtros: setor inativo sem nenhuma OS com o seu código não aparece (o formulário usa refs()).
+ const sectors=await filterSectors();
+ return {sectors,orgs:data.orgs.filter(o=>!scope||scope.includes(o.id)),people:data.people.filter(p=>!scope||scope.includes(p.org_id)),locations:data.locations,activityTypes:data.activityTypes,equipment:data.equipment,equipmentTypes:data.equipmentTypes,operators:data.operators,functions:data.functions,materials:data.materials,scoped:!!scope,canPlan:isManager(a)||(a.capabilities||[]).includes('planejamento'),canCancel:canCancelOrders(a)};
 }
 
 /** Tipo de atividade de sistema da OS sem fluxo: criado na primeira vez, com uma etapa de execução
