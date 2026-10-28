@@ -27,6 +27,8 @@ const BR=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-di
 const HM=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 const hm=(v:string)=>HM.format(new Date(v)).replace(':','h');
 /** “14/10/2026 das 08h00 às 10h00” (ou com as duas datas quando atravessa dias). */
+/** Data e hora curtas (Brasília): "03/11/2026 12h00". */
+const fmtDate=(v:string|Date)=>{const d=new Date(v);return `${BR.format(d)} ${hm(d.toISOString())}`;};
 export function period(start:string,end:string){const a=BR.format(new Date(start)),b=BR.format(new Date(end));return a===b?`${a} das ${hm(start)} às ${hm(end)}`:`${a} ${hm(start)} a ${b} ${hm(end)}`;}
 export const osNumber=(n:number)=>'OS '+String(n).padStart(6,'0');
 
@@ -83,13 +85,13 @@ async function conflictsMany(a:Actor,equipmentIds:string[],start:string,end:stri
  const out=new Map<string,Row[]>();
  if(!equipmentIds.length)return out;
  const rows=await all(`SELECT r.id,r.equipment_id,r.start_at,r.end_at,r.status,r.plan_id,r.plan_step_id,p.status plan_status,p.author_id,p.author_name,p.org_id,p.work_order_id,s.name step_name,w.number
-  ,(o.id IS NOT NULL) running
+  ,(o.id IS NOT NULL) running,s.planned_end step_end,greatest(r.end_at::timestamptz,s.planned_end::timestamptz,now()) busy_until
   FROM reservations r JOIN plans p ON p.id=r.plan_id JOIN plan_steps s ON s.id=r.plan_step_id LEFT JOIN work_orders w ON w.id=p.work_order_id
   LEFT JOIN os_steps o ON o.plan_step_id=r.plan_step_id AND o.status IN ('em_execucao','bloqueada','pausada')
   WHERE r.equipment_id = ANY(?::text[]) AND r.status<>'liberada' AND r.start_at::timestamptz < ?::timestamptz
-   AND (CASE WHEN o.id IS NOT NULL THEN 'infinity'::timestamptz ELSE r.end_at::timestamptz END) > ?::timestamptz ORDER BY r.start_at`,equipmentIds,end,start);
+   AND (CASE WHEN o.id IS NOT NULL THEN greatest(r.end_at::timestamptz,s.planned_end::timestamptz,now()) ELSE r.end_at::timestamptz END) > ?::timestamptz ORDER BY r.start_at`,equipmentIds,end,start);
  // Mesma regra do banco (reservation_guard): equipamento de etapa em execução, pausada ou bloqueada
- // segue ocupado até o término real da etapa, mesmo depois do fim reservado.
+ // segue ocupado até o fim previsto da etapa (ou até agora, se a etapa já passou do previsto).
  for(const r of labelled(a,rows,ignore)){const l=out.get(r.equipment_id)||[];l.push(r);out.set(r.equipment_id,l);}
  return out;
 }
@@ -100,7 +102,9 @@ function labelled(a:Actor,rows:Row[],ignore:{planId?:string,stepId?:string,workO
   const when=period(r.start_at,r.end_at);
   const label=r.plan_status==='draft'
    ?(own?`reserva provisória de planejamento (${r.plan_id===ignore.planId?'neste rascunho, ':''}etapa “${r.step_name}”, responsável ${r.author_name}), em ${when}`:`reserva provisória de planejamento em ${when}`)
-   :r.running?(inScope(a,r.org_id)?`em uso na etapa “${r.step_name}” da ${osNumber(r.number)}, ainda não finalizada (reserva ${when})`:`em uso em outra OS, etapa ainda não finalizada`)
+   :r.running?(()=>{const late=r.step_end&&ms(r.step_end)<Date.now();
+     const until=late?`passou do fim previsto (${fmtDate(r.step_end)}) e segue em uso até ser finalizada`:`ocupado até ${fmtDate(r.busy_until)}, fim previsto da etapa`;
+     return inScope(a,r.org_id)?`em uso na etapa “${r.step_name}” da ${osNumber(r.number)}, ainda não finalizada: ${until}`:`em uso em outra OS, etapa ainda não finalizada: ${until}`;})()
    :(inScope(a,r.org_id)?`reservado para a etapa “${r.step_name}” da ${osNumber(r.number)}, em ${when}`:`reservado para outra OS em ${when}`);
   return {...r,label};
  });
@@ -238,7 +242,7 @@ export async function revisionContext(plan:Plan){
  return {osSteps,frozen,carried,base,baseStart};
 }
 
-export async function validation(plan:Plan){
+export async function validation(plan:Plan,a:Actor){
  const revision=await revisionContext(plan);
  const [equipment,operators,impediments,orgs,locations,functions]=await Promise.all([
   all('SELECT id,tag,type_id,active FROM equipment'),
@@ -251,6 +255,16 @@ export async function validation(plan:Plan){
  const used=new Set(plan.steps.filter(s=>s.included&&!revision?.frozen.has(s.step_key)).flatMap(s=>s.equipment_ids as string[]));
  if(used.size)for(const r of (await preventiveRows()).filter(x=>used.has(x.equipmentId)&&(x.status==='atrasada'||x.status==='pendente')))
   result.warnings.push({message:`Equipamento ${r.tag}: preventiva “${r.name}” ${r.status==='atrasada'?'atrasada':'pendente'} (marco ${r.firstOpenLabel}). Combine com a Manutenção antes da atividade.`});
+ // Equipamento é o único recurso que bloqueia: reserva do rascunho que hoje se sobrepõe a outra
+ // (ex.: etapa de outra OS em uso além do fim reservado) é pendência e aparece antes de lançar,
+ // com a mesma regra do banco (reservation_guard).
+ const mine=await all(`SELECT r.equipment_id,r.start_at,r.end_at,s.id step_id,s.step_key,s.name step_name,e.tag FROM reservations r JOIN plan_steps s ON s.id=r.plan_step_id JOIN equipment e ON e.id=r.equipment_id
+  WHERE r.plan_id=? AND r.status<>'liberada' AND s.included=1`,plan.id);
+ for(const r of mine){
+  if(revision?.frozen.has(r.step_key)||revision?.carried(r.step_key,r.equipment_id))continue;
+  const busy=await conflicts(a,r.equipment_id,r.start_at,r.end_at,{planId:plan.id,stepId:r.step_id,workOrderId:plan.work_order_id});
+  if(busy.length)result.errors.push({step:r.step_key,message:`Etapa “${r.step_name}”: equipamento ${r.tag} indisponível em ${period(r.start_at,r.end_at)}: ${busy[0].label}. Escolha outro equipamento ou ajuste o horário.`});
+ }
  // Colaborador em etapas sobrepostas: aviso (não há reserva exclusiva de pessoas).
  for(const s of plan.steps.filter(x=>x.included&&x.planned_start&&x.planned_end&&x.operator_ids.length&&!revision?.frozen.has(x.step_key))){
   const clash=await all(`SELECT DISTINCT o.name,st.name step_name,st.planned_start,st.planned_end,w.number FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id JOIN plans p ON p.id=pp.plan_id JOIN operators o ON o.id=pp.operator_id LEFT JOIN work_orders w ON w.id=p.work_order_id
@@ -268,7 +282,7 @@ export async function validateDraft(member:Member,planId:string){
  const a=await requireAny(member,['planejamento','operacao']);
  const plan=await loadPlan(idOf(planId,'Planejamento'));
  if(!plan||!canView(a,plan))throw new AppError('Planejamento não encontrado.',404);
- const result=await validation(plan);
+ const result=await validation(plan,a);
  if(!plan.work_order_id||!plan.base_plan_id)return result;
  const base=await loadPlan(plan.base_plan_id);
  return {...result,changes:await revisionChanges(base!,plan)};
@@ -468,7 +482,7 @@ export async function planningMutate(path:string,b:Row,member:Member){
   if(plan.work_order_id)throw new AppError('Este rascunho é uma revisão: use “Lançar revisão”.',409);
   if(!canEdit(a,plan))throw new AppError('Somente o autor do rascunho ou o gestor lança esta OS.',403);
   if(b.version!==plan.version)throw new AppError('O rascunho mudou desde a sua revisão. Revise novamente antes de lançar.',409);
-  const check=await validation(plan);
+  const check=await validation(plan,a);
   if(check.errors.length)throw new AppError(`Há ${check.errors.length} pendência(s) que impedem o lançamento. Revise o planejamento.`,409);
   const result=await db().tx(async tx=>{
    const locked=await tx.first('SELECT status,version FROM plans WHERE id=? FOR UPDATE',plan.id);

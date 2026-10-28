@@ -138,3 +138,7 @@ html:has(.tv),body:has(.tv){background:#03161f!important;overflow:hidden}
 .tv-key .k-plan{border:2px solid var(--live);background:rgba(31,201,188,.3)}.tv-key .k-real{background:#5d7f8d}.tv-key .k-open{background:repeating-linear-gradient(135deg,var(--live) 0 4px,#17a399 4px 8px)}.tv-key .k-now{width:3px;background:var(--signal)}
 @media (max-width:1100px){.tv-top{grid-template-columns:1fr auto}.tv-mini{display:none}.tvl-row{grid-template-columns:calc(var(--u)*10) calc(var(--u)*13) minmax(0,1fr) calc(var(--u)*12)}.tvl-row>span:nth-child(n+5){display:none}}
 @media (prefers-reduced-motion:reduce){.tv .pulse,.tvg-real.open{animation:none}.tv-screen{transition:none}}
+/* Tela 2 · filtros de recursos */
+.tv-resf{border-top:1px solid var(--line);padding-top:calc(var(--u)*.5)}
+.tv-resk{font:600 calc(var(--u)*.8)/1 var(--f-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.tv-resf .segmented button{display:inline-flex;gap:6px;align-items:center}

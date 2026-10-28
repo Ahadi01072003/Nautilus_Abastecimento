@@ -140,4 +140,21 @@ test('OS sem fluxo: período de uso por equipamento reserva só o trecho informa
  await planningMutate('planning/launch',{id:a,version:p.version,launchKey:key()},planner);
  const c=(await db.first("SELECT start_at,end_at,status FROM reservations WHERE plan_id=? AND status<>'liberada'",a))!;
  assert.deepEqual([c.status,c.start_at,c.end_at],['confirmada',at(20,9),at(20,10)]);
+ // A entra em execução: a empilhadeira fica ocupada até o fim previsto da etapa (17:00), não só até
+ // 10:00. O rascunho B (13–16, reservado antes) passa a ter pendência já na revisão, antes de lançar.
+ const ops=(path:string,x:Row)=>operationMutate('ops/'+path,{operationKey:key(),...x},operator) as Promise<Row>;
+ const wo=(await db.first('SELECT work_order_id FROM plans WHERE id=?',a))!.work_order_id;
+ for(const req of (await orderDetail(operator,wo)).requirements as Row[]){
+  const inst=await ops('checklist/start',{workOrderId:wo,requirementId:req.id});
+  for(const x of (await orderDetail(operator,wo)).questions.filter((y:Row)=>y.version_id===req.version_id))await ops('checklist/answer',{instanceId:inst.id,questionId:x.id,answer:'C'});
+  await ops('checklist/complete',{instanceId:inst.id});
+ }
+ await ops('start',{stepId:(await orderDetail(operator,wo)).steps[0].id});
+ const review=await validateDraft(planner,b) as Row;
+ assert.ok(review.errors.some((e:Row)=>/equipamento .* indisponível .*ainda não finalizada: ocupado até/.test(e.message)),JSON.stringify(review.errors));
+ q=(await planDetail(planner,b)).plan;
+ await rejects(planningMutate('planning/launch',{id:b,version:q.version,launchKey:key()},planner),409,/pendência/);
+ // Depois do fim previsto da etapa de A, a empilhadeira está livre para outra OS.
+ const after17=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(20,18))}&end=${encodeURIComponent(at(20,19))}`)) as Row;
+ assert.equal(after17.equipment.find((e:Row)=>e.id==='eq1').status,'livre');
 });

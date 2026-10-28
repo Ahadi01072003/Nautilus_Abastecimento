@@ -5,6 +5,9 @@ import {db,type Row} from './db';
 import {AppError,text} from './domain';
 import {type Member,isManager,requireAny} from './permissions';
 import {preventiveRows} from './maintenance';
+import {ordersResources} from './planning';
+import {NO_SECTOR} from './os-order';
+import {resourceFromParams,type Alloc} from './resource-agenda';
 
 type Actor=Member&{org_scope:string[]};
 const DAY=86400_000,H=3600_000;
@@ -94,4 +97,26 @@ export async function agendaData(member:Member,params:{from:unknown,to:unknown,s
    people:crew.size,days:days.size,busiest:busiest?{day:busiest[0],count:busiest[1]}:null,alerts},
   generatedAt:new Date().toISOString(),
  };
+}
+
+/** Agenda de recursos em PDF (/agenda/recursos): alocações das OS do período com os mesmos filtros
+ * da Lista de OS (tipo, local, situação, número, código, solicitante e setor) e a seleção de tipos e
+ * recursos. Só entram as alocações que tocam o período. */
+export async function resourceAgendaData(member:Member,params:URLSearchParams){
+ const t0=day(params.get('inicio'),'Data de início'),t1=day(params.get('fim'),'Data de fim')+DAY;
+ if(t1<=t0)throw new AppError('A data de fim deve ser igual ou posterior à de início.');
+ if((t1-t0)/DAY>AGENDA_MAX_DAYS)throw new AppError(`Escolha um período de até ${AGENDA_MAX_DAYS} dias.`);
+ const url=new URL('http://agenda/');
+ url.searchParams.set('from',new Date(t0).toISOString());url.searchParams.set('to',new Date(t1).toISOString());
+ for(const k of ['type','location','status','number','code']){const v=text(params.get(k),80);if(v)url.searchParams.set(k,v);}
+ const list=(k:string)=>(params.get(k)||'').split(',').map(x=>x.trim()).filter(Boolean).slice(0,200);
+ const orgs=list('sol'),sectors=list('setor').map(s=>s===NO_SECTOR?s:s.toUpperCase());
+ const {kinds,picked}=resourceFromParams(params);
+ const r=await ordersResources(member,url);
+ const allocations=(r.allocations as Alloc[]).filter(a=>(!orgs.length||orgs.includes(a.orgId))&&(!sectors.length||sectors.includes(a.sector||NO_SECTOR))
+  &&Date.parse(a.end)>t0&&Date.parse(a.start)<t1);
+ const sectorRows=sectors.filter(s=>s!==NO_SECTOR).length?await db().all('SELECT code,name FROM sectors WHERE code = ANY(?::text[]) ORDER BY code',sectors):[];
+ const orgRows=orgs.length?await db().all('SELECT id,acronym,name FROM requester_orgs WHERE id = ANY(?::text[]) ORDER BY acronym',orgs):[];
+ return {period:{from:new Date(t0).toISOString(),to:new Date(t1).toISOString(),days:Math.round((t1-t0)/DAY)},allocations,kinds,picked,
+  filters:{orgs:orgRows,sectors:[...sectorRows,...(sectors.includes(NO_SECTOR)?[{code:NO_SECTOR,name:'Sem setor'}]:[])]},more:r.more,generatedAt:new Date().toISOString()};
 }

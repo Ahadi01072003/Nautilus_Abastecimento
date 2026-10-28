@@ -27,7 +27,7 @@ export async function realizeActivity(b:Row,member:Member){
  }
  if(plan.org_id&&!inScope(a,plan.org_id))throw new AppError('Organização fora do seu acesso.',403);
  if(b.version!==plan.version)throw new AppError('O registro mudou desde a sua conferência. Confira de novo antes de registrar.',409);
- const check=await validation(plan);
+ const check=await validation(plan,a);
  if(check.errors.length)throw new AppError(`Há ${check.errors.length} pendência(s) no registro. Confira o formulário.`,409);
  // Apontamentos do registro: revalidados contra o período final (o período pode ter mudado depois).
  const notes=await realizedNotes(plan.realized_notes||[],plan.planned_start,plan.planned_end);
