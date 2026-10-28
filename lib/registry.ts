@@ -164,6 +164,17 @@ export async function registryMutate(path:string,b:Row,member:Member){
   const location=b.locationId?await existing('locations',b.locationId,'Local'):null;
   if(location&&!location.active&&location.id!==old?.location_id)throw new AppError('Escolha um local ativo.');
   const eid=old?.id||id(),active=flag(b.active);
+  // Inativar com reservas a partir de agora deixaria OS e rascunhos contando com um equipamento fora
+  // de uso: a pessoa precisa substituí-lo (Editar OS) ou cancelar antes.
+  if(old?.active&&!active){
+   const held=await all(`SELECT w.number,p.author_name,r.start_at FROM reservations r JOIN plans p ON p.id=r.plan_id LEFT JOIN work_orders w ON w.id=p.work_order_id
+    WHERE r.equipment_id=? AND r.status<>'liberada' AND r.end_at::timestamptz > now() AND (p.status='draft' OR (p.status='launched' AND w.status IN ('programada','em_andamento','encerramento_pendente')))
+    ORDER BY r.start_at::timestamptz LIMIT 6`,eid);
+   if(held.length){const names=[...new Set(held.map(h=>h.number?`OS ${String(h.number).padStart(6,'0')}`:`rascunho de ${h.author_name}`))];
+    throw new AppError(`O equipamento ${old.tag} tem reservas a partir de agora (${names.join(', ')}${held.length>5?' e outras':''}). Substitua-o nessas OS (Editar OS) ou cancele-as antes de inativar.`,409);}
+   const fuel=await all("SELECT status FROM appointments WHERE equipment_id=? AND status IN ('requested','scheduled')",eid);
+   if(fuel.length)throw new AppError(`O equipamento ${old.tag} tem ${fuel.length} abastecimento(s) solicitado(s) ou agendado(s). Registre ou cancele antes de inativar.`,409);
+  }
   await db().tx(async tx=>{
    await tx.run('INSERT INTO equipment(id,tag,description,type,type_id,location_id,capacity,fuel_ids,active) VALUES(?,?,?,?,?,?,?,?::text[],?) ON CONFLICT(id) DO UPDATE SET tag=excluded.tag,description=excluded.description,type=excluded.type,type_id=excluded.type_id,location_id=excluded.location_id,capacity=excluded.capacity,fuel_ids=excluded.fuel_ids,active=excluded.active',eid,tag,description,type!.name,type!.id,location?.id||null,capacity,fuelIds,active);
    await audit(tx,a,old?'Cadastros gerais: equipamento atualizado':'Cadastros gerais: equipamento cadastrado',eid,{before:old,after:{tag,description,typeId:type!.id,locationId:location?.id||null,capacity,fuelIds,active}});

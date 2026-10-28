@@ -100,3 +100,78 @@ O equipamento já bloqueava a criação da OS, e continua bloqueando. Função, 
   - PDF com cronograma e detalhe;
   - Painel de OS › Exportar agenda › Agenda de recursos;
   - Apresentação com filtro de tipo e recurso, mantido depois de recarregar.
+
+## 6. Detalhes da OS sem abrir revisão
+
+- **Consultar não cria versão:** clicar numa OS na Lista de OS ou numa barra do Gantt abre os **detalhes completos só para leitura**. É o mesmo formulário do planejamento, travado, com:
+  - dados da atividade e datas;
+  - etapas e local;
+  - equipamentos com as horas de uso;
+  - colaboradores, funções e materiais.
+
+  Nada é gravado.
+- **Ações nos detalhes:**
+  - **Voltar à lista** (filtros e organização mantidos);
+  - **Abrir em Apontamentos**;
+  - **Cancelar OS**, pedindo a justificativa;
+  - **Editar OS (nova versão)**: só este botão abre a revisão.
+- **Histórico de versões:** fica na própria tela. Clicar numa versão anterior mostra como ela era, também só leitura.
+- **Tela só leitura:** sem os atalhos de cadastro e de edição.
+
+## 7. Revisão sem alterações
+
+- **Antes:** a revisão sem nenhuma mudança era recusada.
+- **Agora:**
+  - a conferência avisa "Nenhuma alteração em relação à versão vigente";
+  - o botão vira **Relançar sem alterações**;
+  - o motivo continua obrigatório;
+  - o histórico mostra a revisão com o selo **Sem alterações**.
+
+## 8. Horas de uso do equipamento respeitadas em todas as fases (migração `0018`)
+
+| Como o equipamento foi alocado | Fica reservado |
+| --- | --- |
+| Com horas de uso definidas (OS sem fluxo) | Só nesse período, mesmo com a OS em andamento. Depois, livre para outras OS. |
+| OS inteira / etapa inteira (o padrão) | A etapa toda. Se a etapa passar do previsto, segue ocupado até ser finalizada. |
+
+- **Onde vale:**
+  - na disponibilidade;
+  - na gravação do rascunho;
+  - no banco (`nautilus_reservation_guard`);
+  - no início da etapa na Operação.
+- **Corrige a regra da 0017**, que segurava o equipamento até o fim previsto da etapa mesmo com horas de uso menores. Era o caso da PTA-001 na OS 000040: reservada de 26/10 09:00 a 30/10 08:00, mas travando 31/10 a 02/11.
+- **OS inteira que passou do previsto:**
+  - a disponibilidade mostra o equipamento ocupado no período que inclui o momento atual;
+  - o futuro fica aceito, com aviso na revisão antes de lançar;
+  - a etapa da OS seguinte só começa quando a anterior for finalizada.
+
+## 9. Brechas corrigidas na varredura
+
+- **Início de etapa fora do horário reservado:**
+  - se outra OS tem o equipamento reservado para agora, iniciar antes ou depois do próprio horário fica barrado;
+  - o aviso mostra os dois horários.
+- **Horas de uso que começam depois:** um equipamento que a OS sem fluxo só usa mais tarde não impede o início da OS. Antes, impedia se o equipamento estivesse em uso em outra OS naquele momento.
+- **Inativar equipamento:** recusado enquanto houver reservas a partir de agora (OS ou rascunhos) ou abastecimento solicitado ou agendado. A mensagem diz quais OS precisam de substituição ou cancelamento.
+- **Avisos novos na revisão antes de lançar:**
+  - início previsto no passado;
+  - equipamento numa etapa de outra OS que passou do previsto.
+
+## Validações (parte 3)
+
+- **Testes automatizados:** `npm test` com 98 de 98 aprovados. O novo `tests/rules.test.ts` cobre:
+  - horas de uso com a OS em andamento (caso da PTA);
+  - OS inteira atrasada (disponibilidade, aviso, bloqueio no início e liberação ao finalizar);
+  - início antecipado com equipamento reservado por outra OS;
+  - horas de uso futuras que não barram o início;
+  - revisão sem alterações (motivo, histórico, reservas);
+  - revisão estendendo horas de uso sobre outra OS;
+  - versões anteriores e acesso de consulta (Acompanhamento não revisa nem grava);
+  - inativação de equipamento com reservas ou abastecimento;
+  - aviso de início no passado.
+- **Ponta a ponta (navegador, dados fictícios):**
+  - clique na Lista e no Gantt abre os detalhes;
+  - Voltar à lista;
+  - Editar OS abre a revisão;
+  - relançar sem alterações, com o motivo;
+  - histórico com "Sem alterações";
+  - menus e telas principais sem regressão.

@@ -717,3 +717,6 @@ body{font-family:var(--f-body)}
 .review-errors ul{margin:0;padding:0;list-style:none;display:grid;gap:8px}
 .review-errors li{display:grid;gap:2px;padding:8px 10px;background:var(--surface);border:1px solid var(--line);border-radius:6px;font-size:14px;line-height:1.5}
 .review-errors li b{font-size:13px;color:var(--ink)}.review-errors li span{color:var(--ink-2)}
+.revision-history .text-action.on{font-weight:700;text-decoration:underline}
+/* Só leitura (detalhes da OS e versões anteriores): sem atalhos de cadastro e edição. */
+.plan-fieldset:disabled .text-action{display:none}

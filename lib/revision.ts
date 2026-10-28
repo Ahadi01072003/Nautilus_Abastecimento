@@ -81,8 +81,8 @@ async function launch(a:Actor,b:Row){
     if(!d.included)throw new AppError(`${label}: ela não pode ser retirada da OS. Inclua-a de novo na revisão.`,409);
     if(d.planned_start!==bs?.planned_start)throw new AppError(`${label}: o início previsto dela não pode mudar. Volte o início para o da versão vigente.`,409);
    }
-   const changes=await revisionChanges(base,draft,tx);
-   if(!changes.length)throw new AppError('A revisão não muda nada em relação à versão vigente. Altere o planejamento ou descarte a revisão.',409);
+   // Sem alterações: o relançamento é permitido (fica sinalizado na revisão e no histórico).
+   const changes=await revisionChanges(base,draft,tx),unchanged=!changes.length;
    // Etapas concluídas ou dispensadas: reservas iguais às da versão vigente (término real já registrado).
    for(const d of draft.steps.filter(s=>FROZEN.includes(osSteps.find(o=>o.step_key===s.step_key)?.status))){
     const bs=base.steps.find(s=>s.step_key===d.step_key)!;
@@ -96,7 +96,7 @@ async function launch(a:Actor,b:Row){
    await tx.run("UPDATE reservations SET status='confirmada' WHERE plan_id=? AND status='provisoria'",draft.id);
    await tx.run("UPDATE reservations SET status='liberada',released_at=?,release_reason=? WHERE plan_id=? AND status<>'liberada'",t,`Substituída pela revisão ${n}`,base.id);
    await tx.run("UPDATE plans SET status='superseded' WHERE id=?",base.id);
-   await tx.run("UPDATE plans SET status='launched',launch_key=?,launched_at=?,launched_by=?,revision_reason=?,updated_at=?,version=version+1 WHERE id=?",key,t,a.id,reason,t,draft.id);
+   await tx.run("UPDATE plans SET status='launched',launch_key=?,launched_at=?,launched_by=?,revision_reason=?,revision_unchanged=?,updated_at=?,version=version+1 WHERE id=?",key,t,a.id,reason,unchanged?1:0,t,draft.id);
    // Etapas da OS: mesma identidade (eventos, intervalos e apontamentos continuam ligados), nova versão do plano.
    let dispensed=0,added=0;
    for(const d of draft.steps){
@@ -117,9 +117,9 @@ async function launch(a:Actor,b:Row){
    await tx.run('UPDATE checklist_requirements SET waived_at=NULL,waived_reason=NULL WHERE work_order_id=? AND waived_at IS NOT NULL AND equipment_id = ANY(?::text[])',wo.id,used);
    const waived=await tx.run(`UPDATE checklist_requirements r SET waived_at=?,waived_reason=? WHERE r.work_order_id=? AND r.waived_at IS NULL AND r.equipment_id IS NOT NULL AND NOT (r.equipment_id = ANY(?::text[]))
     AND NOT EXISTS (SELECT 1 FROM checklist_instances i WHERE i.requirement_id=r.id AND i.status='concluido')`,t,`Equipamento retirado na revisão ${n}`,wo.id,used);
-   await audit(tx,a,'Planejamento: OS revisada',wo.id,{number:wo.number,revision:n,reason,changes,dispensed,added,checklists:{created:required,waived}});
+   await audit(tx,a,'Planejamento: OS revisada',wo.id,{number:wo.number,revision:n,reason,changes,unchanged,dispensed,added,checklists:{created:required,waived}});
    const closure=await checkClosure(tx,a,{...wo,current_plan_id:draft.id});
-   return {workOrderId:wo.id,number:wo.number as number,revision:n,closure,message:`${osNumber(wo.number)} revisada (revisão ${n}). A Operação já vê a nova versão.`};
+   return {workOrderId:wo.id,number:wo.number as number,revision:n,closure,unchanged,message:unchanged?`${osNumber(wo.number)} relançada sem alterações (revisão ${n}).`:`${osNumber(wo.number)} revisada (revisão ${n}). A Operação já vê a nova versão.`};
   });
  }catch(e){
   const msg=(e as {message?:string}).message||'';
