@@ -72,7 +72,7 @@ export default function ExportCenter({manager,operation,fuels}:{manager:boolean;
    <small className="export-format">Horários de Brasília · toda exportação fica registrada na auditoria · até 5 arquivos por minuto</small>
   </section>
   <aside className="xp-aside">
-   <section className="n-panel">{[['Relatório da OS em PDF','Em Operação › Apontamentos, abra a OS e use “Relatório PDF”: régua, etapas, paradas, apontamentos, checklists e assinaturas.'],['Planilha completa da OS','Na mesma tela, “Planilha Excel” traz a OS inteira em abas: resumo, etapas, períodos, apontamentos, checklists, respostas e histórico.'],['Tempo efetivo sem dupla contagem','Etapas em paralelo contam uma vez no tempo da OS.'],['Texto nunca vira fórmula','Células iniciadas por = + − @ são neutralizadas.']].map(([t,d])=><div className="export-check" key={t}><CheckCircle2 size={19}/><div><b>{t}</b><p>{d}</p></div></div>)}</section>
+   <section className="n-panel">{[['Relatório da OS em PDF','Em Operação › Apontamentos, abra a OS e use “Relatório PDF”: régua, etapas, paradas, apontamentos, checklists e assinaturas.'],['Tempo efetivo sem dupla contagem','Etapas em paralelo contam uma vez no tempo da OS.'],['Texto nunca vira fórmula','Células iniciadas por = + − @ são neutralizadas.']].map(([t,d])=><div className="export-check" key={t}><CheckCircle2 size={19}/><div><b>{t}</b><p>{d}</p></div></div>)}</section>
    <section className="bi-note"><FileSpreadsheet size={23}/><h3>Para o Power BI</h3><p>Prefira o Excel: cada aba vira uma tabela. Relacione pela coluna “ID da OS”. No CSV, use ponto e vírgula como delimitador e a localidade Português (Brasil).</p></section>
   </aside>
  </div>;
