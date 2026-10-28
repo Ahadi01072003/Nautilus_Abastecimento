@@ -92,6 +92,6 @@ export function Navigation({view,setView,allowed,counts,person,onAccount}:{view:
    </SidebarMenu></SidebarGroup>
 
   </SidebarContent>
-  <SidebarFooter className="n-sidebar-footer"><div className="sidebar-person"><span className="person-avatar">{(person.name||'N').slice(0,2).toUpperCase()}</span><div><b>{person.name}</b><small>{person.detail}</small></div><div className="sidebar-person-actions"><button type="button" onClick={onAccount} title="Alterar minha senha" aria-label="Alterar minha senha"><KeyRound size={16}/></button><button type="button" onClick={()=>void signOut()} title="Sair" aria-label="Sair"><LogOut size={16}/></button></div></div></SidebarFooter>
+  <SidebarFooter className="n-sidebar-footer"><div className="sidebar-person"><span className="person-avatar">{(person.name||'N').slice(0,2).toUpperCase()}</span><div><b title={person.name}>{person.name}</b><small title={person.detail}>{person.detail}</small></div><div className="sidebar-person-actions"><button type="button" onClick={onAccount} title="Alterar minha senha" aria-label="Alterar minha senha"><KeyRound size={16}/></button><button type="button" onClick={()=>void signOut()} title="Sair" aria-label="Sair"><LogOut size={16}/></button></div></div></SidebarFooter>
  </Sidebar>;
 }
