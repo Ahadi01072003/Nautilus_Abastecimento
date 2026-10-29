@@ -31,6 +31,9 @@ export async function conditionMutate(path:string,b:Row,member:Member){
   const e=await db().first('SELECT id,tag FROM equipment WHERE id=?',required(b.equipmentId,'Equipamento',100));
   if(!e)throw new AppError('Equipamento não encontrado.',404);
   const reason=required(b.reason,'Motivo',500),iid=id();
+  // Clique repetido não abre o mesmo impedimento duas vezes (cada um exige a própria liberação).
+  const same=await db().first("SELECT id FROM equipment_impediments WHERE equipment_id=? AND kind='manual' AND released_at IS NULL AND reason=?",e.id,reason);
+  if(same)return {id:same.id,repeated:true,message:`${e.tag} já está bloqueado por este motivo.`};
   await db().tx(async tx=>{
    await tx.run("INSERT INTO equipment_impediments(id,equipment_id,kind,reason,opened_at,opened_by,opened_by_name) VALUES(?,?,'manual',?,?,?,?)",iid,e.id,reason,now(),a.id,a.name);
    await audit(tx,a,'Condição técnica: impedimento registrado',e.id,{tag:e.tag,reason,impediment:iid});

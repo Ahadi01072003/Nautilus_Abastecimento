@@ -23,6 +23,17 @@ async function openReplenishment(tx:Executor,fuelId:string,leadDays?:number){
  await tx.run("INSERT INTO requests(id,fuel_id,requested_milli,stock_reference_milli,opened_at,deadline,status) SELECT ?::text,id,capacity_milli-stock_milli,stock_milli,?::text,?::text,'open' FROM fuels WHERE id=? AND active=1 AND stock_milli<=minimum_milli AND NOT EXISTS(SELECT 1 FROM requests WHERE fuel_id=? AND status IN ('open','purchasing','partial')) ON CONFLICT DO NOTHING",id(),opened,deadline,fuelId,fuelId);
  await enqueueMinimum(tx,fuelId,opened);
 }
+/** Horímetro informado no abastecimento entra nas leituras do equipamento (Manutenção): segue as mesmas regras
+ * da leitura digitada. Na solicitação, evita um valor que depois nenhum abastecimento conseguiria atender. */
+async function checkMeter(tx:Executor,equipmentId:string,at:string,start:number,top:number){
+ await tx.first('SELECT id FROM equipment WHERE id=? FOR UPDATE',equipmentId);
+ const prev=await tx.first("SELECT value::float8 value,read_at FROM equipment_meter WHERE equipment_id=? AND kind='horimetro' AND read_at::timestamptz <= ?::timestamptz ORDER BY read_at::timestamptz DESC,value DESC LIMIT 1",equipmentId,at);
+ const next=await tx.first("SELECT value::float8 value FROM equipment_meter WHERE equipment_id=? AND kind='horimetro' AND read_at::timestamptz > ?::timestamptz ORDER BY read_at::timestamptz ASC,value ASC LIMIT 1",equipmentId,at);
+ const n=(v:number)=>v.toLocaleString('pt-BR');
+ if(prev&&start/1000<prev.value)throw new AppError(`O horímetro é menor que a leitura anterior do equipamento (${n(prev.value)} h). Leituras não voltam; confira o valor e a data.`,409);
+ if(next&&top/1000>next.value)throw new AppError(`O horímetro é maior que uma leitura registrada depois dessa data (${n(next.value)} h). Confira o valor e a data.`,409);
+ if(prev&&top/1000-prev.value>(Date.parse(at)-Date.parse(prev.read_at))/3600000+1)throw new AppError(`O horímetro avançou mais horas do que se passaram desde a leitura anterior (${n(prev.value)} h). Confira o valor e a data.`,409);
+}
 const idOf=(value:unknown,label:string)=>required(value,label,100);
 const flag=(value:unknown)=>value===false?0:1;
 
@@ -75,6 +86,7 @@ export async function mutate(path:string,b:Row,a:Member){
   if(!e.fuel_ids.includes(f.id))throw new AppError('Combustível incompatível com este equipamento.');
   const hour=milli(b.hourmeter,false,true),created=id();
   await db().tx(async tx=>{
+   await checkMeter(tx,e.id,t,hour,hour);
    await tx.run('INSERT INTO appointments(id,operation_key,equipment_id,equipment_tag,equipment_name,fuel_id,fuel_name,hourmeter_milli,requester_id,requester_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',created,key,e.id,e.tag,e.description,f.id,f.name,hour,a.id,a.name,t,t);
    await audit(tx,a,'Abastecimento solicitado',created,{equipment:e.tag,fuel:f.name,hourmeter:hour/1000});
    await enqueue(tx,'requested',created,t);
@@ -131,6 +143,7 @@ export async function mutate(path:string,b:Row,a:Member){
   if(!appointment&&!notes)throw new AppError('Justifique o registro excepcional sem agendamento.');
   const created=id();
   await db().tx(async tx=>{
+   if(hour!==null)await checkMeter(tx,e.id,date,hour,end??hour);
    await tx.run('INSERT INTO supplies(id,operation_key,fuel_id,equipment_id,operator_id,quantity_milli,occurred_at,created_at,author_id,author_name,equipment_tag,equipment_name,operator_name,fuel_name,unit,hourmeter_milli,hourmeter_end_milli,notes,appointment_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',created,key,f.id,e.id,o.id,quantity,date,t,a.id,a.name,e.tag,e.description,o.name,f.name,f.unit,hour,end,notes,appointment?.id||null);
    await audit(tx,a,'Abastecimento registrado',created,{quantity:quantity/1000,equipment:e.tag,fuel:f.name,appointmentId:appointment?.id||null});
    await enqueue(tx,'completed',created,t,0,'supplies');
@@ -228,6 +241,9 @@ export async function mutate(path:string,b:Row,a:Member){
   if(minimum>=capacity)throw new AppError('O mínimo deve ser menor que a capacidade máxima.');if(!Number.isInteger(lead)||lead<1||lead>60)throw new AppError('Prazo deve ser de 1 a 60 dias úteis.');
   if(old&&(old.unit!==unit||old.integral!==Number(integral))&&(await first('SELECT id FROM movements WHERE fuel_id=? LIMIT 1',fid)))throw new AppError('A unidade de um combustível com movimentações não pode ser alterada. Cadastre outro combustível.');
   if(old&&capacity<old.stock_milli)throw new AppError('Capacidade não pode ser menor que o saldo atual.');
+  // Inativar com pedidos em aberto deixaria solicitações que não podem mais ser agendadas nem registradas.
+  if(old?.active&&!flag(b.active)){const open=await first("SELECT count(*)::int n FROM appointments WHERE fuel_id=? AND status IN ('requested','scheduled')",fid);
+   if(open?.n)throw new AppError(`O combustível ${old.name} tem ${open.n} abastecimento(s) solicitado(s) ou agendado(s). Registre ou cancele antes de inativar.`,409);}
   const balance=old?0:milli(b.balance??0,integral,true);
   if(!old&&balance>capacity)throw new AppError('O saldo inicial não pode exceder a capacidade máxima.');
   await db().tx(async tx=>{

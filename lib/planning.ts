@@ -182,14 +182,18 @@ export async function availability(member:Member,url:URL){
 }
 
 /** Pendências (impedem o lançamento) e avisos. Só depende dos dados carregados. */
-export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impediments:Row[],orgs:Row[],locations:Row[],functions?:Row[],frozen?:Set<string>,carried?:(stepKey:string,equipmentId:string)=>boolean}){
+export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impediments:Row[],orgs:Row[],locations:Row[],functions?:Row[],frozen?:Set<string>,carried?:(stepKey:string,equipmentId:string)=>boolean,keepLocations?:Set<string>}){
  const errors:{step?:string,message:string}[]=[],warnings:{step?:string,kind?:string,message:string}[]=[];
  if(plan.free&&!String(plan.title||'').trim())errors.push({message:'Informe o título da atividade.'});
  if(!plan.org_id)errors.push({message:'Informe a organização solicitante.'});
  else if(!ctx.orgs.find(o=>o.id===plan.org_id)?.active)errors.push({message:'A organização solicitante está inativa.'});
+ // Local que ficou inativo depois de escolhido só passa quando a revisão mantém o da versão vigente.
+ const inactive=(l:string)=>!ctx.locations.find(x=>x.id===l)?.active&&!ctx.keepLocations?.has(l);
  if(!plan.location_id)errors.push({message:'Informe o local da atividade.'});
+ else if(inactive(plan.location_id))errors.push({message:'O local da atividade está inativo. Escolha um local ativo.'});
  if(!plan.planned_start||!plan.planned_end)errors.push({message:plan.mode==='realizada'?'Informe o início e o fim reais da atividade.':'Informe início e fim previstos da atividade.'});
  else if(ms(plan.planned_end)<=ms(plan.planned_start))errors.push({message:plan.mode==='realizada'?'O fim deve ser depois do início.':'O fim previsto deve ser depois do início.'});
+ else if(ms(plan.planned_end)-ms(plan.planned_start)>366*86400000)errors.push({message:'A atividade deve durar no máximo um ano. Confira as datas de início e fim.'});
  else if(plan.mode==='realizada'&&ms(plan.planned_end)>Date.now()+5*60000)errors.push({message:'Atividade realizada: o fim não pode estar no futuro. Para o que ainda vai acontecer, use o Planejamento.'});
  const included=plan.steps.filter(s=>s.included);
  if(!included.length)errors.push({message:'Inclua ao menos uma etapa.'});
@@ -199,6 +203,7 @@ export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impe
   if(ctx.frozen?.has(s.step_key))continue;
   if(!s.planned_start||!s.planned_end){errors.push({step:s.step_key,message:`${name}: informe início e fim.`});continue;}
   if(ms(s.planned_end)<=ms(s.planned_start))errors.push({step:s.step_key,message:`${name}: o fim deve ser depois do início.`});
+  if(s.location_id&&inactive(s.location_id))errors.push({step:s.step_key,message:`${name}: local inativo. Escolha um local ativo.`});
   if(plan.planned_start&&plan.planned_end&&(ms(s.planned_start)<ms(plan.planned_start)||ms(s.planned_end)>ms(plan.planned_end)))errors.push({step:s.step_key,message:`${name}: fora da janela prevista da atividade.`});
   for(const d of s.depends_on as string[]){
    const p=plan.steps.find(x=>x.step_key===d);if(!p)continue;
@@ -251,7 +256,8 @@ export async function validation(plan:Plan,a:Actor){
   all('SELECT equipment_id,reason,opened_at FROM equipment_impediments WHERE released_at IS NULL'),
   all('SELECT id,active FROM requester_orgs'),all('SELECT id,active FROM locations'),all('SELECT id,name FROM job_functions'),
  ]);
- const result=validatePlan(plan,{equipment,operators,impediments,orgs,locations,functions,frozen:revision?.frozen,carried:revision?.carried});
+ const keepLocations=new Set((plan.base_plan_id?await all('SELECT location_id FROM plans WHERE id=? UNION SELECT location_id FROM plan_steps WHERE plan_id=?',plan.base_plan_id,plan.base_plan_id):[]).map(r=>r.location_id as string).filter(Boolean));
+ const result=validatePlan(plan,{equipment,operators,impediments,orgs,locations,functions,frozen:revision?.frozen,carried:revision?.carried,keepLocations});
  // Manutenção: equipamento com preventiva vencida é aviso (o bloqueio, quando existe, já é pendência).
  const used=new Set(plan.steps.filter(s=>s.included&&!revision?.frozen.has(s.step_key)).flatMap(s=>s.equipment_ids as string[]));
  if(used.size)for(const r of (await preventiveRows()).filter(x=>used.has(x.equipmentId)&&(x.status==='atrasada'||x.status==='pendente')))
