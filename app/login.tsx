@@ -22,7 +22,7 @@ function Shell({children}:{children:ReactNode}){
   <section className="auth-brand" aria-hidden="true">
    <div className="sonar-bathy"><Bathy/></div>
    {/* eslint-disable-next-line @next/next/no-img-element -- logotipo estático pequeno */}
-   <img className="auth-logo" src="/logo-white.png" alt="" width={285} height={79}/>
+   <img className="auth-logo" src="/logo-white.svg" alt="" width={240} height={118}/>
    <div className="auth-brand-copy"><span>BASE AÇU · GESTÃO OPERACIONAL</span><h2>NAUTILUS<i>.</i></h2><p>Abastecimento, planejamento, operação e cadastros. Cada período de trabalho preservado no histórico.</p></div>
    <div className="sidebar-signature"><span>Precisão. Profundidade. <b>Clareza.</b></span></div>
   </section>

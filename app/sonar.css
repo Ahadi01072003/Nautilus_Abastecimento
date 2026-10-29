@@ -1,4 +1,4 @@
-/* NAUTILUS · identidade Sonar (OceanPact | CBO).
+/* NAUTILUS · identidade Sonar (OceanPact LOG).
    Camada aplicada sobre nautilus.css: moldura abissal com contornos batimétricos, área de
    trabalho em papel frio, títulos em display expandida, números em mono e verde-limão só para a ação principal. */
 
@@ -14,7 +14,7 @@ body{font-family:var(--f-body)}
 .sonar-bathy canvas{width:100%;height:100%;display:block}
 .n-sidebar-header{padding:26px 22px 18px;border-bottom:1px solid var(--abyss-line)}
 .sonar-brand{flex-direction:column;align-items:flex-start;gap:14px}
-.sonar-brand img{width:168px;height:auto;display:block}
+.sonar-brand img{width:140px;height:auto;display:block}
 .sonar-sys{font:700 12px/1 var(--f-mono);letter-spacing:.32em;color:var(--on-abyss);display:flex;align-items:center;gap:10px}
 .sonar-sys::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--signal);box-shadow:0 0 0 4px rgba(200,242,90,.12)}
 :is(.n-sidebar,[data-mobile=true]) [data-slot=sidebar-group-label]{font:500 10px/1 var(--f-mono);letter-spacing:.18em;color:var(--on-abyss-dim)}
@@ -67,7 +67,7 @@ body{font-family:var(--f-body)}
 /* ---------- acesso ---------- */
 .auth-shell{background:var(--paper)}
 .auth-brand{position:relative;isolation:isolate;overflow:hidden;background:var(--abyss)}
-.auth-logo{width:200px;height:auto}
+.auth-logo{width:176px;height:auto}
 .auth-brand-copy span{font:500 11px/1 var(--f-mono);letter-spacing:.2em;color:var(--live)}
 .auth-brand-copy h2{font-family:var(--f-display);font-variation-settings:"wdth" 120;font-weight:850;font-size:clamp(3.4rem,7vw,6.6rem);line-height:.9;letter-spacing:-.04em;color:var(--on-abyss);margin-top:14px}
 .auth-brand-copy h2 i{font-style:normal;color:var(--signal)}

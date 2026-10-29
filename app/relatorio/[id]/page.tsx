@@ -35,7 +35,7 @@ html,body{background:#fff!important;color:#0b1d25}
 body{font:13px/1.45 var(--f-body)}
 .sheet{max-width:900px;margin:0 auto;padding:28px 28px 48px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .rtop{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;border-bottom:3px solid #03161f;padding-bottom:14px}
-.rtop img{width:170px;height:auto}
+.rtop img{width:132px;height:auto}
 .rtop .id{text-align:right;font:600 11px/1.4 var(--f-mono);letter-spacing:.12em;text-transform:uppercase;color:#4b5f66}
 .rtop .id b{display:block;font:800 26px/1 var(--f-display);letter-spacing:-.02em;color:#0b1d25;text-transform:none}
 h1{font:850 30px/1.05 var(--f-display);font-variation-settings:"wdth" 112;letter-spacing:-.02em;margin:18px 0 4px}
@@ -132,7 +132,7 @@ export default async function Report({params}:{params:Promise<{id:string}>}){
 
  return <main className="sheet"><style>{css}</style><PrintButton/>
   {/* eslint-disable-next-line @next/next/no-img-element -- Logo estático, mesmo arquivo na impressão. */}
-  <div className="rtop"><img src="/logo-color.png" alt="OceanPact | CBO" width={285} height={79}/><div className="id">NAUTILUS · relatório de OS<b>{osNumber(order.number)}</b>{ORDER_STATUS[order.status]}</div></div>
+  <div className="rtop"><img src="/logo-color.svg" alt="OceanPact LOG" width={240} height={118}/><div className="id">NAUTILUS · relatório de OS<b>{osNumber(order.number)}</b>{ORDER_STATUS[order.status]}</div></div>
   <h1>{order.activity_name}<i>.</i></h1>
   <p className="lead">{plan.free?`${order.activity_code?order.activity_code+' · ':''}OS sem fluxo`:`${order.activity_code} · fluxo v${plan.flow_version}`}{order.origin==='realizada'?' · realizada sem planejamento (registro posterior)':''} · lançada por {order.launched_by_name||'—'} em {dt(order.launched_at)}{order.revision?` · revisão ${order.revision}${plan.revision_reason?` (${plan.revision_reason})`:''}`:''}</p>
   <dl className="facts">

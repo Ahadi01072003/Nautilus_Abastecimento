@@ -53,7 +53,7 @@ body{font:9pt/1.35 var(--f-body);margin:0}
 .err{max-width:640px;margin:60px auto;background:#fff;padding:24px;border-radius:6px}
 .page{width:297mm;height:210mm;box-sizing:border-box;padding:8mm 10mm 7mm;margin:10mm auto;background:#fff;box-shadow:0 6px 28px rgba(3,22,31,.16);display:flex;flex-direction:column;gap:3mm;overflow:hidden;position:relative;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .top{display:grid;grid-template-columns:38mm 1fr auto;align-items:end;gap:6mm;border-bottom:.9mm solid #03161f;padding-bottom:2mm}
-.top img{width:38mm;height:auto}
+.top img{width:30mm;height:auto}
 .top .eye{font:600 6.8pt/1.2 var(--f-mono);letter-spacing:.16em;text-transform:uppercase;color:#087f77}
 .top h1{margin:.4mm 0 0;font:850 17pt/1 var(--f-display);font-variation-settings:"wdth" 112;letter-spacing:-.02em}
 .top h1 i{font-style:normal;color:#087f77}
@@ -181,7 +181,7 @@ export default async function ResourceAgendaPdf({searchParams}:{searchParams:Sea
  const header=<>
   <div className="top">
    {/* eslint-disable-next-line @next/next/no-img-element -- Logo estático, mesmo arquivo na impressão. */}
-   <img src="/logo-color.png" alt="OceanPact | CBO" width={285} height={79}/>
+   <img src="/logo-color.svg" alt="OceanPact LOG" width={240} height={118}/>
    <div><div className="eye">NAUTILUS · agenda de recursos</div><h1>{range}<i>.</i></h1><div className="sec"><b>{kindsLabel}</b> · {days} dia(s) · horários de Brasília</div></div>
    <div className="meta">{issued}<br/>Somente OS lançadas (sem canceladas){r.more?' · lista limitada às 1.000 primeiras OS':''}</div>
   </div>

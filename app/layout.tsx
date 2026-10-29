@@ -9,7 +9,7 @@ const jetbrains=JetBrains_Mono({subsets:['latin'],variable:'--font-jetbrains',di
 
 export const metadata:Metadata={
  title:'NAUTILUS · Gestão operacional',
- description:'Abastecimento, planejamento, operação e cadastros da Base Açu · OceanPact | CBO.',
+ description:'Abastecimento, planejamento, operação e cadastros da Base Açu · OceanPact LOG.',
  icons:{icon:'/favicon.svg',shortcut:'/favicon.svg'},
  robots:{index:false,follow:false},
 };

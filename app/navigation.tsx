@@ -74,7 +74,7 @@ export function Navigation({view,setView,allowed,counts,person,onAccount}:{view:
  return <Sidebar className="n-sidebar" collapsible="offcanvas">
   <div className="sonar-bathy" aria-hidden="true"><Bathy/></div>
   <SidebarHeader className="n-sidebar-header"><div className="brand sonar-brand">{/* eslint-disable-next-line @next/next/no-img-element -- logotipo estático pequeno */}
-   <img src="/logo-white.png" alt="OceanPact | CBO" width={285} height={79}/><div className="sonar-sys">NAUTILUS</div></div></SidebarHeader>
+   <img src="/logo-white.svg" alt="OceanPact LOG" width={240} height={118}/><div className="sonar-sys">NAUTILUS</div></div></SidebarHeader>
   <SidebarContent>
    <SidebarGroup><SidebarMenu>{visible(HOME)&&<SidebarMenuItem className="nav-standalone nav-home"><SidebarMenuButton isActive={view===HOME.id} aria-current={view===HOME.id?'page':undefined} onClick={()=>go(HOME.id)} className="nav-item"><HOME.icon/><span>{HOME.label}</span>{!!counts.painel&&<span className="nav-count" aria-label={`${counts.painel} avisos críticos`}>{counts.painel}</span>}</SidebarMenuButton></SidebarMenuItem>}</SidebarMenu></SidebarGroup>
    <SidebarGroup><SidebarGroupLabel>MÓDULOS</SidebarGroupLabel><SidebarMenu>
