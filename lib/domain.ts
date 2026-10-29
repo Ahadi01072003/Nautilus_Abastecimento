@@ -7,7 +7,7 @@ export function milli(value:unknown,integral=false,allowZero=false){
  const q=Math.round(value*1000);if(Math.abs(value*1000-q)>0.00001)throw new AppError('Use no máximo três casas decimais.');
  if(integral&&q%1000!==0)throw new AppError('Cilindros e unidades inteiras não aceitam frações.');return q;
 }
-export function dateISO(value:unknown){const s=required(value,'Data');const d=new Date(s);if(!Number.isFinite(d.valueOf()))throw new AppError('Data inválida.');if(d.valueOf()>Date.now()+60000)throw new AppError('O abastecimento não pode estar no futuro.');return d.toISOString();}
+export function dateISO(value:unknown){const s=required(value,'Data');const d=new Date(s);if(!Number.isFinite(d.valueOf()))throw new AppError('Data inválida.');if(d.valueOf()>Date.now()+60000)throw new AppError('O abastecimento não pode estar no futuro.');if(d.valueOf()<Date.UTC(2020,0,1))throw new AppError('Data do abastecimento muito antiga. Confira o ano.');return d.toISOString();}
 export function businessDeadline(iso:string,days:number,holidays:string[]=[]){
  const parts=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(new Date(iso)).split(' ');
  const d=new Date(parts[0]+'T12:00:00Z');let count=0;

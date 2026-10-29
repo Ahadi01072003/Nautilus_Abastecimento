@@ -26,11 +26,11 @@ after(async()=>{await ctx.drop();});
 const rejects=(promise:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects(promise,(e:{status?:number;code?:string;message:string})=>{if(status)assert.equal(e.status,status,e.message);if(pattern)assert.match(e.message,pattern);return true;});
 const fuel=(id:string)=>db.first('SELECT * FROM fuels WHERE id=?',id);
 const future=(h=2)=>new Date(Date.now()+h*3600000).toISOString();
-async function request(who:Member,equipmentId='eq1',fuelId='diesel',hourmeter=100){return (await mutate('appointments',{operationKey:key(),equipmentId,fuelId,hourmeter},who) as {id:string}).id;}
+async function request(who:Member,equipmentId='eq1',fuelId='diesel',hourmeter=102.5){return (await mutate('appointments',{operationKey:key(),equipmentId,fuelId,hourmeter},who) as {id:string}).id;}
 async function schedule(id:string,who:Member=planner,at=future()){const a=await db.first('SELECT version FROM appointments WHERE id=?',id);return mutate('appointments/schedule',{id,version:a!.version,scheduledAt:at},who);}
 
 test('fluxo completo: solicitar, agendar, abastecer e baixar o estoque',async()=>{
- const id=await request(requester);
+ const id=await request(requester,'eq1','diesel',100);
  await rejects(mutate('supplies',{operationKey:key(),appointmentId:id,equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:10,occurredAt:new Date().toISOString(),hourmeter:100},fueler),409,/Agendamento indisponível/);
  await schedule(id);
  // Qualquer abastecedor atende a agenda compartilhada.
@@ -49,7 +49,7 @@ test('fluxo completo: solicitar, agendar, abastecer e baixar o estoque',async()=
 
 test('reenvio com a mesma operationKey não duplica consumo',async()=>{
  const id=await request(requester);await schedule(id,manager,future(3));
- const body={operationKey:key(),appointmentId:id,equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:5,occurredAt:new Date().toISOString(),hourmeter:100};
+ const body={operationKey:key(),appointmentId:id,equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:5,occurredAt:new Date().toISOString(),hourmeter:102.5};
  const before=(await fuel('diesel'))!.stock_milli;
  const a=await mutate('supplies',body,fueler) as {id:string};
  const b=await mutate('supplies',body,fueler) as {id:string;repeated?:boolean};
@@ -82,7 +82,7 @@ test('perfis: solicitante só vê os próprios pedidos; planejador não registra
 });
 
 test('abastecedor exige agendamento; gestor registra exceção somente com justificativa',async()=>{
- const base={equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:2,occurredAt:new Date().toISOString(),hourmeter:10};
+ const base={equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:2,occurredAt:new Date().toISOString(),hourmeter:102.5};
  await rejects(mutate('supplies',{...base,operationKey:key()},fueler),403,/agendado/);
  await rejects(mutate('supplies',{...base,operationKey:key()},manager),400,/Justifique/);
  await mutate('supplies',{...base,operationKey:key(),notes:'Emergência no turno'},manager);
@@ -123,7 +123,7 @@ test('estoque mínimo abre uma única reposição; recebimento parcial e "em com
 
 test('cancelar abastecimento estorna uma vez e reabre a solicitação',async()=>{
  const id=await request(requester);await schedule(id,planner,future(7));
- const s=await mutate('supplies',{operationKey:key(),appointmentId:id,equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:20,occurredAt:new Date().toISOString(),hourmeter:100},fueler) as {id:string};
+ const s=await mutate('supplies',{operationKey:key(),appointmentId:id,equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:20,occurredAt:new Date().toISOString(),hourmeter:102.5},fueler) as {id:string};
  const before=(await fuel('diesel'))!.stock_milli;
  await rejects(mutate('supplies/cancel',{id:s.id,reason:''},manager),400,/Justificativa/);
  await mutate('supplies/cancel',{id:s.id,reason:'Lançamento em duplicidade'},manager);
@@ -170,7 +170,7 @@ test('cadastros: feriado inválido e combustível',async()=>{
 test('exportação CSV neutraliza fórmulas e respeita filtros',async()=>{
  await db.run("UPDATE operators SET name='=CMD()' WHERE id='op1'");
  const id=await request(requester);await schedule(id,planner,future(9));
- await mutate('supplies',{operationKey:key(),appointmentId:id,equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:1,occurredAt:new Date().toISOString(),hourmeter:100,notes:'+SOMA(1)'},fueler);
+ await mutate('supplies',{operationKey:key(),appointmentId:id,equipmentId:'eq1',fuelId:'diesel',operatorId:'op1',quantity:1,occurredAt:new Date().toISOString(),hourmeter:102.5,notes:'+SOMA(1)'},fueler);
  const bytes=new Uint8Array(await (await exportData(manager,new URL('http://x/api/export?kind=supplies&fuel=diesel'))).arrayBuffer());
  assert.deepEqual([...bytes.slice(0,3)],[0xEF,0xBB,0xBF],'BOM UTF-8 para o Excel');
  const csv=new TextDecoder().decode(bytes);

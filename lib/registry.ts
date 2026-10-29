@@ -158,7 +158,12 @@ export async function registryMutate(path:string,b:Row,member:Member){
   const tag=required(b.tag,'TAG',60).toUpperCase(),description=required(b.description,'Descrição',250),capacity=text(b.capacity,60);
   const fuelIds=idList(b.fuelIds,'Combustíveis',50);
   if(!fuelIds.length)throw new AppError('Selecione ao menos um combustível compatível.');
-  const fuels=await all('SELECT id FROM fuels WHERE active=1');if(fuelIds.some(f=>!fuels.some(v=>v.id===f)))throw new AppError('Combustível inválido.');
+  // Combustível já vinculado continua aceito mesmo inativo; um novo vínculo exige combustível ativo.
+  const kept:string[]=old?.fuel_ids||[],fuels=await all('SELECT id,active FROM fuels WHERE id = ANY(?::text[])',fuelIds);
+  if(fuelIds.some(f=>{const v=fuels.find(x=>x.id===f);return !v||(!v.active&&!kept.includes(f));}))throw new AppError('Combustível inválido ou inativo.');
+  const removed=kept.filter(f=>!fuelIds.includes(f));
+  if(removed.length){const open=await first("SELECT count(*)::int n,string_agg(DISTINCT fuel_name,', ') names FROM appointments WHERE equipment_id=? AND fuel_id = ANY(?::text[]) AND status IN ('requested','scheduled')",old!.id,removed);
+   if(open?.n)throw new AppError(`O equipamento ${old!.tag} tem ${open.n} abastecimento(s) de ${open.names} solicitado(s) ou agendado(s). Registre ou cancele antes de remover o combustível.`,409);}
   const type=await existing('equipment_types',idOf(b.typeId,'Tipo'),'Tipo de equipamento');
   if(!type?.active&&type?.id!==old?.type_id)throw new AppError('Escolha um tipo de equipamento ativo.');
   const location=b.locationId?await existing('locations',b.locationId,'Local'):null;
