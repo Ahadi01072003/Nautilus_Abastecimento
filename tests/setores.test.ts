@@ -188,6 +188,17 @@ test('atividade realizada com apontamentos: bloqueio divide o período e descont
  assert.equal(d.occurrences.length,2);
  assert.ok(d.occurrences.every((o:Row)=>o.late===1));
  assert.equal(d.occurrences.find((o:Row)=>o.kind==='bloqueio')!.status,'resolvido');
+ // Impacto na atividade realizada: igual ao apontamento, com fim opcional (sem fim fica em aberto).
+ const T=Date.now(),At=(h:number)=>new Date(T+h*H).toISOString();
+ const {id:id2}=await planningMutate('planning/create-free',{mode:'realizada'},operator) as Row;
+ const p2=(await planDetail(operator,id2)).plan;
+ const body2=(notes:Row[])=>({id:id2,version:p2.version,title:'Içamento no cais',orgId:org,locationId:loc,plannedStart:At(-30),plannedEnd:At(-26),notes,
+  steps:p2.steps.map((s:Row)=>({key:s.step_key,included:true,needs:[],equipmentIds:[],operatorIds:[]}))});
+ await rejects(planningMutate('planning/save',body2([{kind:'impacto',description:'Vento',at:At(-28),until:At(-29)}]),operator),400,/antes do início/);
+ await planningMutate('planning/save',body2([{kind:'impacto',description:'Vento acima do limite',at:At(-29),until:At(-28)},{kind:'impacto',description:'Fornecedor atrasou',at:At(-27)}]),operator);
+ const r2=await realizeActivity({id:id2,version:(await planDetail(operator,id2)).plan.version,launchKey:key()},operator) as Row;
+ const imps=(await orderDetail(operator,r2.workOrderId)).occurrences.filter((o:Row)=>o.kind==='impacto').sort((x:Row,y:Row)=>x.occurred_at.localeCompare(y.occurred_at));
+ assert.deepEqual(imps.map((o:Row)=>[o.status,o.impact_start,o.impact_end,o.severity,o.blocking]),[['resolvido',At(-29),At(-28),null,0],['aberto',At(-27),null,null,0]]);
  assert.equal(d.order.status,'concluida');
  // Aparece no Painel de OS (concluídas) com a marca de realizada.
  const board=await opsBoard(planner,new URL('http://x/?group=concluidas'));

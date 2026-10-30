@@ -51,9 +51,11 @@ export async function realizeActivity(b:Row,member:Member){
    let cursor=start,cursorEvent=e1;
    for(const [i,n] of notes.entries()){
     const oid=id(),blocking=n.kind==='bloqueio';
-    await tx.run(`INSERT INTO occurrences(id,work_order_id,os_step_id,kind,blocking,category_id,description,severity,occurred_at,registered_at,late,author_id,author_name,operation_key,status,resolved_at,resolved_by,resolved_by_name,resolution)
-     VALUES(?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)`,oid,wid,sid,n.kind,blocking?1:0,n.categoryId,n.description,n.severity,n.at,t,a.id,a.name,`realize:note:${wid}:${i}`,
-     blocking?'resolvido':'aberto',blocking?n.until:null,blocking?a.id:null,blocking?a.name:null,blocking?'Registrado com a atividade realizada':null);
+    // Impacto: início no "quando ocorreu"; com fim informado já nasce encerrado, sem fim fica em aberto.
+    const impact=n.kind==='impacto',closed=blocking||(impact&&!!n.until);
+    await tx.run(`INSERT INTO occurrences(id,work_order_id,os_step_id,kind,blocking,category_id,description,impact_start,impact_end,occurred_at,registered_at,late,author_id,author_name,operation_key,status,resolved_at,resolved_by,resolved_by_name,resolution)
+     VALUES(?,?,?,?,?,?,?,?,?,?,?,1,?,?,?,?,?,?,?,?)`,oid,wid,sid,n.kind,blocking?1:0,n.categoryId,n.description,impact?n.at:null,impact?n.until:null,n.at,t,a.id,a.name,`realize:note:${wid}:${i}`,
+     closed?'resolvido':'aberto',blocking?n.until:closed?t:null,closed?a.id:null,closed?a.name:null,blocking?'Registrado com a atividade realizada':null);
     if(!blocking)continue;
     const b0=await event(tx,a,wo,sid,'bloqueio',`realize:block:${wid}:${i}`,{occurrence:oid,category:n.categoryName,late:true},n.at);
     const b1=await event(tx,a,wo,sid,'retomada',`realize:resume:${wid}:${i}`,{late:true},n.until!);
