@@ -6,6 +6,7 @@ import {AppError,required,text} from './domain';
 import {type Member,isManager,requireAny,canCancelOrders} from './permissions';
 import {audit} from './registry';
 import {loadPlan,instant,osNumber,period} from './planning';
+import {closeOpenUses} from './finance';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -80,6 +81,11 @@ const stepEquipment=(tx:Executor,s:Row)=>tx.all(`SELECT r.equipment_id,e.tag,r.s
  (r.start_at::timestamptz <= now() OR r.start_at::timestamptz <= p.planned_start::timestamptz) used_now
  FROM reservations r JOIN equipment e ON e.id=r.equipment_id JOIN plan_steps p ON p.id=r.plan_step_id WHERE r.plan_step_id=? AND r.status<>'liberada'`,s.plan_step_id);
 const openBlocks=(tx:Executor,stepId:string)=>tx.all("SELECT * FROM occurrences WHERE os_step_id=? AND blocking=1 AND status='aberto'",stepId);
+
+/** Equipamentos desta etapa que nenhuma outra etapa aberta da OS usa: o uso deles termina aqui. */
+const lastUseOf=async(tx:Executor,wo:Row,s:Row)=>(await tx.all(`SELECT DISTINCT r.equipment_id FROM reservations r WHERE r.plan_step_id=?
+ AND NOT EXISTS (SELECT 1 FROM reservations r2 JOIN os_steps o ON o.plan_step_id=r2.plan_step_id WHERE o.work_order_id=? AND o.id<>? AND r2.equipment_id=r.equipment_id
+  AND r2.status<>'liberada' AND o.status IN ('nao_iniciada','em_execucao','pausada','bloqueada'))`,s.plan_step_id,wo.id,s.id)).map(r=>r.equipment_id as string);
 
 /** Interrompe a etapa ativa (bloqueio/NC): fecha o intervalo ativo e abre o interrompido. */
 async function interrupt(tx:Executor,s:Row,eventId:string,at:string){
@@ -266,6 +272,8 @@ export async function operationMutate(path:string,b:Row,member:Member){
    // Terminou antes mesmo do horário reservado começar: o horário inteiro volta a ficar livre.
    await tx.run("UPDATE reservations SET status='liberada',released_at=?,release_reason='Etapa concluída antes do horário reservado' WHERE plan_step_id=? AND status='confirmada' AND start_at::timestamptz >= ?::timestamptz",t,s.plan_step_id,t);
    await audit(tx,a,'Operação: etapa concluída',wo.id,{number:wo.number,step:s.step_key});
+   // Uso de equipamento recobrável esquecido em aberto: termina com a última etapa que o usa.
+   await closeOpenUses(tx,a,wo.id,t,'etapa',await lastUseOf(tx,wo,s));
    const closed=await checkClosure(tx,a,wo);
    return {ok:true,closure:closed,message:closed==='concluida'?`${label} concluída. ${osNumber(wo.number)} encerrada automaticamente.`:closed==='encerramento_pendente'?`${label} concluída. A OS ficou em encerramento pendente: há checklist obrigatório a concluir.`:`${label} concluída.`};
   }
@@ -290,6 +298,7 @@ async function dispense(b:Row,a:Actor){
    AND NOT EXISTS (SELECT 1 FROM checklist_instances i WHERE i.requirement_id=r.id AND i.status='concluido')
    AND NOT EXISTS (SELECT 1 FROM os_steps o JOIN reservations x ON x.plan_step_id=o.plan_step_id AND x.status<>'liberada' WHERE o.work_order_id=r.work_order_id AND o.status NOT IN ('dispensada','cancelada') AND x.equipment_id=r.equipment_id)`,now(),'Etapa dispensada: '+reason,wo.id);
   await audit(tx,a,'Planejamento: etapa dispensada',wo.id,{number:wo.number,step:s.step_key,reason});
+  await closeOpenUses(tx,a,wo.id,now(),'etapa',await lastUseOf(tx,wo,s));
   const closed=await checkClosure(tx,a,wo);
   return {ok:true,closure:closed,message:`Etapa “${s.name}” dispensada.`};
  });

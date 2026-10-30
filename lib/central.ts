@@ -5,11 +5,13 @@ import {type Member,isManager,has,canPlan,canSeeOrders,loadAccess} from './permi
 import {preventiveRows} from './maintenance';
 import {osNumber} from './planning';
 import {localDay,dateOf} from './maintenance-cycle';
+import {rateAt} from './recoverables';
+import {toRate} from './finance';
 
 const all=(q:string,...v:unknown[])=>db().all(q,...v);
 const HOUR=3600000,DAY=24*HOUR;
 export type Severity='critico'|'atencao'|'info';
-export type Alert={id:string,module:'abastecimento'|'operacao'|'planejamento'|'manutencao',severity:Severity,title:string,detail:string,at:string|null,link:{view:string,os?:string}};
+export type Alert={id:string,module:'abastecimento'|'operacao'|'planejamento'|'manutencao'|'financeiro',severity:Severity,title:string,detail:string,at:string|null,link:{view:string,os?:string}};
 const RANK:Record<Severity,number>={critico:0,atencao:1,info:2};
 const hm=(ms:number)=>{const h=Math.floor(ms/HOUR);return h>=48?`${Math.floor(h/24)} dias`:h>=1?`${h} h`:`${Math.max(1,Math.round(ms/60000))} min`;};
 const qty=(milli:number,unit:string)=>`${(milli/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})} ${unit}`;
@@ -107,6 +109,26 @@ export async function centralState(member:Member){
   out.sections.manutencao={equipment:worst.size,emDia:count('em_dia'),pendentes:count('pendente'),atrasados:count('atrasada'),semLeitura:count('sem_leitura'),blocked:impediments.length,openCorrectives:maint?open.length:null,
    agenda:rows.filter(r=>r.status==='em_dia'&&r.projectedDate&&localDay(r.projectedDate+'T12:00:00Z')<=today+7).sort((x,y)=>String(x.projectedDate).localeCompare(String(y.projectedDate))).slice(0,8).map(r=>({planId:r.planId,tag:r.tag,name:r.name,date:r.projectedDate,label:r.firstOpenLabel,remaining:r.remaining,unit:r.unit}))};
  }
+ // ── Financeiro ── Uso de equipamento recobrável aberto há uma diária inteira (provável esquecimento)
+ // para quem executa e para o Financeiro; usos a conferir só para o Financeiro.
+ const finance=manager||has(a,'financeiro');
+ if(finance||has(a,'operacao')){
+  const sw=scope?' AND w.org_id = ANY(?::text[])':'';
+  const [open,rates]=await Promise.all([
+   all(`SELECT u.id,u.work_order_id,u.started_at,u.equipment_id,u.org_id,e.tag,w.number FROM equipment_uses u JOIN equipment e ON e.id=u.equipment_id JOIN work_orders w ON w.id=u.work_order_id WHERE u.ended_at IS NULL${sw}`,...(scope?[scope]:[])),
+   all('SELECT * FROM recovery_rates'),
+  ]);
+  const list=rates.map(toRate);
+  for(const u of open){
+   const age=t-Date.parse(u.started_at),limit=(rateAt(list,u.equipment_id,u.org_id,Date.parse(u.started_at))?.hoursPerDay||8)*HOUR;
+   if(age>=limit)alerts.push({id:'use:'+u.id,module:'financeiro',severity:'atencao',title:`${u.tag} em uso há ${hm(age)} sem fim registrado`,detail:`${osNumber(u.number)} · registre o fim do uso na OS`,at:u.started_at,link:{view:'op-os',os:u.work_order_id}});
+  }
+ }
+ if(finance){
+  const review=(await all("SELECT count(*)::int n FROM equipment_uses WHERE review='a_conferir'"))[0]?.n||0;
+  if(review)alerts.push({id:'uses:review',module:'financeiro',severity:'info',title:`${review} uso(s) de equipamento a conferir`,detail:'Confira ou corrija no Painel de recobráveis.',at:null,link:{view:'fin-painel'}});
+ }
+
  alerts.sort((x,y)=>RANK[x.severity]-RANK[y.severity]||String(x.at||'').localeCompare(String(y.at||'')));
  out.alerts=alerts.slice(0,300);
  out.counts={critico:alerts.filter(x=>x.severity==='critico').length,atencao:alerts.filter(x=>x.severity==='atencao').length,info:alerts.filter(x=>x.severity==='info').length,total:alerts.length};

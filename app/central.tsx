@@ -2,13 +2,13 @@
 // Painel central: resumo de cada módulo e a lista de avisos (rolável, filtrável por gravidade e
 // módulo). Cada cartão e cada aviso levam à tela de origem. O conteúdo segue o acesso de quem vê.
 import {useCallback,useEffect,useMemo,useState,ReactNode} from 'react';
-import {AlertTriangle,AlertOctagon,Info,ArrowRight,Droplets,HardHat,CalendarRange,Wrench,CalendarClock,CheckCircle2,MonitorPlay} from 'lucide-react';
+import {AlertTriangle,AlertOctagon,Info,ArrowRight,Droplets,HardHat,CalendarRange,Wrench,CalendarClock,CheckCircle2,MonitorPlay,Landmark} from 'lucide-react';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Badge,fmt,load,type R} from './kit';
 
 const SEV:Record<string,[string,string,typeof AlertOctagon]>={critico:['Crítico','var(--occ)',AlertOctagon],atencao:['Atenção','var(--mwarn)',AlertTriangle],info:['Informativo','var(--evt)',Info]};
-const MOD:Record<string,[string,typeof Droplets]>={abastecimento:['Abastecimento',Droplets],operacao:['Operação',HardHat],planejamento:['Planejamento',CalendarRange],manutencao:['Manutenção',Wrench]};
+const MOD:Record<string,[string,typeof Droplets]>={abastecimento:['Abastecimento',Droplets],operacao:['Operação',HardHat],planejamento:['Planejamento',CalendarRange],manutencao:['Manutenção',Wrench],financeiro:['Financeiro',Landmark]};
 const osLabel=(n:number)=>'OS '+String(n).padStart(6,'0');
 const dayBR=(d:string)=>d.split('-').reverse().join('/');
 const num=(n:number)=>n.toLocaleString('pt-BR',{maximumFractionDigits:1});
