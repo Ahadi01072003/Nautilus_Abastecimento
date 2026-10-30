@@ -766,6 +766,7 @@ body{font-family:var(--f-body)}
 .fin-table tr.clickable{cursor:pointer}.fin-table tr.clickable:hover td{background:color-mix(in srgb,var(--brand) 5%,transparent)}
 .fin-detail td{background:color-mix(in srgb,var(--brand) 3%,var(--surface))}
 .fin-detail h4{font-size:13px;margin:6px 0}
+.fin-detail h5{font-size:12px;margin:4px 0;color:var(--muted-c)}
 .fin-detail ul{list-style:none;margin:0 0 10px;padding:0;display:grid;gap:6px}
 .fin-detail li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px}
 .fin-detail li span:first-child{font-family:var(--f-mono);font-size:12.5px}
