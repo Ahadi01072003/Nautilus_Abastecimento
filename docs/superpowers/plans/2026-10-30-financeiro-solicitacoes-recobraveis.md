@@ -4,7 +4,7 @@
 
 **Goal:** registrar solicitações de atividades recobráveis, cotar com fornecedores aos poucos, calcular margem/impostos/valor a faturar (regra A), gerar o relatório para assinatura, autorizar com o relatório assinado e ligar a solicitação à OS do Planejamento.
 
-**Architecture:** cálculo puro em `lib/recovery-quote.ts` (nada calculado é gravado, exceto o valor da cotação escolhida ao autorizar); banco `0020` com as tabelas e as travas (caminhos de situação, cotação travada fora de "Em cotação", anexo nunca apagado, autorização exige escolha e relatório assinado); serviço `lib/finance-requests.ts`; anexos em `bytea` no próprio banco; ganchos no lançamento, encerramento e cancelamento da OS; telas no menu Financeiro.
+**Architecture:** cálculo puro em `lib/recovery-quote.ts` (nada calculado é gravado, exceto o valor da cotação escolhida ao autorizar); banco `0021` com as tabelas e as travas (caminhos de situação, cotação travada fora de "Em cotação", anexo nunca apagado, autorização exige escolha e relatório assinado); serviço `lib/finance-requests.ts`; anexos em `bytea` no próprio banco; ganchos no lançamento, encerramento e cancelamento da OS; telas no menu Financeiro.
 
 **Tech Stack:** Next.js 16 (App Router; ler `node_modules/next/dist/docs/` antes de rota ou página nova, conforme AGENTS.md), React 19, TypeScript, Postgres (postgres.js), `node:test` com Postgres local.
 
@@ -21,7 +21,7 @@
 - Auditoria: ações `Financeiro: …` (acesso Financeiro), `Planejamento: …` (lançar, cancelar, revisar) e `Operação: …`/`Planejamento: …` no encerramento, conforme o acesso de quem age (mesma regra de `closeOpenUses`).
 - Situações: `em_cotacao`, `enviada`, `autorizada`, `em_execucao`, `concluida`, `cancelada`.
 - Número `REC-000001` por sequência do banco.
-- Migração `0020` aplicada em produção antes do merge, só com OK do usuário.
+- Migração `0021` aplicada em produção antes do merge, só com OK do usuário.
 - Textos de tela em português; commits sem identificador de modelo, com o rodapé de coautoria da sessão.
 
 ## Review Focus
@@ -62,10 +62,10 @@
 - [ ] **Step 4: Run** o mesmo comando — Expected: PASS (6 testes).
 - [ ] **Step 5: Commit** `Financeiro B: cálculo da cotação (regra A) e caminhos de situação` (inclui a atualização da spec).
 
-### Task 2: Banco 0020 e acesso
+### Task 2: Banco 0021 e acesso
 
 **Files:**
-- Create: `db/migrations/0020_financeiro_solicitacoes.sql`
+- Create: `db/migrations/0021_financeiro_solicitacoes.sql`
 - Modify: `lib/permissions.ts` (`financeModules` passa a `['fin-painel','fin-solicitacoes','fin-tarifas','fin-config']`)
 - Test: `tests/finance-requests.test.ts` (novo arquivo, banco próprio; esta tarefa cria a parte "banco")
 
@@ -86,7 +86,7 @@
 
 - [ ] **Step 1: Write the failing test** `banco: caminhos de situação, cotação travada, autorização exige relatório assinado, anexo não se apaga` em `tests/finance-requests.test.ts`, com SQL direto (`db.run`): pular de `em_cotacao` para `autorizada` → `/Situação/`; alterar `title` em `enviada` → `/não pode ser alterad/`; inserir cotação em `enviada` → `/Cotação só muda em "Em cotação"/`; autorizar sem anexo → `/relatório assinado/`; `DELETE FROM finance_attachments` → `/não pode ser apagado/`; `UPDATE finance_client_rates` → `/nova vigência/`; e `modules({...operator,capabilities:['financeiro']})` inclui `fin-solicitacoes` e `fin-config`.
 - [ ] **Step 2: Run** `TEST_DATABASE_URL=postgres://postgres@127.0.0.1:55432/postgres node --import tsx --test tests/finance-requests.test.ts` — Expected: FAIL (tabelas inexistentes).
-- [ ] **Step 3: Write `0020_financeiro_solicitacoes.sql`** e altere `financeModules`.
+- [ ] **Step 3: Write `0021_financeiro_solicitacoes.sql`** e altere `financeModules`.
 - [ ] **Step 4: Run** o mesmo comando — Expected: PASS.
 - [ ] **Step 5: Commit** `Financeiro B: tabelas de solicitações, cotações, relatórios e anexos com travas no banco`.
 

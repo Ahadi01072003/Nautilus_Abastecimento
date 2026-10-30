@@ -212,6 +212,17 @@ export async function forecastRows(f:{start:string|null,end:string|null,org:stri
  return out.sort((x,y)=>ms(x.start)-ms(y.start)||String(x.tag).localeCompare(String(y.tag)));
 }
 
+/** Diárias novas que estes intervalos gerariam para o equipamento e o cliente, junto com os usos já
+ * registrados (conferência do registro de atividade realizada). */
+export async function newDailies(ex:Executor,equipmentId:string,orgId:string,list:{start:string,end:string}[]){
+ if(!list.length)return {n:0,cents:0};
+ const rates=(await ratesOf(ex,equipmentId,orgId)).map(toRate),t=Date.now();
+ const near=(await usesNear(ex,equipmentId,orgId,Math.min(...list.map(x=>ms(x.start))),Math.max(...list.map(x=>ms(x.end))))).map(toInterval);
+ const mine:Interval[]=list.map((x,i)=>({id:'novo'+i,orderId:'novo',orderNumber:0,equipmentId,orgId,start:ms(x.start),end:ms(x.end),pending:false}));
+ const sum=(l:Daily[])=>l.reduce((s,d)=>s+d.valueCents,0),before=dailies(near,rates,t),after=dailies([...near,...mine],rates,t);
+ return {n:after.length-before.length,cents:sum(after)-sum(before)};
+}
+
 // ---- Comandos ----
 
 /** Diárias novas que este uso gera com o período informado (sem fim: conta até agora), para pedir

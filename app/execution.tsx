@@ -114,6 +114,8 @@ export default function OrderExecution({orderId,onChanged}:{orderId:string,onCha
     </div>
    </section>}
 
+  {(data.realizedUses as R[]|undefined)?.length?<section className="n-panel eu-panel"><div className="panel-heading"><div><h2>Horas de uso realizadas</h2><p>Informadas no registro da atividade realizada. As recobráveis foram para o Financeiro ligadas a esta OS.</p></div></div>
+   <ul className="eu-list">{(data.realizedUses as R[]).map((u,i)=><li key={i}><div className="eu-line"><b>{u.tag}</b><span>{fmt(u.start)} → {fmt(u.end)}</span><span className="eu-dur">{Number(u.hours).toLocaleString('pt-BR')} h</span>{u.recoverable?<Badge tone="info">Recobrável</Badge>:<Badge>Não recobrável</Badge>}</div></li>)}</ul></section>:null}
   <EquipmentUses orderId={orderId} refreshKey={Date.parse(data.serverNow)} onChanged={()=>void refresh()}/>
   <Tabs defaultValue="notes"><TabsList className="n-tabs"><TabsTrigger value="notes">Apontamentos{sel?` · ${sel.plan.name}`:''}</TabsTrigger><TabsTrigger value="checklists">Checklists</TabsTrigger><TabsTrigger value="history">Histórico</TabsTrigger></TabsList>
    <TabsContent value="notes"><section className="n-panel">{occ.length?<ul className="occ-list">{occ.map(o=><li key={o.id} className={o.blocking&&o.status==='aberto'?'open':''}><div><Badge tone={o.kind==='bloqueio'?'danger':o.kind==='impacto'?'warning':'info'}>{kindNames[o.kind]}{o.kind==='impacto'&&o.blocking?' com bloqueio':''}</Badge>{openImpact(o)&&<Badge tone="warning">Em aberto</Badge>}{o.category_name&&<Badge>{o.category_name}</Badge>}{o.late?<Badge tone="warning">Registro tardio</Badge>:null}{o.impediment_id&&<Badge tone="danger">NC crítica</Badge>}<b>{o.description}</b></div>

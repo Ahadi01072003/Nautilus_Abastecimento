@@ -636,6 +636,30 @@ export async function realizedNotes(value:unknown,start:string|null,end:string|n
  return out.sort((x,y)=>ms(x.at)-ms(y.at));
 }
 
+/** Horas de uso da atividade realizada: cada linha com um equipamento de "Recursos usados", início e
+ * fim dentro do período real e sem sobreposição no mesmo equipamento. `recoverable` marca as que entram
+ * no cálculo de recobráveis (viram usos no Financeiro ao registrar). Ordenadas pelo início. */
+export function realizedUses(value:unknown,start:string|null,end:string|null,equipmentIds:string[],tagOf:(id:string)=>string){
+ if(value==null)return [];
+ if(!Array.isArray(value)||value.length>60)throw new AppError('Horas de uso inválidas (até 60 por registro).');
+ const out=(value as Row[]).map((u,i)=>{
+  const label=`Uso ${i+1}`;
+  if(!u||typeof u!=='object')throw new AppError(`${label}: inválido.`);
+  const equipmentId=typeof u.equipmentId==='string'?u.equipmentId:'';
+  if(!equipmentIds.includes(equipmentId))throw new AppError(`${label}: escolha um equipamento de "Recursos usados".`);
+  const s0=instant(u.start,`${label} · início`),e0=instant(u.end,`${label} · fim`);
+  if(!s0||!e0)throw new AppError(`${label} (${tagOf(equipmentId)}): informe o início e o fim.`);
+  if(ms(e0)<=ms(s0))throw new AppError(`${label} (${tagOf(equipmentId)}): o fim deve ser depois do início.`);
+  if(start&&end&&(ms(s0)<ms(start)||ms(e0)>ms(end)))throw new AppError(`${label} (${tagOf(equipmentId)}): o uso deve ficar entre o início e o fim reais da atividade.`);
+  return {key:typeof u.key==='string'&&u.key.length<=60?u.key:id(),equipmentId,start:s0,end:e0,recoverable:u.recoverable===true};
+ }).sort((x,y)=>ms(x.start)-ms(y.start));
+ for(const eq of new Set(out.map(u=>u.equipmentId))){
+  const list=out.filter(u=>u.equipmentId===eq);
+  for(let i=1;i<list.length;i++)if(ms(list[i].start)<ms(list[i-1].end))throw new AppError(`Equipamento ${tagOf(eq)}: há usos sobrepostos. Ajuste os horários.`);
+ }
+ return out;
+}
+
 /** Código da OS = código de um setor cadastrado (ativo, ou o mesmo que já estava no rascunho). */
 async function sectorOf(value:unknown,keep:unknown){
  const code=activityCode(value);
@@ -723,6 +747,11 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
   return {s,included,ps,pe,loc,equipmentIds,operatorIds,needs,label,frozen:false,win};
  });
  if(steps.some(x=>x.loc)){const locs=await all('SELECT id,active FROM locations WHERE id = ANY(?::text[])',steps.map(x=>x.loc).filter(Boolean));for(const x of steps)if(x.loc){const l=locs.find(y=>y.id===x.loc);if(!l||(!l.active&&x.loc!==x.s.location_id))throw new AppError(`${x.label}: local inativo ou inexistente.`);}}
+ // Atividade realizada: horas de uso por equipamento. O período ocupado na agenda vai do primeiro
+ // início ao último fim das linhas do equipamento (sem linhas, vale o período informado).
+ const uses=plan.mode==='realizada'&&b.uses!==undefined?realizedUses(b.uses,start,end,steps.filter(x=>x.included).flatMap(x=>x.equipmentIds),e=>equipment.find(y=>y.id===e)?.tag||e):null;
+ if(uses?.length)for(const x of steps){const base=x.win;x.win=(e:string)=>{const list=uses.filter(u=>u.equipmentId===e);
+  return list.length?[list[0].start,list.reduce((m,u)=>ms(u.end)>ms(m)?u.end:m,list[0].end)]:base(e);};}
  // Confere a agenda antes de gravar, para devolver o motivo detalhado (o banco garante na gravação).
  for(const x of steps)for(const e of x.equipmentIds){
   const current=x.s.reservations.find((r:Row)=>r.equipment_id===e);
@@ -744,6 +773,7 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
    const changed=await tx.run('UPDATE plans SET description=?,org_id=?,requester_person_id=?,location_id=?,planned_start=?,planned_end=?,title=coalesce(?,title),code=?,updated_at=?,version=version+1 WHERE id=? AND version=? AND status=\'draft\'',description,org?.id||null,person?.id||null,location?.id||null,start,end,title,code,t,plan.id,plan.version);
    if(!changed)throw new AppError('Este rascunho foi alterado em outra tela. Atualize para continuar.',409);
    if(notes)await tx.run('UPDATE plans SET realized_notes=?::text::jsonb WHERE id=?',JSON.stringify(notes),plan.id);
+   if(uses)await tx.run('UPDATE plans SET realized_uses=?::text::jsonb WHERE id=?',JSON.stringify(uses),plan.id);
    for(const x of steps){
     if(x.frozen)continue;
     await tx.run('UPDATE plan_steps SET included=?,planned_start=?,planned_end=?,location_id=? WHERE id=?',x.included,x.ps,x.pe,x.loc,x.s.id);

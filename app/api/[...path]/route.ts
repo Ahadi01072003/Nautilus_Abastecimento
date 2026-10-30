@@ -5,11 +5,11 @@ import {exportData,exportPreview} from '@/lib/exports';
 import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {revisionMutate} from '@/lib/revision';
-import {realizeActivity} from '@/lib/realized';
+import {realizeActivity,validateRealized,recoverableEquipment} from '@/lib/realized';
 import {cancelOrder} from '@/lib/cancel';
 import {centralState} from '@/lib/central';
 import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
-import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps,ordersResources} from '@/lib/planning';
+import {planningState,planningMutate,planDetail,availability,ordersList,ordersRefs,ordersSteps,ordersResources} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
 import {financeRates,orderUses,financeMutate,financePanel} from '@/lib/finance';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
@@ -92,7 +92,8 @@ export async function GET(req:Request){try{
  if(path==='planning'){await rateLimit(member.id,'read');return json(await planningState(member,url.searchParams.get('mode')==='realizada'?'realizada':'planejada'));}
  if(path==='planning/plan'){await rateLimit(member.id,'read');return json(await planDetail(member,url.searchParams.get('id')||''));}
  if(path==='planning/availability'){await rateLimit(member.id,'read');return json(await availability(member,url));}
- if(path==='planning/validate'){await rateLimit(member.id,'read');return json(await validateDraft(member,url.searchParams.get('id')||''));}
+ if(path==='planning/validate'){await rateLimit(member.id,'read');return json(await validateRealized(member,url.searchParams.get('id')||''));}
+ if(path==='planning/recoverable'){await rateLimit(member.id,'read');return json(await recoverableEquipment(member,url));}
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}
  if(path==='orders/steps'){await rateLimit(member.id,'read');return json(await ordersSteps(member,url));}
  if(path==='orders/refs'){await rateLimit(member.id,'read');return json(await ordersRefs(member));}
