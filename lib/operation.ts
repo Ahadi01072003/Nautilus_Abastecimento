@@ -50,6 +50,14 @@ export async function orderDetail(member:Member,workOrderId:string){
   can:{execute:isManager(a)||caps.includes('operacao'),plan:isManager(a)||caps.includes('planejamento'),cancel:canCancelOrders(a)}};
 }
 
+/** Fim do impacto (opcional): não antes do início e não no futuro. */
+function impactEndOf(value:unknown,start:string){
+ const end=instant(value,'Fim do impacto');if(!end)return null;
+ if(Date.parse(end)<Date.parse(start))throw new AppError('O fim do impacto não pode ser antes do início (quando ocorreu).');
+ if(Date.parse(end)>Date.now()+60000)throw new AppError('O fim do impacto não pode estar no futuro.');
+ return end;
+}
+
 async function lockOrder(tx:Executor,a:Actor,workOrderId:string){
  const wo=await tx.first('SELECT * FROM work_orders WHERE id=? FOR UPDATE',workOrderId);
  if(!wo||!inScope(a,wo.org_id))throw new AppError('OS não encontrada ou fora do seu acesso.',404);
@@ -161,9 +169,11 @@ export async function operationMutate(path:string,b:Row,member:Member){
    await lockOrder(tx,a,o.work_order_id);
    if(o.status==='resolvido')return {ok:true,repeated:true};
    const resolution=required(b.resolution,'Como foi resolvido',1200);
-   await tx.run("UPDATE occurrences SET status='resolvido',resolved_at=?,resolved_by=?,resolved_by_name=?,resolution=? WHERE id=?",t,a.id,a.name,resolution,o.id);
-   await audit(tx,a,'Operação: apontamento resolvido',o.work_order_id,{occurrence:o.id,resolution});
-   return {ok:true,message:o.impediment_id?'Bloqueio local resolvido. O equipamento continua bloqueado até a liberação técnica.':o.blocking?'Bloqueio resolvido. Use “Retomar” quando a etapa puder continuar.':'Apontamento resolvido.'};
+   // Impacto em aberto: a solução registra também quando ele terminou (agora ou antes).
+   const impactEnd=o.kind==='impacto'&&!o.impact_end?impactEndOf(b.impactEnd,o.impact_start||o.occurred_at)||t:null;
+   await tx.run("UPDATE occurrences SET status='resolvido',resolved_at=?,resolved_by=?,resolved_by_name=?,resolution=?,impact_end=coalesce(impact_end,?) WHERE id=?",t,a.id,a.name,resolution,impactEnd,o.id);
+   await audit(tx,a,'Operação: apontamento resolvido',o.work_order_id,{occurrence:o.id,resolution,...(impactEnd?{impactEnd}:{})});
+   return {ok:true,message:o.impediment_id?'Bloqueio local resolvido. O equipamento continua bloqueado até a liberação técnica.':o.blocking?'Bloqueio resolvido. Use “Retomar” quando a etapa puder continuar.':o.kind==='impacto'?'Solução do impacto registrada.':'Apontamento resolvido.'};
   });
  }
 
@@ -190,8 +200,10 @@ export async function operationMutate(path:string,b:Row,member:Member){
   if(path==='ops/block'||path==='ops/note'){
    const kind=path==='ops/block'?'bloqueio':b.kind;
    if(!['ocorrencia','impacto','bloqueio'].includes(kind))throw new AppError('Escolha o tipo de apontamento.');
-   const blocking=kind==='bloqueio'||(kind==='impacto'&&b.blocking===true)?1:0;
-   const description=required(b.description,kind==='bloqueio'||blocking?'Justificativa do bloqueio':'Descrição',2000);
+   // Só o bloqueio para a etapa. Impacto é registrado como o apontamento: o "quando ocorreu" é o
+   // início e o fim é opcional (sem fim, fica em aberto até alguém registrar a solução).
+   const blocking=kind==='bloqueio'?1:0;
+   const description=required(b.description,blocking?'Justificativa do bloqueio':'Descrição',2000);
    const category=b.categoryId?await tx.first('SELECT * FROM occurrence_categories WHERE id=? AND active=1',idOf(b.categoryId,'Categoria')):null;
    if(b.categoryId&&!category)throw new AppError('Categoria inativa ou inexistente.');
    if(category&&category.kind!==kind)throw new AppError('A categoria escolhida é de outro tipo de apontamento.');
@@ -200,20 +212,16 @@ export async function operationMutate(path:string,b:Row,member:Member){
    if(Date.parse(occurred)>Date.now()+60000)throw new AppError('O momento ocorrido não pode estar no futuro.');
    if(blocking&&!['nao_iniciada','em_execucao','pausada','bloqueada'].includes(s.status))throw new AppError(`${label} já foi encerrada: não aceita bloqueio.`,409);
    const late=['concluida','dispensada'].includes(s.status)?1:0;
-   const severity=kind==='impacto'?(['baixa','media','alta'].includes(b.severity)?b.severity:'media'):null;
-   const impactStart=kind==='impacto'?instant(b.impactStart,'Início do impacto'):null,impactEnd=kind==='impacto'?instant(b.impactEnd,'Fim do impacto'):null;
-   if(impactStart&&impactEnd&&impactEnd<=impactStart)throw new AppError('O fim do impacto deve ser depois do início.');
-   const equipmentId=b.equipmentId?idOf(b.equipmentId,'Equipamento'):null;
-   if(equipmentId&&!await tx.first('SELECT 1 FROM equipment WHERE id=?',equipmentId))throw new AppError('Equipamento não encontrado. Atualize a tela.',404);
-   if(impactStart&&Date.parse(impactStart)>Date.now()+60000)throw new AppError('O início do impacto não pode estar no futuro.');
+   const impactEnd=kind==='impacto'?impactEndOf(b.impactEnd,occurred):null;
    const oid=id();
-   await tx.run('INSERT INTO occurrences(id,work_order_id,os_step_id,kind,blocking,category_id,description,severity,equipment_id,impact_start,impact_end,occurred_at,registered_at,late,author_id,author_name,operation_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',oid,wo.id,s.id,kind,blocking,category?.id||null,description,severity,equipmentId,impactStart,impactEnd,occurred,t,late,a.id,a.name,key);
+   await tx.run('INSERT INTO occurrences(id,work_order_id,os_step_id,kind,blocking,category_id,description,impact_start,impact_end,occurred_at,registered_at,late,author_id,author_name,operation_key,status,resolved_at,resolved_by,resolved_by_name) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    oid,wo.id,s.id,kind,blocking,category?.id||null,description,kind==='impacto'?occurred:null,impactEnd,occurred,t,late,a.id,a.name,key,impactEnd?'resolvido':'aberto',impactEnd?t:null,impactEnd?a.id:null,impactEnd?a.name:null);
    if(blocking){
     const ev=await event(tx,a,wo,s.id,'bloqueio','block:'+key,{occurrence:oid,category:category?.name});
     await interrupt(tx,s,ev,t);
    }
-   await audit(tx,a,`Operação: ${kind==='bloqueio'?'bloqueio registrado':kind==='impacto'?(blocking?'impacto com bloqueio registrado':'impacto registrado'):'ocorrência registrada'}`,wo.id,{number:wo.number,step:s.step_key,occurrence:oid,late:!!late});
-   return {ok:true,id:oid,message:blocking?`${label} bloqueada. O tempo efetivo parou; o prazo continua correndo.`:'Apontamento registrado.'};
+   await audit(tx,a,`Operação: ${kind==='bloqueio'?'bloqueio registrado':kind==='impacto'?'impacto registrado':'ocorrência registrada'}`,wo.id,{number:wo.number,step:s.step_key,occurrence:oid,late:!!late,...(kind==='impacto'?{impactEnd}:{})});
+   return {ok:true,id:oid,message:blocking?`${label} bloqueada. O tempo efetivo parou; o prazo continua correndo.`:kind==='impacto'&&!impactEnd?'Impacto registrado em aberto. Registre a solução quando ele terminar.':'Apontamento registrado.'};
   }
 
   if(path==='ops/pause'){

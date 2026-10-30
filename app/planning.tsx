@@ -34,10 +34,10 @@ type Need={equipmentTypeId:string|null,functionId:string|null,materialId:string|
 type Use={start:string,end:string};
 type Step={key:string,id:string,name:string,description:string,required:boolean,included:boolean,dependsOn:string[],defaultMinutes:number|null,start:string,end:string,locationId:string,needs:Need[],equipmentIds:string[],operatorIds:string[],uses:Record<string,Use>};
 /** Apontamento informado no registro de atividade realizada (horários locais de Brasília). */
-type Note={key:string,kind:string,categoryId:string,description:string,at:string,until:string,severity:string};
+type Note={key:string,kind:string,categoryId:string,description:string,at:string,until:string};
 type Form={title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[],notes:Note[]};
-const fromPlan=(p:R):Form=>({notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until),severity:n.severity||'media'})),title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:toLocal(p.planned_start),end:toLocal(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:toLocal(s.planned_start),end:toLocal(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,uses:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>r.start_at!==s.planned_start||r.end_at!==s.planned_end).map(r=>[r.equipment_id,{start:toLocal(r.start_at),end:toLocal(r.end_at)}]))}))});
-const toBody=(f:Form,realized=false)=>({...(realized?{notes:f.notes.map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||null,description:n.description,at:toISO(n.at),until:n.kind==='bloqueio'?toISO(n.until):null,severity:n.kind==='impacto'?n.severity:null}))}:{}),title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,plannedStart:toISO(f.start),plannedEnd:toISO(f.end),steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:toISO(s.start),plannedEnd:toISO(s.end),locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],equipmentWindows:usesBody(s,f)}))});
+const fromPlan=(p:R):Form=>({notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until)})),title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:toLocal(p.planned_start),end:toLocal(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:toLocal(s.planned_start),end:toLocal(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,uses:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>r.start_at!==s.planned_start||r.end_at!==s.planned_end).map(r=>[r.equipment_id,{start:toLocal(r.start_at),end:toLocal(r.end_at)}]))}))});
+const toBody=(f:Form,realized=false)=>({...(realized?{notes:f.notes.map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||null,description:n.description,at:toISO(n.at),until:n.kind==='bloqueio'||(n.kind==='impacto'&&n.until)?toISO(n.until):null}))}:{}),title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,plannedStart:toISO(f.start),plannedEnd:toISO(f.end),steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:toISO(s.start),plannedEnd:toISO(s.end),locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],equipmentWindows:usesBody(s,f)}))});
 
 /** Períodos de uso enviados ao servidor (só OS sem fluxo): recortados ao início e fim da OS; o que
  * ficou vazio, inválido ou fora da OS volta a ser a OS inteira (nada é gravado fora da janela). */
@@ -447,10 +447,11 @@ function SectorPicker({value,sectors,onChange,onRefs}:{value:string,sectors:R[],
 }
 
 const NOTE_KIND:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto',bloqueio:'Bloqueio'};
-/** Apontamentos no próprio registro da atividade realizada: ocorrência e impacto num momento;
- * bloqueio com início e fim (desconta do tempo efetivo). Tudo dentro do período real. */
+/** Apontamentos no próprio registro da atividade realizada: ocorrência num momento; impacto com
+ * início e fim opcional (sem fim, fica em aberto); bloqueio com início e fim (desconta do tempo
+ * efetivo). Tudo começa dentro do período real. */
 function RealizedNotes({notes,start,end,categories,onChange}:{notes:Note[],start:string,end:string,categories:R[],onChange:(n:Note[])=>void}){
- const blank=():Note=>({key:crypto.randomUUID(),kind:'ocorrencia',categoryId:'',description:'',at:start,until:'',severity:'media'});
+ const blank=():Note=>({key:crypto.randomUUID(),kind:'ocorrencia',categoryId:'',description:'',at:start,until:''});
  const [draft,setDraft]=useState<Note>(blank),[error,setError]=useState('');
  const cats=(kind:string)=>categories.filter(c=>c.kind===kind&&c.active).map(c=>({value:c.id,label:c.name}));
  const catName=(id:string)=>categories.find(c=>c.id===id)?.name;
@@ -465,19 +466,20 @@ function RealizedNotes({notes,start,end,categories,onChange}:{notes:Note[],start
    if(!(n.at>start&&n.until>n.at&&n.until<end))return setError('O bloqueio deve começar depois do início real e terminar antes do fim real.');
    if(notes.some(x=>x.kind==='bloqueio'&&x.at<n.until&&x.until>n.at))return setError('Este bloqueio se sobrepõe a outro.');
   }else if(n.at<start||n.at>end)return setError('O momento deve estar entre o início e o fim reais.');
+  else if(n.kind==='impacto'&&n.until&&n.until<n.at)return setError('O fim do impacto não pode ser antes do início (quando ocorreu).');
   onChange([...notes,{...n,description:n.description.trim()}].sort((a,b)=>a.at.localeCompare(b.at)));setDraft({...blank(),at:n.at});
  }
  const when=(v:string)=>v?v.slice(8,10)+'/'+v.slice(5,7)+' '+v.slice(11,16):'—';
  return <section className="n-panel plan-section"><div className="panel-heading"><div><h2>Apontamentos da atividade</h2><p>Opcional. Ocorrências, impactos e bloqueios que aconteceram durante a atividade. Bloqueios param o tempo efetivo entre o início e o fim informados. Tudo fica marcado como registro posterior.</p></div></div>
   <div className="rn-body">
    {notes.length?<ul className="occ-list">{notes.map(n=><li key={n.key}><div><Badge tone={n.kind==='bloqueio'?'danger':n.kind==='impacto'?'warning':'info'}>{NOTE_KIND[n.kind]}</Badge>{n.categoryId&&<Badge>{catName(n.categoryId)}</Badge>}<b>{n.description}</b><button type="button" className="icon-action" aria-label={`Remover apontamento: ${n.description}`} onClick={()=>onChange(notes.filter(x=>x.key!==n.key))}><X size={14}/></button></div>
-    <small>{n.kind==='bloqueio'?`Parada de ${when(n.at)} até ${when(n.until)}`:`Em ${when(n.at)}`}{n.kind==='impacto'?` · severidade ${n.severity==='media'?'média':n.severity}`:''}</small></li>)}</ul>:<p className="muted-text">Nenhum apontamento informado.</p>}
+    <small>{n.kind==='bloqueio'?`Parada de ${when(n.at)} até ${when(n.until)}`:n.kind==='impacto'?`Impacto de ${when(n.at)} ${n.until?`até ${when(n.until)}`:'· em aberto (registre a solução depois, nos Apontamentos)'}`:`Em ${when(n.at)}`}</small></li>)}</ul>:<p className="muted-text">Nenhum apontamento informado.</p>}
    <div className="form-grid rn-form">
     <Field label="Tipo"><Choice value={draft.kind} onChange={v=>setDraft(d=>({...d,kind:v,categoryId:''}))} options={[{value:'ocorrencia',label:'Ocorrência'},{value:'impacto',label:'Impacto'},{value:'bloqueio',label:'Bloqueio (parou a atividade)'}]}/></Field>
     <Field label={draft.kind==='bloqueio'?'Categoria *':'Categoria'}><Choice value={draft.categoryId||'none'} onChange={v=>setDraft(d=>({...d,categoryId:v==='none'?'':v}))} options={[...(draft.kind==='bloqueio'?[]:[{value:'none',label:'Sem categoria'}]),...cats(draft.kind)]} placeholder={cats(draft.kind).length?'Selecione':'Cadastre categorias em Cadastros gerais'}/></Field>
     <Field label={draft.kind==='bloqueio'?'Parou em (Brasília) *':'Quando ocorreu (Brasília) *'}><Input type="datetime-local" value={draft.at} min={start||undefined} max={end||undefined} onChange={e=>setDraft(d=>({...d,at:e.target.value}))}/></Field>
     {draft.kind==='bloqueio'?<Field label="Retomou em (Brasília) *"><Input type="datetime-local" value={draft.until} min={draft.at||start||undefined} max={end||undefined} onChange={e=>setDraft(d=>({...d,until:e.target.value}))}/></Field>
-     :draft.kind==='impacto'?<Field label="Severidade"><Choice value={draft.severity} onChange={v=>setDraft(d=>({...d,severity:v}))} options={[{value:'baixa',label:'Baixa'},{value:'media',label:'Média'},{value:'alta',label:'Alta'}]}/></Field>:<div/>}
+     :draft.kind==='impacto'?<Field label="Fim do impacto (Brasília)" hint="Opcional. Em branco, fica em aberto."><Input type="datetime-local" value={draft.until} min={draft.at||undefined} onChange={e=>setDraft(d=>({...d,until:e.target.value}))}/></Field>:<div/>}
     <Field label={draft.kind==='bloqueio'?'Justificativa do bloqueio *':'Descrição *'} wide><Textarea maxLength={2000} value={draft.description} onChange={e=>setDraft(d=>({...d,description:e.target.value}))} placeholder={draft.kind==='bloqueio'?'Ex.: Chuva forte; equipe abrigada até 10h40':'O que aconteceu'}/></Field>
    </div>
    {error&&<div className="form-error" role="alert"><AlertTriangle size={17}/>{error}</div>}

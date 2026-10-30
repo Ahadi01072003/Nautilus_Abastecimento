@@ -103,7 +103,32 @@ test('execução: checklist pré-atividade, paralelismo, dependência, idempotê
  await ops('finish',{stepId:prep.id});await ops('finish',{stepId:insp.id});
 });
 
-test('bloqueios: dois bloqueios exigem duas resoluções; ocorrência não para o relógio; impacto com bloqueio para',async()=>{
+test('impacto: mesmo registro do apontamento, sem bloqueio; fim opcional e solução registrada depois com o fim',async()=>{
+ const wo=await launch(23,'eq2');
+ const prep=await step(wo,'prep-0001');
+ const t0=new Date(Date.now()-3*3600000).toISOString(),t1=new Date(Date.now()-2*3600000).toISOString();
+ // Sem fim: fica em aberto, sem severidade nem bloqueio; o início é o "quando ocorreu".
+ const open=await ops('note',{stepId:prep.id,kind:'impacto',categoryId:catImpact,description:'Caminhão do material atrasou',occurredAt:t0,severity:'alta',equipmentId:'eq2'});
+ let o=(await db.first('SELECT * FROM occurrences WHERE id=?',open.id))!;
+ assert.deepEqual([o.status,o.blocking,o.severity,o.equipment_id,o.impact_start,o.impact_end],['aberto',0,null,null,t0,null]);
+ assert.equal((await step(wo,'prep-0001')).status,'nao_iniciada','impacto não bloqueia a etapa');
+ // Solução depois: exige como foi resolvido e o fim (não antes do início, não no futuro).
+ await rejects(ops('resolve',{id:open.id,resolution:'Chegou',impactEnd:new Date(Date.now()-4*3600000).toISOString()}),400,/antes do início/);
+ await rejects(ops('resolve',{id:open.id,resolution:'Chegou',impactEnd:new Date(Date.now()+3600000).toISOString()}),400,/futuro/);
+ // Fim igual ao início é aceito (solução registrada no mesmo minuto da abertura).
+ const quick=await ops('note',{stepId:prep.id,kind:'impacto',description:'Portão travou',occurredAt:t1});
+ await ops('resolve',{id:quick.id,resolution:'Destravado na hora',impactEnd:t1});
+ await ops('resolve',{id:open.id,resolution:'Material chegou e foi descarregado',impactEnd:t1});
+ o=(await db.first('SELECT * FROM occurrences WHERE id=?',open.id))!;
+ assert.deepEqual([o.status,o.impact_end,o.resolution],['resolvido',t1,'Material chegou e foi descarregado']);
+ // Com o fim informado no registro: já nasce encerrado.
+ const closed=await ops('note',{stepId:prep.id,kind:'impacto',description:'Vento acima do limite',occurredAt:t0,impactEnd:t1});
+ o=(await db.first('SELECT * FROM occurrences WHERE id=?',closed.id))!;
+ assert.deepEqual([o.status,o.impact_start,o.impact_end],['resolvido',t0,t1]);
+ await rejects(ops('note',{stepId:prep.id,kind:'impacto',description:'Fim antes do início',occurredAt:t1,impactEnd:t0}),400,/antes do início/);
+});
+
+test('bloqueios: dois bloqueios exigem duas resoluções; ocorrência e impacto não param o relógio',async()=>{
  const wo=await launch(7,'eq2');
  const ck=await fill(wo,'CK-ATV',{'Área isolada?':{answer:'C'},'Risco de queda?':{answer:'C'}});await ops('checklist/complete',{instanceId:ck.id});
  const prep=await step(wo,'prep-0001');
@@ -112,7 +137,9 @@ test('bloqueios: dois bloqueios exigem duas resoluções; ocorrência não para 
  assert.equal((await step(wo,'prep-0001')).status,'em_execucao');
  await rejects(ops('block',{stepId:prep.id,description:'Sem categoria'}),400,/categoria/);
  const b1=await ops('block',{stepId:prep.id,categoryId:catBlock,description:'Chuva forte'});
- const b2=await ops('note',{stepId:prep.id,kind:'impacto',blocking:true,categoryId:catImpact,description:'Material atrasou',severity:'alta'});
+ // Impacto é registrado como o apontamento e nunca bloqueia a etapa (mesmo se pedirem bloqueio).
+ await ops('note',{stepId:prep.id,kind:'impacto',blocking:true,categoryId:catImpact,description:'Guindaste atrasou'});
+ const b2=await ops('block',{stepId:prep.id,categoryId:catBlock,description:'Material atrasou'});
  const d=await detail(wo);
  assert.equal(d.steps.find((s:Row)=>s.id===prep.id)!.status,'bloqueada');
  const iv=d.intervals.filter((i:Row)=>i.os_step_id===prep.id);

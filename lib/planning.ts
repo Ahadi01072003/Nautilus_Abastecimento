@@ -617,8 +617,11 @@ export async function realizedNotes(value:unknown,start:string|null,end:string|n
   const kind=n.kind as string;if(!['ocorrencia','impacto','bloqueio'].includes(kind))throw new AppError(`${label}: escolha o tipo.`);
   const description=required(n.description,`${label} · descrição`,2000);
   const at=instant(n.at,`${label} · quando ocorreu`);if(!at)throw new AppError(`${label}: informe quando ocorreu.`);
-  const until=kind==='bloqueio'?instant(n.until,`${label} · fim do bloqueio`):null;
+  const until=kind==='bloqueio'?instant(n.until,`${label} · fim do bloqueio`):kind==='impacto'?instant(n.until,`${label} · fim do impacto`):null;
   if(kind==='bloqueio'&&!until)throw new AppError(`${label}: informe até quando a atividade ficou parada.`);
+  // Impacto: igual ao apontamento, com fim opcional (sem fim, fica em aberto para registrar a solução depois).
+  if(kind==='impacto'&&until&&ms(until)<ms(at))throw new AppError(`${label}: o fim do impacto não pode ser antes do início (quando ocorreu).`);
+  if(kind==='impacto'&&until&&ms(until)>Date.now()+60000)throw new AppError(`${label}: o fim do impacto não pode estar no futuro.`);
   const cat=n.categoryId?categories.find(c=>c.id===n.categoryId):null;
   if(n.categoryId&&(!cat||cat.kind!==kind||!cat.active))throw new AppError(`${label}: categoria inválida para este tipo.`);
   if(kind==='bloqueio'&&!cat)throw new AppError(`${label}: escolha a categoria do bloqueio.`);
@@ -626,8 +629,7 @@ export async function realizedNotes(value:unknown,start:string|null,end:string|n
    if(kind==='bloqueio'){if(!(ms(at)>ms(start)&&ms(until)>ms(at)&&ms(until)<ms(end)))throw new AppError(`${label}: o bloqueio deve começar depois do início real e terminar antes do fim real.`);}
    else if(ms(at)<ms(start)||ms(at)>ms(end))throw new AppError(`${label}: o momento deve estar entre o início e o fim reais.`);
   }
-  const severity=kind==='impacto'?(['baixa','media','alta'].includes(n.severity)?n.severity:'media'):null;
-  return {key:typeof n.key==='string'&&n.key.length<=60?n.key:id(),kind,categoryId:cat?.id||null,categoryName:cat?.name||null,description,at,until,severity};
+  return {key:typeof n.key==='string'&&n.key.length<=60?n.key:id(),kind,categoryId:cat?.id||null,categoryName:cat?.name||null,description,at,until};
  });
  const blocks=out.filter(n=>n.kind==='bloqueio').sort((x,y)=>ms(x.at)-ms(y.at));
  for(let i=1;i<blocks.length;i++)if(ms(blocks[i].at)<ms(blocks[i-1].until!))throw new AppError('Há bloqueios sobrepostos nos apontamentos. Ajuste os horários.');
