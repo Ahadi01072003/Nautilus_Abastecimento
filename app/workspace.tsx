@@ -27,6 +27,7 @@ import Planning,{RealizedActivities} from './planning';
 import OpsBoard from './ops-board';
 import Apontamentos from './ops-apontamentos';
 import ExportCenter from './export-center';
+import {Rates} from './finance';
 import {PreventivePanel,MaintenanceCriteria,Correctives,Readings} from './maintenance';
 import Central from './central';
 type State={actor:R;fuels:R[];equipment:R[];operators:R[];supplies:R[];movements:R[];requests:R[];members:R[];holidays:R[];audits:R[];stats:R[];daily:R[];appointments:R[];executors:R[];notifications:R[];pagination:{page:number;limit:number;appointments:number;supplies:number};emailReady:boolean;emailSetup?:EmailSetup;access?:{defaultPassword:string|null;temporaryPasswordDays:number};generatedAt:string};
@@ -108,6 +109,7 @@ export default function Workspace({identity}:{identity:Identity}){
  {view==='man-leituras'&&<Readings refreshKey={registryTick}/>}
  {view==='op-registro'&&<RealizedActivities refreshKey={registryTick} openOrder={openOrder}/>}
  {view==='op-os'&&<Apontamentos refreshKey={registryTick}/>}
+ {view==='fin-tarifas'&&<Rates refreshKey={registryTick}/>}
  {view==='exportacao'&&<ExportCenter manager={manage} operation={data.actor.modules.includes('op-os')} fuels={data.fuels}/>}
  </ModuleBoundary>}
  {data&&['solicitacoes','abastecimentos'].includes(view)&&<div className="pagination-bar"><span>Página {page+1} · {view==='solicitacoes'?data.pagination.appointments:data.pagination.supplies} registros acessíveis</span><Button variant="outline" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Anterior</Button><Button variant="outline" disabled={(page+1)*data.pagination.limit>=(view==='solicitacoes'?data.pagination.appointments:data.pagination.supplies)} onClick={()=>setPage(p=>p+1)}>Próxima</Button></div>}<div className="privacy-note"><ShieldCheck size={14}/><span>Seu usuário identifica cada lançamento que você faz. A senha é pessoal: não a compartilhe. Solicite ao gestor correções no seu cadastro.</span></div><footer className="main-footer"><span><Compass size={14}/> NAUTILUS</span><p>Precisão. Profundidade. Clareza.</p><small>Horário de Brasília</small></footer></main></SidebarInset><Toaster position="bottom-right" richColors/>

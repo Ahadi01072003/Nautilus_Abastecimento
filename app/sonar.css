@@ -731,3 +731,28 @@ body{font-family:var(--f-body)}
 .org-tag small{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .org-counts>span{min-width:0;max-width:100%}
 .sidebar-person small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Financeiro: uso de equipamentos recobráveis na OS e tabelas de tarifas/painel. */
+.eu-panel{margin-bottom:16px}
+.eu-table{width:100%;border-collapse:collapse;font-size:13px}
+.eu-table th{font:600 11px/1.2 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+.eu-table td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}
+.eu-table tr.current td{background:color-mix(in srgb,var(--brand) 6%,transparent)}
+.eu-table td small{display:block}
+.eu-list{list-style:none;margin:0;padding:0}
+.eu-list li{padding:12px 22px;border-top:1px solid var(--line);display:grid;gap:6px}
+.eu-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;font-size:13px}
+.eu-line>span:first-of-type{font-family:var(--f-mono);font-size:12.5px}
+.eu-dur{color:var(--ink-2)}
+.eu-meta{justify-content:space-between}
+.eu-meta small{color:var(--ink-2)}
+.eu-actions{display:flex;flex-wrap:wrap;gap:4px}
+.eu-empty{padding:0 22px 16px}
+.eu-dailies{padding:12px 22px 16px;border-top:1px dashed var(--line)}
+.eu-dailies h3{display:flex;align-items:center;gap:6px;font-size:14px;margin:0 0 8px}
+.eu-dailies ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.eu-dailies li{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;font-size:13px;padding:6px 0;border-bottom:1px solid color-mix(in srgb,var(--line) 60%,transparent)}
+.eu-dailies li:last-child{border-bottom:0}
+.eu-dailies li span:first-child{font-family:var(--f-mono)}
+.eu-ask{margin-top:12px}
+.eu-panel .panel-heading{flex-wrap:wrap;gap:12px}
