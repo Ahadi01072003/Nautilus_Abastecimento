@@ -36,9 +36,12 @@ type Use={start:string,end:string};
 type Step={key:string,id:string,name:string,description:string,required:boolean,included:boolean,dependsOn:string[],defaultMinutes:number|null,start:string,end:string,locationId:string,needs:Need[],equipmentIds:string[],operatorIds:string[],uses:Record<string,Use>};
 /** Apontamento informado no registro de atividade realizada (horários locais de Brasília). */
 type Note={key:string,kind:string,categoryId:string,description:string,at:string,until:string};
-type Form={title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[],notes:Note[]};
-const fromPlan=(p:R):Form=>({notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until)})),title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:toLocal(p.planned_start),end:toLocal(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:toLocal(s.planned_start),end:toLocal(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,uses:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>r.start_at!==s.planned_start||r.end_at!==s.planned_end).map(r=>[r.equipment_id,{start:toLocal(r.start_at),end:toLocal(r.end_at)}]))}))});
-const toBody=(f:Form,realized=false)=>({...(realized?{notes:f.notes.map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||null,description:n.description,at:toISO(n.at),until:n.kind==='bloqueio'||(n.kind==='impacto'&&n.until)?toISO(n.until):null}))}:{}),title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,plannedStart:toISO(f.start),plannedEnd:toISO(f.end),steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:toISO(s.start),plannedEnd:toISO(s.end),locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],equipmentWindows:usesBody(s,f)}))});
+/** Horas de uso de um equipamento no registro de atividade realizada (horários locais de Brasília). */
+type RUse={key:string,equipmentId:string,start:string,end:string,recoverable:boolean};
+type Form={title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[],notes:Note[],uses:RUse[]};
+const fromPlan=(p:R):Form=>({uses:((p.realized_uses||[]) as R[]).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toLocal(u.start),end:toLocal(u.end),recoverable:!!u.recoverable})),notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until)})),title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:toLocal(p.planned_start),end:toLocal(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:toLocal(s.planned_start),end:toLocal(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,uses:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>r.start_at!==s.planned_start||r.end_at!==s.planned_end).map(r=>[r.equipment_id,{start:toLocal(r.start_at),end:toLocal(r.end_at)}]))}))});
+const usedIds=(f:Form)=>new Set(f.steps.filter(s=>s.included).flatMap(s=>s.equipmentIds));
+const toBody=(f:Form,realized=false)=>({...(realized?{uses:f.uses.filter(u=>usedIds(f).has(u.equipmentId)).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toISO(u.start),end:toISO(u.end),recoverable:u.recoverable})),notes:f.notes.map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||null,description:n.description,at:toISO(n.at),until:n.kind==='bloqueio'||(n.kind==='impacto'&&n.until)?toISO(n.until):null}))}:{}),title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,plannedStart:toISO(f.start),plannedEnd:toISO(f.end),steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:toISO(s.start),plannedEnd:toISO(s.end),locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],equipmentWindows:realized?{}:usesBody(s,f)}))});
 
 /** Períodos de uso enviados ao servidor (só OS sem fluxo): recortados ao início e fim da OS; o que
  * ficou vazio, inválido ou fora da OS volta a ser a OS inteira (nada é gravado fora da janela). */
@@ -178,9 +181,10 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
    </div>
   </section>
   <section className="n-panel plan-section"><div className="panel-heading"><div><h2>{realized?'Recursos usados':free?'Recursos':'Etapas, horários e recursos'}</h2><p>{realized?`Equipamentos, colaboradores e materiais usados entre o início e o fim reais. ${reserved} equipamento(s) no período.`:free?`A OS sem fluxo tem os marcos Início e Fim, iguais às datas acima; na Operação, registra-se o início e o fim da execução. ${reserved} equipamento(s) reservado(s) provisoriamente.`:<>{order.cyclic.length?'':`${steps.filter(s=>s.included).length} etapa(s) incluída(s) · ${reserved} equipamento(s) reservado(s) provisoriamente.`} Etapas sem dependência podem ocorrer em paralelo.</>}</p></div>{editable&&!free&&<Button variant="outline" onClick={proposeTimes}><Wand2 size={16}/> Sugerir horários</Button>}</div>
-   <div className="plan-steps">{steps.map(s=><StepCard key={s.key} free={free} onRefs={onRefs} step={s} steps={steps} refs={refs} paths={paths} planId={planId} serverStep={plan.steps.find((x:R)=>x.step_key===s.key)} osStatus={osSteps?.find(o=>o.step_key===s.key)?.status} editable={editable} onChange={patch=>setStep(s.key,patch)}/>)}</div>
+   <div className="plan-steps">{steps.map(s=><StepCard key={s.key} free={free} realized={realized} onRefs={onRefs} step={s} steps={steps} refs={refs} paths={paths} planId={planId} serverStep={plan.steps.find((x:R)=>x.step_key===s.key)} osStatus={osSteps?.find(o=>o.step_key===s.key)?.status} editable={editable} onChange={patch=>setStep(s.key,patch)}/>)}</div>
   </section>
   {realized&&<RealizedNotes notes={form.notes} start={form.start} end={form.end} categories={refs.categories||[]} onChange={notes=>update(f=>({...f,notes}))}/>}
+  {realized&&<RealizedUses uses={form.uses.filter(u=>usedIds(form).has(u.equipmentId))} equipment={[...usedIds(form)].map(id=>({id,tag:(refs.equipment as R[]).find(x=>x.id===id)?.tag||'—'}))} start={form.start} end={form.end} orgId={form.orgId} onChange={uses=>update(f=>({...f,uses}))}/>}
   </fieldset>
   {editable&&<div className="plan-footer"><button className="text-action danger-text" onClick={()=>setConfirmDiscard(true)}><Trash2 size={14} className="inline"/> {revision?'Descartar revisão':'Descartar rascunho'}</button><Button variant="outline" onClick={()=>void save(form)} disabled={saveState==='saving'}>Salvar agora</Button></div>}
 
@@ -195,6 +199,7 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
     <div className="review-grid"><div><small>Solicitante</small><OrgTag org={org}/></div><div><small>Local</small><b>{paths.get(form.locationId)||'—'}</b></div><div><small>{realized?'Execução':'Janela prevista'}</small><b>{range(toISO(form.start),toISO(form.end))}</b></div>{form.code&&<div><small>Código</small><b>{form.code}</b></div>}</div>
     <ol className="review-steps">{steps.filter(s=>s.included).map(s=><li key={s.key}><b>{free?'Início → Fim':s.name}</b><span>{range(toISO(s.start),toISO(s.end))}</span><small>{[...s.equipmentIds.map(e=>{const t=refs.equipment.find((x:R)=>x.id===e)?.tag,u=free?s.uses?.[e]:null;return u?`${t} (uso ${u.start.slice(8,10)}/${u.start.slice(5,7)} ${u.start.slice(11)} → ${u.end.slice(8,10)}/${u.end.slice(5,7)} ${u.end.slice(11)})`:t}),...s.operatorIds.map(o=>refs.operators.find((x:R)=>x.id===o)?.name)].filter(Boolean).join(' · ')||'Sem recursos identificados'}</small>{s.needs.length>0&&<small>Necessidades: {s.needs.map(n=>needLabel(n,refs)).join(' · ')}</small>}</li>)}</ol>
     {revision&&<div className="revision-changes"><b>O que muda</b>{review.changes?.length?<ul>{review.changes.map((c:string,i:number)=><li key={i}>{c}</li>)}</ul>:<p className="notice"><Info size={16}/><span><b>Nenhuma alteração em relação à versão vigente.</b> Você pode relançar assim mesmo: a revisão {plan.revision} fica registrada no histórico como “sem alterações”, com o motivo informado.</span></p>}</div>}
+    {realized&&review.realized?.rows.length>0&&<div className="notice"><Clock size={17}/><span>Horas de uso: <b>{hoursText(review.realized.recoverableHours)} recobráveis</b>{review.realized.recoverableHours>0?` → ${review.realized.dailies} diária(s) nova(s), ${(review.realized.valueCents/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}, vão para o Financeiro ligadas à OS`:''} · {hoursText(review.realized.otherHours)} não recobráveis ficam registradas na OS.</span></div>}
     {review.errors.length?<ReviewErrors errors={review.errors} realized={realized}/>:<div className="notice"><CheckCircle2 size={17}/><span>Sem pendências. Pronto para {realized?'registrar':'lançar'}.</span></div>}
     {review.warnings.length>0&&<ReviewWarnings warnings={review.warnings}/>}
     {revision&&<div className="form-grid"><Field label="Motivo da revisão *" wide hint="Fica no histórico da OS e na auditoria. Etapas retiradas são dispensadas com este motivo."><Textarea required maxLength={1200} value={revisionReason} onChange={e=>setRevisionReason(e.target.value)}/></Field></div>}
@@ -230,7 +235,7 @@ export function needLabel(n:R,refs:R){
  return `${n.quantity}× ${type?name('equipmentTypes',type):name('functions',fn)}`;
 }
 
-function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false,onRefs,editable:canEdit,onChange}:{step:Step,steps:Step[],refs:R,paths:Map<string,string>,planId:string,serverStep:R,osStatus?:string,free?:boolean,onRefs:()=>Promise<void>,editable:boolean,onChange:(p:Partial<Step>)=>void}){
+function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false,realized=false,onRefs,editable:canEdit,onChange}:{step:Step,steps:Step[],refs:R,paths:Map<string,string>,planId:string,serverStep:R,osStatus?:string,free?:boolean,realized?:boolean,onRefs:()=>Promise<void>,editable:boolean,onChange:(p:Partial<Step>)=>void}){
  // Revisão de OS: etapa concluída/dispensada não muda; etapa iniciada mantém início e não sai da OS.
  const frozen=osStatus==='concluida'||osStatus==='dispensada',started=!!osStatus&&osStatus!=='nao_iniciada'&&!frozen;
  const editable=canEdit&&!frozen;
@@ -262,7 +267,7 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false
     {editable&&<NeedAdder refs={refs} needs={s.needs} onRefs={onRefs} onAdd={n=>onChange({needs:[...s.needs,n]})}/>}</div>
    <fieldset className="n-field wide"><legend>Equipamentos identificados {typeNeeds.length>0&&<small>({typeNeeds.map(n=>`${n.quantity}× ${name('equipmentTypes',n.equipmentTypeId)}`).join(', ')})</small>}</legend>
     {!valid?<small className="pending-text">Informe início e fim da etapa para consultar a agenda e reservar equipamentos.</small>:<div className="resource-list">{equipment.map(e=>{const a=avail[e.id];const chosen=s.equipmentIds.includes(e.id);const blocked=a&&!chosen&&(free?a.status==='bloqueado':a.status!=='livre');return <label key={e.id} className={`resource ${a?.status||''} ${chosen?'chosen':''}`}><Checkbox checked={chosen} disabled={!!blocked} onCheckedChange={v=>onChange({equipmentIds:v?[...s.equipmentIds,e.id]:s.equipmentIds.filter(x=>x!==e.id)})}/><span><b>{e.tag}</b><small>{name('equipmentTypes',e.type_id)}{e.capacity?` · ${e.capacity}`:''}</small>{a&&a.status!=='livre'&&<em>{a.detail}</em>}</span><Badge tone={!a?'muted':a.status==='livre'?'success':a.status==='bloqueado'?'danger':'warning'}>{!a?(editable?'Consultando…':chosen?'Reservado aqui':'—'):a.status==='livre'?'Livre':a.status==='bloqueado'?'Bloqueado':chosen?'Reservado aqui':'Reservado'}</Badge></label>})}{neededTypes.length>0&&<button type="button" className="text-action" onClick={()=>setShowAll(v=>!v)}>{showAll?'Mostrar só os tipos necessários':'Mostrar todos os equipamentos'}</button>}</div>}
-    {valid&&free&&s.equipmentIds.length>0&&<div className="equip-uses"><b>Período de uso de cada equipamento</b><small>Por padrão o equipamento fica reservado na OS inteira. Informe o início e as horas de uso para reservar só esse período e deixá-lo livre para outras OS no restante.</small>
+    {valid&&free&&!realized&&s.equipmentIds.length>0&&<div className="equip-uses"><b>Período de uso de cada equipamento</b><small>Por padrão o equipamento fica reservado na OS inteira. Informe o início e as horas de uso para reservar só esse período e deixá-lo livre para outras OS no restante.</small>
      {s.equipmentIds.map(id=><EquipmentUse key={id} tag={(refs.equipment as R[]).find(x=>x.id===id)?.tag||'—'} equipmentId={id} step={s} planId={planId} stepId={serverStep?.id} editable={editable} onChange={u=>{const uses={...s.uses};if(u)uses[id]=u;else delete uses[id];onChange({uses})}}/>)}</div>}
     {valid&&<small>{free?'Equipamento já reservado em parte da OS pode ser escolhido: ajuste o período de uso para um horário livre. ':''}A reserva provisória começa quando o rascunho é salvo; antes disso, a seleção não garante exclusividade.</small>}
    </fieldset>
@@ -452,6 +457,50 @@ const NOTE_KIND:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto
 /** Apontamentos no próprio registro da atividade realizada: ocorrência num momento; impacto com
  * início e fim opcional (sem fim, fica em aberto); bloqueio com início e fim (desconta do tempo
  * efetivo). Tudo começa dentro do período real. */
+const hoursText=(h:number)=>`${(Math.round(h*10)/10).toLocaleString('pt-BR')} h`;
+const spanHours=(a:string,b:string)=>{const x=toISO(a),y=toISO(b);return x&&y?Math.max(0,(Date.parse(y)-Date.parse(x))/36e5):0;};
+/** Horas de uso de cada equipamento no registro de atividade realizada: equipamento de "Recursos
+ * usados", início e fim (horas calculadas) e a marca "Entra no cálculo de recobráveis", só para
+ * equipamento com tarifa para o cliente. As recobráveis vão para o Financeiro ao registrar. */
+function RealizedUses({uses,equipment,start,end,orgId,onChange}:{uses:RUse[],equipment:{id:string,tag:string}[],start:string,end:string,orgId:string,onChange:(u:RUse[])=>void}){
+ const blank=():RUse=>({key:crypto.randomUUID(),equipmentId:equipment[0]?.id||'',start,end,recoverable:false});
+ const [draft,setDraft]=useState<RUse>(blank),[error,setError]=useState(''),[found,setFound]=useState<{key:string,ids:string[]}>({key:'',ids:[]});
+ // Equipamentos com tarifa para o cliente na data de início (consulta só quando cliente ou data mudam).
+ const at=toISO(start),query=orgId?`planning/recoverable?org=${encodeURIComponent(orgId)}${at?'&at='+encodeURIComponent(at):''}`:'';
+ useEffect(()=>{if(!query)return;let live=true;
+  load<R>(query).then(r=>{if(live)setFound({key:query,ids:r.equipmentIds as string[]})}).catch(()=>{if(live)setFound({key:query,ids:[]})});return()=>{live=false};},[query]);
+ const eligible=new Set(found.key===query?found.ids:[]);
+ const tag=(id:string)=>equipment.find(e=>e.id===id)?.tag||'—';
+ const d={...draft,equipmentId:equipment.some(e=>e.id===draft.equipmentId)?draft.equipmentId:equipment[0]?.id||''};
+ function add(){
+  setError('');
+  if(!start||!end)return setError('Informe antes o início e o fim reais da atividade.');
+  if(!d.equipmentId)return setError('Escolha o equipamento.');
+  if(!d.start||!d.end)return setError('Informe o início e o fim do uso.');
+  if(d.end<=d.start)return setError('O fim do uso deve ser depois do início.');
+  if(d.start<start||d.end>end)return setError('O uso deve ficar entre o início e o fim reais da atividade.');
+  if(uses.some(u=>u.equipmentId===d.equipmentId&&u.start<d.end&&u.end>d.start))return setError(`${tag(d.equipmentId)}: este uso se sobrepõe a outro do mesmo equipamento.`);
+  onChange([...uses,{...d,recoverable:d.recoverable&&eligible.has(d.equipmentId)}].sort((x,y)=>x.start.localeCompare(y.start)));setDraft({...blank(),equipmentId:d.equipmentId});
+ }
+ const total=uses.reduce((s,u)=>s+spanHours(u.start,u.end),0),rec=uses.filter(u=>u.recoverable).reduce((s,u)=>s+spanHours(u.start,u.end),0);
+ return <section className="n-panel plan-section ru-panel"><div className="panel-heading"><div><h2>Horas de uso dos equipamentos</h2><p>Início e fim reais de cada uso. Marque as horas que entram no cálculo de recobráveis: elas vão para o Financeiro ligadas à OS; as demais ficam registradas na OS. O período ocupado na agenda vai do primeiro início ao último fim de cada equipamento.</p></div></div>
+  {equipment.length?<div className="ru-add">
+   <Field label="Equipamento"><Choice value={d.equipmentId} onChange={v=>setDraft(x=>({...x,equipmentId:v,recoverable:false}))} options={equipment.map(e=>({value:e.id,label:e.tag}))}/></Field>
+   <Field label="Início do uso"><Input type="datetime-local" min={start||undefined} max={end||undefined} value={d.start} onChange={e=>setDraft(x=>({...x,start:e.target.value}))}/></Field>
+   <Field label="Fim do uso"><Input type="datetime-local" min={d.start||start||undefined} max={end||undefined} value={d.end} onChange={e=>setDraft(x=>({...x,end:e.target.value}))}/></Field>
+   <div className="ru-hours"><small>Horas</small><b>{hoursText(spanHours(d.start,d.end))}</b></div>
+   {eligible.has(d.equipmentId)?<label className="ru-check"><Checkbox checked={d.recoverable} onCheckedChange={v=>setDraft(x=>({...x,recoverable:v===true}))}/><span>Entra no cálculo de recobráveis</span></label>
+    :<small className="muted-text ru-check">Sem tarifa de recobrável para este cliente: não entra.</small>}
+   <Button type="button" variant="outline" onClick={add}><Plus size={15}/> Adicionar uso</Button>
+  </div>:<p className="muted-text ru-empty">Marque os equipamentos usados em “Recursos usados” para informar as horas de uso.</p>}
+  {error&&<div className="form-error" role="alert"><AlertTriangle size={17}/>{error}</div>}
+  {uses.length>0&&<><ul className="eu-list ru-list">{uses.map(u=><li key={u.key}><div className="eu-line"><b>{tag(u.equipmentId)}</b><span>{fmt(toISO(u.start)!)} → {fmt(toISO(u.end)!)}</span><span className="eu-dur">{hoursText(spanHours(u.start,u.end))}</span>
+    {eligible.has(u.equipmentId)?<label className="ru-check"><Checkbox checked={u.recoverable} onCheckedChange={v=>onChange(uses.map(x=>x.key===u.key?{...x,recoverable:v===true}:x))}/><span>Entra no recobrável</span></label>:<Badge>Não recobrável</Badge>}
+    <button type="button" className="icon-action" aria-label={`Remover uso de ${tag(u.equipmentId)}`} onClick={()=>onChange(uses.filter(x=>x.key!==u.key))}><X size={14}/></button></div></li>)}</ul>
+   <p className="ru-total">Total: <b>{hoursText(total)}</b> · recobráveis: <b>{hoursText(rec)}</b></p></>}
+ </section>;
+}
+
 function RealizedNotes({notes,start,end,categories,onChange}:{notes:Note[],start:string,end:string,categories:R[],onChange:(n:Note[])=>void}){
  const blank=():Note=>({key:crypto.randomUUID(),kind:'ocorrencia',categoryId:'',description:'',at:start,until:''});
  const [draft,setDraft]=useState<Note>(blank),[error,setError]=useState('');

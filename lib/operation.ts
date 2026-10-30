@@ -33,6 +33,11 @@ export async function orderDetail(member:Member,workOrderId:string){
   db().all('SELECT i.*,e.tag FROM equipment_impediments i JOIN equipment e ON e.id=i.equipment_id WHERE i.released_at IS NULL'),
   db().all('SELECT id,kind,name FROM occurrence_categories WHERE active=1 ORDER BY name'),
  ]);
+ // Atividade realizada: horas de uso informadas no registro (recobráveis ou não), pelo início.
+ const ru=wo.origin==='realizada'?((await db().first('SELECT realized_uses FROM plans WHERE id=?',wo.original_plan_id))?.realized_uses||[]) as Row[]:[];
+ const ruTags=ru.length?await db().all('SELECT id,tag FROM equipment WHERE id = ANY(?::text[])',[...new Set(ru.map(u=>u.equipmentId))]):[];
+ const realizedUses=ru.map(u=>({equipmentId:u.equipmentId as string,tag:ruTags.find(e=>e.id===u.equipmentId)?.tag||'',start:u.start as string,end:u.end as string,recoverable:!!u.recoverable,
+  hours:Math.round((Date.parse(u.end)-Date.parse(u.start))/36e4)/10})).sort((x,y)=>Date.parse(x.start)-Date.parse(y.start));
  const versionIds=[...new Set(instances.map(i=>i.version_id))];
  const questions=versionIds.length?await db().all('SELECT * FROM checklist_questions WHERE version_id = ANY(?::text[]) ORDER BY position',versionIds):[];
  // Modelos complementares disponíveis: uso geral ou aplicáveis à atividade/equipamentos da OS.
@@ -46,7 +51,7 @@ export async function orderDetail(member:Member,workOrderId:string){
   db().all('SELECT id,name,acronym,color FROM requester_orgs WHERE id=?',wo.org_id),
  ]);
  const caps=a.capabilities||[];
- return {order:wo,plan,steps,equipmentTags,operatorNames,orgs,intervals,occurrences,events,requirements,instances:instances.map(i=>({...i,answers:answers.filter(x=>x.instance_id===i.id)})),questions,complementary,categories,
+ return {order:wo,plan,realizedUses,steps,equipmentTags,operatorNames,orgs,intervals,occurrences,events,requirements,instances:instances.map(i=>({...i,answers:answers.filter(x=>x.instance_id===i.id)})),questions,complementary,categories,
   impediments:impediments.filter(i=>used.includes(i.equipment_id)),serverNow:now(),
   can:{execute:isManager(a)||caps.includes('operacao'),plan:isManager(a)||caps.includes('planejamento'),cancel:canCancelOrders(a)}};
 }

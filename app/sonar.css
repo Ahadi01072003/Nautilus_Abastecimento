@@ -772,3 +772,11 @@ body{font-family:var(--f-body)}
 .fin-detail li span:first-child{font-family:var(--f-mono);font-size:12.5px}
 .warn-text{color:#b45309}
 @media(max-width:760px){.fin-cards,.fin-filters .form-grid{grid-template-columns:1fr}}
+
+/* Registro de atividade realizada · horas de uso dos equipamentos */
+.ru-panel .ru-add{display:grid;grid-template-columns:minmax(130px,170px) minmax(220px,1fr) minmax(220px,1fr) auto minmax(150px,auto) auto;gap:12px;align-items:end;padding:16px 22px}
+.ru-panel .ru-add input[type=datetime-local]{width:100%;min-width:0}
+.ru-hours{display:flex;flex-direction:column;gap:4px;min-width:64px}.ru-hours small{color:var(--muted-c);font-size:12px}.ru-hours b{font-size:15px}
+.ru-check{display:inline-flex;align-items:center;gap:8px;font-size:13px;line-height:1.3;padding-bottom:10px}
+.ru-panel .form-error{margin:0 22px 12px}.ru-list{padding:0 22px}.ru-total{padding:6px 22px 16px;font-size:13px;color:var(--muted-c)}.ru-empty{padding:16px 22px}
+@media(max-width:900px){.ru-panel .ru-add{grid-template-columns:1fr 1fr}.ru-panel .ru-add>button{grid-column:1/-1}}

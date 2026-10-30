@@ -42,6 +42,7 @@ Alguns equipamentos usados nas OS de um cliente são cobrados por **diária**. O
    - Se o uso gerar mais de uma **diária nova**, o sistema mostra a quantidade e o valor e pede confirmação. Diária já aberta por outra OS do cliente não conta.
    - Um início em aberto no passado também é conferido: se até agora ele já soma mais de uma diária nova, o sistema pede confirmação.
    - Mudou um campo depois do aviso? O sistema faz uma nova prévia antes de gravar.
+   - **Atividade realizada sem planejamento** (Operação › Registrar atividade realizada): depois dos apontamentos, o bloco **Horas de uso dos equipamentos** registra cada uso com equipamento (da lista de "Recursos usados"), início e fim; as horas são calculadas na hora. A marca **"Entra no cálculo de recobráveis"** só aparece para equipamento com tarifa para o cliente. Na conferência aparecem as horas recobráveis, as diárias novas e o valor. Ao registrar, as linhas recobráveis viram usos no Financeiro ligados à OS; as demais ficam guardadas na OS (detalhe da OS e exportação **Horas de uso realizadas**). O período ocupado na agenda vai do primeiro início ao último fim de cada equipamento.
 4. **Conferir.** Ficam **a conferir**:
    - usos encerrados automaticamente (pelo fim da última etapa com o equipamento, pela dispensa dela, pela conclusão da OS ou pelo cancelamento);
    - usos que saem do período reservado por mais de 30 min.
