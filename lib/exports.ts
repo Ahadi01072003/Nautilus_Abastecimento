@@ -2,7 +2,7 @@
 // organizações), em Excel (.xlsx, uma aba por conjunto) ou CSV (.zip quando há mais de um conjunto).
 // Os nomes de tabela e colunas vêm só das definições abaixo; filtros entram como parâmetros.
 import {db,type Row} from './db';
-import {dailyRows} from './finance';
+import {dailyRows,forecastRows} from './finance';
 import {AppError,isoDay} from './domain';
 import {type Member,isManager,canSeeOrders,loadAccess,has} from './permissions';
 import {osNumber} from './planning';
@@ -97,6 +97,11 @@ export const DATASETS:Record<string,Def>={
   load:(f,s)=>dailyRows({start:f.start,end:f.end,org:f.org},s.orgs),
   columns:['Equipamento','Cliente','Início da diária','Fim da diária','OS que abriu','OS atendidas','Horas por diária','Valor por hora (R$)','Valor da diária (R$)','Situação'],
   map:r=>[r.tag,r.org_name,d(r.start),d(r.end),osNumber(r.opener),(r.orders as number[]).map(osNumber).join(', '),r.hours_per_day,r.hourly_cents/100,r.value_cents/100,r.pending?'A conferir':'Conferida']},
+ recobraveis_previsto:{label:'Recobráveis: previsto',group:'financeiro',
+  load:(f,s)=>forecastRows({start:f.start,end:f.end,org:f.org},s.orgs),
+  columns:['Equipamento','Cliente da tarifa','OS','Cliente da OS','Situação da OS','Início da reserva','Fim da reserva','Horas no período','Diárias previstas','Valor previsto (R$)','Entra no previsto','Observação'],
+  map:r=>[r.tag,r.rate_org,osNumber(r.number),r.order_org,ORDER[r.status]||r.status,d(r.start),d(r.end),r.hours,r.dailies,r.value_cents/100,r.counted?'Sim':'Não',
+   r.note?String(r.note)[0].toUpperCase()+String(r.note).slice(1):null]},
  recobraveis_usos:{label:'Recobráveis: usos',group:'financeiro',
   from:`FROM equipment_uses u JOIN work_orders w ON w.id=u.work_order_id JOIN equipment e ON e.id=u.equipment_id`,
   order:'u.started_at::timestamptz,e.tag',

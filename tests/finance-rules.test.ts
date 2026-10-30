@@ -1,6 +1,7 @@
 // Financeiro · regras da revisão final: dispensa pelo Planejamento, OS concluída com uso aberto,
 // correção sem acesso à OS, escopo de organização nas tarifas, vigência retroativa, trava de
-// alteração no banco, confirmação só das diárias novas e painel com uso de outro mês. Banco próprio;
+// alteração no banco, confirmação só das diárias novas, painel com uso de outro mês e de onde vem o
+// previsto (tela e exportação). Banco próprio;
 // valores e cliente fictícios (R$ 500/h, 8 h por diária).
 import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,6 +13,7 @@ import {planningMutate,planDetail} from '../lib/planning';
 import {orderDetail,operationMutate} from '../lib/operation';
 import {centralState} from '../lib/central';
 import {financeMutate,financeRates,financePanel} from '../lib/finance';
+import {exportData} from '../lib/exports';
 import type {Member} from '../lib/permissions';
 import type {Database,Row} from '../lib/db';
 
@@ -44,8 +46,8 @@ before(async()=>{
  loc=(await reg('locations',{kind:'unidade',name:'Base de testes'})).id;
  const type=(await reg('equipment-types',{name:'Plataforma'})).id;
  await db.run("UPDATE equipment SET type_id=? WHERE id IN ('eq1','eq2')",type);
- for(const n of [3,4,5,6,7,8])await db.run(`INSERT INTO equipment(id,tag,description,type,type_id,fuel_ids,active) VALUES('eq${n}','PTA-0${n}','Plataforma ${n}','Plataforma',?,ARRAY['diesel'],1)`,type);
- for(const eq of ['eq1','eq2','eq3','eq4','eq5','eq6','eq7','eq8'])await financeMutate('finance/rates',{equipmentId:eq,orgId:org,hourly:500,hoursPerDay:8,validFrom:'2020-01-01'},manager);
+ for(const n of [3,4,5,6,7,8,9])await db.run(`INSERT INTO equipment(id,tag,description,type,type_id,fuel_ids,active) VALUES('eq${n}','PTA-0${n}','Plataforma ${n}','Plataforma',?,ARRAY['diesel'],1)`,type);
+ for(const eq of ['eq1','eq2','eq3','eq4','eq5','eq6','eq7','eq8','eq9'])await financeMutate('finance/rates',{equipmentId:eq,orgId:org,hourly:500,hoursPerDay:8,validFrom:'2020-01-01'},manager);
  await financeMutate('finance/rates',{equipmentId:'eq1',orgId:other,hourly:500,hoursPerDay:8,validFrom:'2020-01-01'},manager);
  flow=(await flowsMutate('flows/save',{code:'ICA',name:'Içamento',steps:[
   {key:'a-0001',name:'Preparação',needs:[{equipmentTypeId:type,quantity:1}]},
@@ -177,4 +179,45 @@ test('painel: uso a conferir de outro mês aparece onde gera diária; diária mo
  assert.ok(det.pending.some((x:Row)=>x.id===u.id),'uso iniciado em setembro listado em outubro');
  const n=Number((await db.first('SELECT number FROM work_orders WHERE id=?',wo))!.number);
  assert.ok(det.dailies.some((d:Row)=>d.orderNumbers?.includes(n)));
+});
+
+/** Agosto/2026 (Brasília): OS A 10/08 08–20 h e OS B 20–21 h do cliente com tarifa; OS C 11/08 09–12 h de
+ * outro cliente, sem tarifa para o equipamento. */
+async function forecastScenario(){
+ const a=await freeOrder(org,'2026-08-10T11:00:00.000Z','2026-08-10T23:00:00.000Z','eq9');
+ const b=await freeOrder(org,'2026-08-10T23:00:00.000Z','2026-08-11T00:00:00.000Z','eq9');
+ const c=await freeOrder(other,'2026-08-11T12:00:00.000Z','2026-08-11T15:00:00.000Z','eq9');
+ const num=async(id:string)=>Number((await db.first('SELECT number FROM work_orders WHERE id=?',id))!.number);
+ return {a,b,c,na:await num(a),nb:await num(b),nc:await num(c)};
+}
+let scene:Awaited<ReturnType<typeof forecastScenario>>;
+
+test('painel: previsto mostra de onde vem (por OS) e as OS do equipamento que não entram, com o motivo',async()=>{
+ scene=await forecastScenario();
+ const p=await financePanel(fin,new URL(`http://x/?from=2026-08-01&to=2026-08-31&org=${org}`));
+ const row=p.rows.find(r=>r.equipmentId==='eq9')!;
+ assert.equal(row.requests,2);assert.equal(row.plannedDailies,2);assert.equal(row.plannedCents,800000);
+ const det=p.detail['eq9|'+org];
+ const by=(n:number)=>(det.forecast as Row[]).find(o=>o.number===n)!;
+ assert.equal(det.forecast.length,2);
+ assert.deepEqual([by(scene.na).hours,by(scene.na).dailies,by(scene.na).valueCents,by(scene.na).counted],[12,2,800000,true]);
+ assert.deepEqual([by(scene.nb).hours,by(scene.nb).dailies,by(scene.nb).valueCents],[1,0,0]);
+ assert.deepEqual(by(scene.nb).attendedIn,[scene.na],'B é atendida dentro da 2ª diária de A');
+ assert.equal((det.forecast as Row[]).reduce((s,o)=>s+o.valueCents,0),row.plannedCents,'a soma do bloco fecha com a linha');
+ assert.deepEqual((det.others as Row[]).map(o=>[o.number,o.orgName,o.hours,o.reason]),[[scene.nc,'Outro Cliente',3,'cliente sem tarifa']]);
+ // Quem só vê o cliente com tarifa não vê OS de outro cliente.
+ const s=await financePanel(scoped,new URL(`http://x/?from=2026-08-01&to=2026-08-31&org=${org}`));
+ assert.equal(s.detail['eq9|'+org].others.length,0);
+});
+
+test('exportação: Recobráveis: previsto, uma linha por OS com o motivo de entrar ou não',async()=>{
+ const url=new URL(`http://x/export?sets=recobraveis_previsto&format=csv&start=2026-08-01&end=2026-08-31&org=${org}`);
+ const lines=(await (await exportData(fin,url)).text()).replace(/^\uFEFF/,'').trim().split(/\r?\n/);
+ assert.equal(lines[0],['Equipamento','Cliente da tarifa','OS','Cliente da OS','Situação da OS','Início da reserva','Fim da reserva','Horas no período','Diárias previstas','Valor previsto (R$)','Entra no previsto','Observação'].map(c=>'"'+c+'"').join(';'));
+ const os=(n:number)=>'"OS '+String(n).padStart(6,'0')+'"';
+ const line=(n:number)=>lines.find(l=>l.includes(os(n)))!;
+ assert.equal(lines.length-1,3);
+ assert.match(line(scene.na),/;12;2;8000;"Sim";/);
+ assert.match(line(scene.nb),new RegExp(`;1;0;0;"Sim";"Atendida na diária da OS ${String(scene.na).padStart(6,'0')}"$`));
+ assert.match(line(scene.nc),/"Outro Cliente".*;3;0;0;"Não";"Cliente sem tarifa"$/);
 });

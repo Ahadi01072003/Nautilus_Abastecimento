@@ -52,8 +52,10 @@ Alguns equipamentos usados nas OS de um cliente são cobrados por **diária**. O
    - horas planejadas;
    - diárias e receita previstas pelas reservas, e a média por OS;
    - diárias realizadas, separadas em conferido e a conferir, com a OS que abriu e as OS atendidas;
+   - **Previsto: de onde vem** (ao clicar na linha): cada OS do cliente que reserva o equipamento no período, com a situação, o período reservado, as horas no período, as diárias que ela abre e o valor. A soma fecha com a linha. Uma OS atendida dentro da diária de outra aparece com 0 diária e a indicação "atendida na diária da OS X";
+   - **Não entram no previsto:** as OS de outros clientes com o mesmo equipamento no período, com o motivo (por exemplo, "cliente sem tarifa"). É o que explica a diferença para a Agenda de recursos, que mostra todas as OS;
    - usos a conferir: os que começam no período e os que geram diária a conferir nele (um uso esquecido em aberto desde o mês anterior aparece no mês em que gera valor).
-6. **Exportar.** Em Exportação, no grupo Financeiro, estão os conjuntos **Recobráveis: diárias** e **Recobráveis: usos**.
+6. **Exportar.** Em Exportação, no grupo Financeiro, estão os conjuntos **Recobráveis: previsto** (uma linha por OS, com horas, diárias, valor e se entra ou não, com o motivo), **Recobráveis: diárias** e **Recobráveis: usos**.
 
 ## Avisos
 

@@ -15,6 +15,7 @@ const SETS:Set[]=[
  {id:'apontamentos',label:'Apontamentos',desc:'Ocorrências, impactos e bloqueios, com resolução.',group:'operacao'},
  {id:'checklists',label:'Checklists',desc:'Preenchimentos por OS, momento, equipamento e NC.',group:'operacao'},
  {id:'equipamentos',label:'Equipamentos por OS',desc:'Uma linha por OS, etapa e equipamento: data, atividade, tipo, TAG e horas planejadas de uso.',group:'operacao'},
+ {id:'recobraveis_previsto',label:'Recobráveis: previsto',desc:'De onde vem o previsto: cada OS com reserva do equipamento no período, horas, diárias, valor e se entra ou não (com o motivo).',group:'financeiro'},
  {id:'recobraveis_diarias',label:'Recobráveis: diárias',desc:'Cada diária com equipamento, cliente, OS que abriu, OS atendidas, valor e situação.',group:'financeiro'},
  {id:'recobraveis_usos',label:'Recobráveis: usos',desc:'Início e fim de cada uso de equipamento cobrado, origem do fim e conferência.',group:'financeiro'},
  {id:'supplies',label:'Abastecimentos',desc:'Quantidade, equipamento, operador e autoria.',group:'abastecimento'},

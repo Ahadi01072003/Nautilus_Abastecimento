@@ -3,7 +3,7 @@
 // (tipos separados ou juntos e recursos específicos). Abre /agenda/recursos, que consulta de novo
 // com os filtros da lista e confere o acesso no servidor.
 import {useState,type FormEvent} from 'react';
-import {FileDown,ClipboardCheck} from 'lucide-react';
+import {FileDown,ClipboardCheck,Filter} from 'lucide-react';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -31,7 +31,7 @@ export const keepOpenForPick=(e:KeyboardEvent)=>{if(document.querySelector('[rol
 export function openPdf(url:string){const w=window.open(url,'_blank');if(w)w.opener=null;else window.open(url,'_self');}
 export const pickSummary=(kinds:ResKind[],picked:string[])=>`${kinds.length===3?'todos os tipos':kinds.map(k=>({equipamento:'equipamentos',funcao:'funções',material:'materiais'})[k]).join(' e ')} · ${picked.length?`${picked.length} recurso(s) escolhido(s)`:'todos os recursos'}`;
 
-export default function ResourceExportDialog({allocs,initial,base,onClose}:{allocs:Alloc[],initial:{kinds:ResKind[],picked:string[],period:{from:string,to:string}},base:URLSearchParams,onClose:()=>void}){
+export default function ResourceExportDialog({allocs,initial,base,filters=[],onClose}:{allocs:Alloc[],initial:{kinds:ResKind[],picked:string[],period:{from:string,to:string}},base:URLSearchParams,filters?:string[],onClose:()=>void}){
  const start=initial.period.from.slice(0,10)||today();
  const [from,setFrom]=useState(start),[to,setTo]=useState(initial.period.to.slice(0,10)||plusDays(start,6));
  const [kinds,setKinds]=useState<ResKind[]>(initial.kinds),[picked,setPicked]=useState<string[]>(initial.picked);
@@ -43,6 +43,7 @@ export default function ResourceExportDialog({allocs,initial,base,onClose}:{allo
    <Field label="Data de início *"><Input type="date" required value={from} max={to||undefined} onChange={e=>setFrom(e.target.value)}/></Field>
    <Field label="Data de fim *"><Input type="date" required value={to} min={from||undefined} onChange={e=>setTo(e.target.value)}/></Field>
    <div className="n-field wide"><label>Recursos</label><div className="ra-pick"><ResourcePick allocs={allocs} kinds={kinds} picked={picked} onKinds={setKinds} onPicked={setPicked}/></div></div>
+   {filters.length>0&&<p className="wide notice warn" role="status"><Filter size={16}/> <span>Filtros da Lista de OS aplicados: <b>{filters.join(' · ')}</b>. Só entram as OS que atendem a eles; para exportar todas, limpe os filtros na lista.</span></p>}
    {ready&&<p className="wide notice"><ClipboardCheck size={16}/> {daysBetween(from,to)} dia(s) · {pickSummary(kinds,picked)}. A janela de impressão abre em seguida: escolha “Salvar como PDF”.</p>}
   </div>{error&&<div className="form-error" role="alert">{error}</div>}
   <div className="modal-footer"><Button type="button" variant="outline" onClick={onClose}>Voltar</Button><Button type="submit" className="primary-action" disabled={!ready}><FileDown size={16}/> Exportar em PDF</Button></div></form>

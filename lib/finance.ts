@@ -90,6 +90,54 @@ const dayStart=(d:string)=>Date.parse(d+'T00:00:00-03:00');
 export type PanelRow={equipmentId:string,tag:string,orgId:string,orgName:string,requests:number,scheduled:number,plannedHours:number,plannedDailies:number,
  plannedCents:number,avgPerOrderCents:number,dailies:number,confirmedCents:number,pendingCents:number};
 
+const iso=(t:number)=>new Date(t).toISOString();
+const hoursIn=(x:Row,t0:number,t1:number)=>Math.max(0,Math.min(ms(x.end_at),t1)-Math.max(ms(x.start_at),t0))/H;
+const round1=(h:number)=>Math.round(h*10)/10;
+/** Agrupa reservas por OS: menor início, maior fim e horas dentro do período. */
+function byOrder(list:Row[],t0:number,t1:number,base:(x:Row)=>Row):Row[]{
+ const out=new Map<string,Row>();
+ for(const x of list){
+  const o=out.get(x.order_id)||{...base(x),start:x.start_at,end:x.end_at,hours:0};
+  if(ms(x.start_at)<ms(o.start))o.start=x.start_at;
+  if(ms(x.end_at)>ms(o.end))o.end=x.end_at;
+  o.hours+=hoursIn(x,t0,t1);out.set(x.order_id,o);
+ }
+ return [...out.values()].map((o):Row=>({...o,hours:round1(o.hours)})).sort((x,y)=>ms(x.start)-ms(y.start));
+}
+
+/** Previsto de um equipamento e cliente no período, pelas reservas confirmadas e pelo mesmo motor das
+ * diárias: totais, de onde vem (cada OS solicitada, com as horas, as diárias que abriu e o valor; a
+ * diária é da OS que a abriu) e as OS de outros clientes com o mesmo equipamento no período, que não
+ * entram, com o motivo. `see` limita as outras OS ao escopo de organizações de quem consulta. */
+async function forecast(p:{equipmentId:string,orgId:string},rates:Rate[],t0:number,t1:number,see:(orgId:string)=>boolean){
+ const mine=rates.filter(r=>r.equipmentId===p.equipmentId&&r.orgId===p.orgId);
+ const [res,others]=await Promise.all([
+  db().all(`SELECT r.start_at,r.end_at,r.status,w.id order_id,w.number,w.status order_status,
+    EXISTS (SELECT 1 FROM equipment_uses u WHERE u.work_order_id=w.id AND u.equipment_id=r.equipment_id) used
+   FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id
+   WHERE r.equipment_id=? AND w.org_id=? AND r.start_at::timestamptz < ?::timestamptz AND r.end_at::timestamptz > ?::timestamptz`,p.equipmentId,p.orgId,iso(t1+8*DAY),iso(t0-8*DAY)),
+  db().all(`SELECT r.start_at,r.end_at,w.id order_id,w.number,w.status order_status,w.org_id,o.name org_name
+   FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id JOIN requester_orgs o ON o.id=w.org_id
+   WHERE r.equipment_id=? AND w.org_id<>? AND r.status<>'liberada' AND w.status<>'cancelada'
+    AND r.start_at::timestamptz < ?::timestamptz AND r.end_at::timestamptz > ?::timestamptz`,p.equipmentId,p.orgId,iso(t1),iso(t0)),
+ ]);
+ const inPeriod=(x:Row)=>ms(x.start_at)<t1&&ms(x.end_at)>t0;
+ const requested=res.filter(x=>inPeriod(x)&&(x.order_status!=='cancelada'||x.used));
+ const counts=(x:Row)=>x.status==='confirmada'&&x.order_status!=='cancelada';
+ const planned=res.filter(counts);
+ const plan=dailies(planned.map((x,i)=>({id:'r'+i,orderId:x.order_id,orderNumber:Number(x.number),equipmentId:p.equipmentId,orgId:p.orgId,start:ms(x.start_at),end:ms(x.end_at),pending:false})),mine,Date.now())
+  .filter(d=>d.start>=t0&&d.start<t1);
+ const origin=byOrder(requested.filter(counts),t0,t1,x=>({orderId:x.order_id,number:Number(x.number),status:x.order_status,counted:true}));
+ const outside=byOrder(requested.filter(x=>!counts(x)&&!origin.some(o=>o.orderId===x.order_id)),t0,t1,
+  x=>({orderId:x.order_id,number:Number(x.number),status:x.order_status,counted:false,reason:x.order_status==='cancelada'?'OS cancelada (com uso registrado)':'reserva não confirmada'}));
+ const orders=[...origin,...outside].map((o):Row=>{const opened=plan.filter(d=>d.openerOrderId===o.orderId);
+  return {...o,dailies:opened.length,valueCents:opened.reduce((s,d)=>s+d.valueCents,0),
+   attendedIn:[...new Set(plan.filter(d=>d.openerOrderId!==o.orderId&&d.orderIds.includes(o.orderId)).map(d=>d.openerNumber))]};});
+ const other=byOrder(others.filter(x=>see(x.org_id)),t0,t1,x=>({orderId:x.order_id,number:Number(x.number),status:x.order_status,orgId:x.org_id,orgName:x.org_name}))
+  .map((o):Row=>({...o,reason:rateAt(rates,p.equipmentId,o.orgId,ms(o.start))?`conta na linha de ${o.orgName}`:'cliente sem tarifa'}));
+ return {requested,plan,plannedHours:planned.filter(inPeriod).reduce((h,x)=>h+hoursIn(x,t0,t1),0),orders,others:other};
+}
+
 /** Painel de recobráveis no período (dias de Brasília; padrão: o mês atual), por equipamento e
  * cliente com tarifa: previsto pelas reservas confirmadas e realizado pelos usos, ambos pelo mesmo
  * motor de diárias. A diária entra no período em que começa. */
@@ -106,24 +154,11 @@ export async function financePanel(member:Member,url:URL){
  const [rateRows,equipment,orgs]=await Promise.all([ratesOf(db()),db().all('SELECT id,tag FROM equipment'),db().all('SELECT id,name FROM requester_orgs')]);
  const rates=rateRows.map(toRate);
  const pairs=[...new Map(rates.filter(r=>(!org||r.orgId===org)&&inScope(a,r.orgId)).map(r=>[r.equipmentId+'|'+r.orgId,r] as const)).values()];
- const rows:PanelRow[]=[],detail:Record<string,{dailies:(Daily&{orderNumbers:number[]})[],pending:Row[]}>={};
- const iso=(t:number)=>new Date(t).toISOString();
+ const rows:PanelRow[]=[],detail:Record<string,{dailies:(Daily&{orderNumbers:number[]})[],pending:Row[],forecast:Row[],others:Row[]}>={};
  for(const p of pairs){
   const mine=rates.filter(r=>r.equipmentId===p.equipmentId&&r.orgId===p.orgId);
-  const [res,uses]=await Promise.all([
-   db().all(`SELECT r.start_at,r.end_at,r.status,w.id order_id,w.number,w.status order_status,
-     EXISTS (SELECT 1 FROM equipment_uses u WHERE u.work_order_id=w.id AND u.equipment_id=r.equipment_id) used
-    FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id
-    WHERE r.equipment_id=? AND w.org_id=? AND r.start_at::timestamptz < ?::timestamptz AND r.end_at::timestamptz > ?::timestamptz`,p.equipmentId,p.orgId,iso(t1+8*DAY),iso(t0-8*DAY)),
-   usesNear(db(),p.equipmentId,p.orgId,t0,t1),
-  ]);
-  const inPeriod=(x:Row)=>ms(x.start_at)<t1&&ms(x.end_at)>t0;
-  const requested=res.filter(x=>inPeriod(x)&&(x.order_status!=='cancelada'||x.used));
+  const [{requested,plan,plannedHours,orders:origin,others},uses]=await Promise.all([forecast(p,rates,t0,t1,id=>inScope(a,id)),usesNear(db(),p.equipmentId,p.orgId,t0,t1)]);
   const orders=new Map(requested.map(x=>[x.order_id as string,x.order_status as string]));
-  const planned=res.filter(x=>x.status==='confirmada'&&x.order_status!=='cancelada');
-  const plannedHours=planned.filter(inPeriod).reduce((h,x)=>h+(Math.min(ms(x.end_at),t1)-Math.max(ms(x.start_at),t0))/H,0);
-  const plan=dailies(planned.map((x,i)=>({id:'r'+i,orderId:x.order_id,orderNumber:Number(x.number),equipmentId:p.equipmentId,orgId:p.orgId,start:ms(x.start_at),end:ms(x.end_at),pending:false})),mine,Date.now())
-   .filter(d=>d.start>=t0&&d.start<t1);
   const real=dailies(uses.map(toInterval),mine,Date.now()).filter(d=>d.start>=t0&&d.start<t1);
   const plannedCents=plan.reduce((s,d)=>s+d.valueCents,0);
   rows.push({equipmentId:p.equipmentId,tag:equipment.find(e=>e.id===p.equipmentId)?.tag||'',orgId:p.orgId,orgName:orgs.find(o=>o.id===p.orgId)?.name||'',
@@ -134,7 +169,7 @@ export async function financePanel(member:Member,url:URL){
   // esquecido em aberto desde o mês anterior aparece onde gera valor).
   const inPending=new Set(real.filter(d=>d.pending).flatMap(d=>d.intervalIds)),numbers=new Map(uses.map(u=>[u.work_order_id as string,Number(u.number)]));
   detail[p.equipmentId+'|'+p.orgId]={dailies:real.map(d=>({...d,orderNumbers:d.orderIds.map(o=>numbers.get(o)!).filter(Boolean)})),
-   pending:uses.filter(u=>(u.review==='a_conferir'||!u.ended_at)&&((ms(u.started_at)>=t0&&ms(u.started_at)<t1)||inPending.has(u.id)))};
+   pending:uses.filter(u=>(u.review==='a_conferir'||!u.ended_at)&&((ms(u.started_at)>=t0&&ms(u.started_at)<t1)||inPending.has(u.id))),forecast:origin,others};
  }
  return {period:{from,to},rows:rows.sort((x,y)=>x.tag.localeCompare(y.tag)||x.orgName.localeCompare(y.orgName)),detail,orgs:orgs.filter(o=>inScope(a,o.id)&&rates.some(r=>r.orgId===o.id))};
 }
@@ -155,6 +190,26 @@ export async function dailyRows(f:{start:string|null,end:string|null,org:string|
     opener:d.openerNumber,orders:d.orderIds.map(o=>numbers.get(o)).filter(Boolean),hours_per_day:d.hoursPerDay,hourly_cents:d.hourlyCents,value_cents:d.valueCents,pending:d.pending});
  }
  return out.sort((x,y)=>String(x.start).localeCompare(String(y.start))||String(x.tag).localeCompare(String(y.tag)));
+}
+
+/** Previsto para a exportação: por equipamento e cliente com tarifa, uma linha por OS solicitada no
+ * período (dias de Brasília; sem datas, todas) e as OS de outros clientes com o mesmo equipamento, que
+ * não entram, com o motivo. No escopo de organizações de quem exporta. */
+export async function forecastRows(f:{start:string|null,end:string|null,org:string|null},scope:string[]|null){
+ const rates=(await ratesOf(db())).map(toRate);
+ const t0=f.start?dayStart(f.start):Date.UTC(2020,0,1),t1=f.end?dayStart(f.end)+DAY:Date.UTC(2100,0,1);
+ const see=(orgId:string)=>!scope||scope.includes(orgId);
+ const pairs=[...new Map(rates.filter(r=>(!f.org||r.orgId===f.org)&&see(r.orgId)).map(r=>[r.equipmentId+'|'+r.orgId,r] as const)).values()];
+ const [equipment,orgs]=await Promise.all([db().all('SELECT id,tag FROM equipment'),db().all('SELECT id,name FROM requester_orgs')]);
+ const out:Row[]=[];
+ for(const p of pairs){
+  const {orders,others}=await forecast(p,rates,t0,t1,see);
+  const tag=equipment.find(e=>e.id===p.equipmentId)?.tag,rateOrg=orgs.find(o=>o.id===p.orgId)?.name;
+  for(const o of orders)out.push({tag,rate_org:rateOrg,number:o.number,order_org:rateOrg,status:o.status,start:o.start,end:o.end,hours:o.hours,dailies:o.dailies,value_cents:o.valueCents,counted:o.counted,
+   note:o.counted?(o.attendedIn.length?`Atendida na diária da ${o.attendedIn.map(osNumber).join(', ')}`:null):o.reason});
+  for(const o of others)out.push({tag,rate_org:rateOrg,number:o.number,order_org:o.orgName,status:o.status,start:o.start,end:o.end,hours:o.hours,dailies:0,value_cents:0,counted:false,note:o.reason});
+ }
+ return out.sort((x,y)=>ms(x.start)-ms(y.start)||String(x.tag).localeCompare(String(y.tag)));
 }
 
 // ---- Comandos ----
