@@ -6,6 +6,7 @@ import {registryState,registryMutate,checklistVersions} from '@/lib/registry';
 import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {revisionMutate} from '@/lib/revision';
 import {realizeActivity,validateRealized,recoverableEquipment} from '@/lib/realized';
+import {financeConfig,financeRequestsMutate,requestDetail,requestList} from '@/lib/finance-requests';
 import {cancelOrder} from '@/lib/cancel';
 import {centralState} from '@/lib/central';
 import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
@@ -107,6 +108,9 @@ export async function GET(req:Request){try{
  if(path==='condition'){await rateLimit(member.id,'read');return json(await conditionState(member));}
  if(path==='finance/rates'){await rateLimit(member.id,'read');return json(await financeRates(member));}
  if(path==='finance/panel'){await rateLimit(member.id,'read');return json(await financePanel(member,url));}
+ if(path==='finance/config'){await rateLimit(member.id,'read');return json(await financeConfig(member));}
+ if(path==='finance/requests'){await rateLimit(member.id,'read');return json(await requestList(member,url));}
+ if(path==='finance/request'){await rateLimit(member.id,'read');return json(await requestDetail(member,url.searchParams.get('id')||''));}
  if(path==='finance/order-uses'){await rateLimit(member.id,'read');return json(await orderUses(member,url.searchParams.get('os')||''));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
@@ -143,6 +147,7 @@ export async function POST(req:Request){try{
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
  if(path.startsWith('ops/'))return json(await operationMutate(path,body,member));
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));
+ if(path.startsWith('finance/config/')||path==='finance/suppliers'||path.startsWith('finance/requests/')||path==='finance/quotes')return json(await financeRequestsMutate(path,body,member));
  if(path.startsWith('finance/'))return json(await financeMutate(path,body,member));
  const result=await mutate(path,body,member);
  flushLater(req);
