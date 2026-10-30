@@ -49,8 +49,10 @@ CREATE TABLE IF NOT EXISTS equipment_uses (
 CREATE INDEX IF NOT EXISTS idx_equipment_uses_equipment ON equipment_uses(equipment_id, started_at);
 CREATE INDEX IF NOT EXISTS idx_equipment_uses_order ON equipment_uses(work_order_id);
 
--- Uso não é apagado; identidade não muda; fim depois do início; o mesmo equipamento não tem dois
--- usos ao mesmo tempo (encostar é permitido; uso em aberto ocupa até ser encerrado).
+-- Uso não é apagado; identidade não muda; início ou fim já registrado só muda pela correção de quem
+-- tem o acesso Financeiro ou é da Gestão (registrar o fim de um uso aberto é livre); fim depois do
+-- início; o mesmo equipamento não tem dois usos ao mesmo tempo (encostar é permitido; uso em aberto
+-- ocupa até ser encerrado).
 CREATE OR REPLACE FUNCTION nautilus_equipment_use_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE clash integer;
 BEGIN
@@ -58,6 +60,11 @@ BEGIN
   IF TG_OP = 'UPDATE' AND (NEW.work_order_id <> OLD.work_order_id OR NEW.equipment_id <> OLD.equipment_id OR NEW.org_id <> OLD.org_id
      OR NEW.operation_key <> OLD.operation_key OR NEW.started_by <> OLD.started_by) THEN
     RAISE EXCEPTION 'Uso de equipamento não pode ser alterado';
+  END IF;
+  IF TG_OP = 'UPDATE' AND (NEW.started_at <> OLD.started_at OR (OLD.ended_at IS NOT NULL AND NEW.ended_at IS DISTINCT FROM OLD.ended_at))
+     AND NOT (NEW.reviewed_at IS DISTINCT FROM OLD.reviewed_at AND EXISTS (SELECT 1 FROM members WHERE id = NEW.reviewed_by AND active = 1
+      AND (profile = 'manager' OR 'financeiro' = ANY(capabilities)))) THEN
+    RAISE EXCEPTION 'Início ou fim do uso só muda pela correção do Financeiro';
   END IF;
   IF NEW.ended_at IS NOT NULL AND NEW.ended_at::timestamptz <= NEW.started_at::timestamptz THEN
     RAISE EXCEPTION 'Fim do uso deve ser depois do início';

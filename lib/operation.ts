@@ -3,7 +3,7 @@
 // e encerramento automático. Cada comando trava a OS e a etapa; repetições não duplicam.
 import {db,type Executor,type Row} from './db';
 import {AppError,required,text} from './domain';
-import {type Member,isManager,requireAny,canCancelOrders} from './permissions';
+import {type Member,isManager,has,requireAny,canCancelOrders} from './permissions';
 import {audit} from './registry';
 import {loadPlan,instant,osNumber,period} from './planning';
 import {closeOpenUses} from './finance';
@@ -109,9 +109,12 @@ export async function checkClosure(tx:Executor,a:Member,wo:Row){
  }
  // Chave fixa: o encerramento acontece uma vez, mesmo com comandos concorrentes ou repetidos.
  if(await tx.first('SELECT 1 FROM execution_events WHERE operation_key=?','close:'+wo.id))return 'concluida';
+ // Uso de equipamento ainda aberto não segue numa OS concluída (fim automático, a conferir).
+ await closeOpenUses(tx,a,wo.id,now(),'etapa');
  await tx.run("UPDATE work_orders SET status='concluida',actual_end=coalesce(?,actual_end),closed_at=?,version=version+1 WHERE id=?",physicalEnd,now(),wo.id);
  await event(tx,a,wo,null,'encerramento','close:'+wo.id,{physicalEnd});
- await audit(tx,a,'Operação: OS encerrada',wo.id,{number:wo.number,physicalEnd});
+ // Encerramento por dispensa ou revisão vem do Planejamento: a auditoria segue o acesso de quem age.
+ await audit(tx,a,`${has(a,'operacao')?'Operação':'Planejamento'}: OS encerrada`,wo.id,{number:wo.number,physicalEnd});
  return 'concluida';
 }
 

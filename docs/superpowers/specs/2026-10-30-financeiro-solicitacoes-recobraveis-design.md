@@ -47,7 +47,7 @@ Controlar as atividades recobráveis que o cliente pede e que são executadas po
 - **Cliente habilitado para recobráveis:** sim ou não. Só clientes habilitados aparecem como solicitantes.
 - **Margem OCP (%) e impostos (%)**, com data de vigência:
   - uma mudança cria uma nova vigência;
-  - para um cliente novo, o padrão sugerido é 15% e 11,75%;
+  - para um cliente novo, o sistema sugere o padrão definido pelo Financeiro em Configurações (os percentuais reais ficam só no banco, nunca no repositório);
   - cada solicitação guarda os percentuais vigentes na data em que foi criada, para que mudanças futuras não alterem solicitações existentes.
 - **Tarifas de equipamentos:** são as da Frente A, já por cliente.
 - **Cliente novo:** basta habilitar e cadastrar margem, impostos e, se houver, tarifas.
@@ -86,19 +86,20 @@ Controlar as atividades recobráveis que o cliente pede e que são executadas po
 | Impostos | valor a faturar − subtotal |
 
 - **Arredondamento:** sempre em centavos, com metade para cima. Os impostos absorvem a diferença de arredondamento, então a soma sempre fecha. **Regra A, escolhida pelo usuário.**
-- **Exemplo da planilha** (Aços do Brasil, 15% e 11,75%):
+- **Exemplo fictício** (Fornecedor Alfa, margem 10% e impostos 10%):
 
   | Linha | Valor |
   |---|---|
-  | Valor cotado | 52.770,56 |
-  | Margem OCP | 7.915,58 |
-  | Subtotal | 60.686,14 |
-  | Impostos | 8.080,03 |
-  | **Valor a faturar** | **68.766,17** |
+  | Valor cotado | 10.000,00 |
+  | Margem OCP | 1.000,00 |
+  | Subtotal | 11.000,00 |
+  | Impostos | 1.222,22 |
+  | **Valor a faturar** | **12.222,22** |
 
-- **Outras linhas da planilha:**
-  - Aços Vital: 72.555,36 → 10.883,30 → 83.438,66 → 11.109,40 → **94.548,06**;
-  - Conceito Offshore: 47.115,67 → 7.067,35 → 54.183,02 → 7.214,17 → **61.397,19**.
+- **Outras cotações do exemplo** (cotado → margem → subtotal → impostos → a faturar):
+  - Fornecedor Beta: 25.000,50 → 2.500,05 → 27.500,55 → 3.055,62 → **30.556,17**;
+  - Fornecedor Gama: 8.333,33 → 833,33 → 9.166,66 → 1.018,52 → **10.185,18**.
+- Os testes usam só valores fictícios como estes; a conferência com a planilha real do usuário é feita fora do repositório.
 - **Exibição:** as cotações aparecem lado a lado, e a escolhida fica em destaque.
 
 ## 6. Situações
@@ -168,7 +169,7 @@ Controlar as atividades recobráveis que o cliente pede e que são executadas po
 ## 12. Dados
 
 - **`finance_clients`:** cliente (organização), habilitado, autor e data.
-- **`finance_client_rates`:** cliente, margem em centésimos de % (1500 = 15%), impostos em centésimos de % (1175 = 11,75%), vigente a partir de, autor e data. Não é alterada.
+- **`finance_client_rates`:** cliente, margem em centésimos de % (1000 = 10%), impostos em centésimos de % (1250 = 12,5%), vigente a partir de, autor e data. Não é alterada.
 - **`suppliers`:** nome (único, sem diferenciar maiúsculas), CNPJ opcional, contato opcional e ativo.
 - **`recovery_requests`:**
   - número sequencial, cliente e pessoa;

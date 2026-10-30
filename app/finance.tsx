@@ -2,13 +2,14 @@
 // Financeiro: tarifas dos equipamentos recobráveis (por cliente, com vigência) e painel de
 // recobráveis. Uma tarifa nunca é alterada: cada mudança é uma nova vigência (lib/finance).
 import {Fragment,useCallback,useEffect,useMemo,useState,FormEvent} from 'react';
-import {Plus,AlertTriangle,LoaderCircle,Receipt,CheckCheck} from 'lucide-react';
+import {Plus,AlertTriangle,LoaderCircle,Receipt,CheckCheck,Pencil} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Choice,Badge,Empty,Field,Toggle,fmt,post,load,type R} from './kit';
+import {UseDialog} from './equipment-uses';
 
 export const brl=(cents:number)=>(cents/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo'}).format(new Date());
@@ -53,8 +54,8 @@ export function Rates({refreshKey}:{refreshKey?:number}){
 
 /** Painel de recobráveis: previsto (reservas) × realizado (usos) por equipamento e cliente, com as
  * diárias e os usos a conferir de cada linha. */
-export function RecoverablePanel({refreshKey,onOpenOrder}:{refreshKey?:number,onOpenOrder:(id:string)=>void}){
- const [query,setQuery]=useState<R>({from:'',to:'',org:''}),[data,setData]=useState<R|null>(null),[error,setError]=useState(''),[open,setOpen]=useState('');
+export function RecoverablePanel({refreshKey,onOpenOrder}:{refreshKey?:number,onOpenOrder?:(id:string)=>void}){
+ const [query,setQuery]=useState<R>({from:'',to:'',org:''}),[data,setData]=useState<R|null>(null),[error,setError]=useState(''),[open,setOpen]=useState(''),[fix,setFix]=useState<R|null>(null);
  const refresh=useCallback(async()=>{const q=new URLSearchParams(Object.entries(query).filter(([,v])=>v) as [string,string][]);
   try{setData(await load<R>('finance/panel?'+q));setError('')}catch(e){setError((e as Error).message)}},[query]);
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Dados recebidos do servidor.
@@ -80,11 +81,13 @@ export function RecoverablePanel({refreshKey,onOpenOrder}:{refreshKey?:number,on
     {rows.map(r=>{const k=r.equipmentId+'|'+r.orgId,det=data.detail[k];return <Fragment key={k}>
      <tr className={`clickable${open===k?' current':''}`} onClick={()=>setOpen(open===k?'':k)}><td><b>{r.tag}</b></td><td>{r.orgName}</td><td>{r.requests}</td><td>{r.scheduled}</td><td>{r.plannedHours.toLocaleString('pt-BR')} h</td><td>{r.plannedDailies}</td><td>{brl(r.plannedCents)}</td><td>{brl(r.avgPerOrderCents)}</td><td>{r.dailies}</td><td>{brl(r.confirmedCents)}</td><td>{r.pendingCents?<b className="warn-text">{brl(r.pendingCents)}</b>:brl(0)}</td></tr>
      {open===k&&<tr className="fin-detail"><td colSpan={11}>
-      <h4>Diárias realizadas</h4>{det.dailies.length?<ul>{(det.dailies as R[]).map((d,i)=><li key={i}><span>{fmt(new Date(d.start).toISOString())} → {fmt(new Date(d.end).toISOString())}</span><span>aberta pela {os(d.openerNumber)}{d.orderIds.length>1?` · atende ${d.orderIds.length} OS`:''}</span><b>{brl(d.valueCents)}</b>{d.pending&&<Badge tone="warning">A conferir</Badge>}</li>)}</ul>:<p className="muted-text">Nenhuma diária no período.</p>}
+      <h4>Diárias realizadas</h4>{det.dailies.length?<ul>{(det.dailies as R[]).map((d,i)=><li key={i}><span>{fmt(new Date(d.start).toISOString())} → {fmt(new Date(d.end).toISOString())}</span><span>aberta pela {os(d.openerNumber)}{(d.orderNumbers as number[]).filter(n=>n!==d.openerNumber).length?` · atende ${(d.orderNumbers as number[]).filter(n=>n!==d.openerNumber).map(os).join(', ')}`:''}</span><b>{brl(d.valueCents)}</b>{d.pending&&<Badge tone="warning">A conferir</Badge>}</li>)}</ul>:<p className="muted-text">Nenhuma diária no período.</p>}
       <h4>Usos a conferir</h4>{det.pending.length?<ul>{(det.pending as R[]).map(u=><li key={u.id}><span>{os(u.number)} · {fmt(u.started_at)} → {u.ended_at?fmt(u.ended_at):'em uso'}</span>{u.end_source&&u.end_source!=='registrado'&&<Badge tone="warning">Fim automático</Badge>}
-       {u.ended_at&&<Button size="sm" variant="outline" onClick={()=>void confirmUse(u.id)}><CheckCheck size={14}/> Conferir</Button>}<Button size="sm" variant="ghost" onClick={()=>onOpenOrder(u.work_order_id)}>Abrir OS para corrigir</Button></li>)}</ul>:<p className="muted-text">Nada a conferir.</p>}
+       {u.ended_at&&<Button size="sm" variant="outline" onClick={()=>void confirmUse(u.id)}><CheckCheck size={14}/> Conferir</Button>}<Button size="sm" variant="ghost" onClick={()=>setFix({...u,tag:r.tag})}><Pencil size={14}/> Corrigir</Button>
+       {onOpenOrder&&<Button size="sm" variant="ghost" onClick={()=>onOpenOrder(u.work_order_id)}>Abrir OS</Button>}</li>)}</ul>:<p className="muted-text">Nada a conferir.</p>}
      </td></tr>}</Fragment>;})}
    </tbody></table></div>:<Empty icon={Receipt} title="Nenhum equipamento com tarifa" description="Cadastre as tarifas em Financeiro › Tarifas para acompanhar a receita prevista e realizada."/>}
   </section>
+  {fix&&<UseDialog mode={{kind:'correct',use:fix}} onClose={()=>setFix(null)} onDone={()=>{setFix(null);void refresh();}}/>}
  </>;
 }

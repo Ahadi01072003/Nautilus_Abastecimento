@@ -92,8 +92,8 @@ test('tarifas: só Financeiro/Gestão; nova vigência não altera a anterior; da
 test('uso: Operação inicia e encerra; idempotente pela operationKey; sem tarifa recusa',async()=>{
  wo=await launchFree(org,ago(20),ago(-4),['eq1']);
  const k=key();
- const u=await fm('uses/start',{operationKey:k,workOrderId:wo,equipmentId:'eq1',startedAt:ago(19)},operator);
- assert.equal((await fm('uses/start',{operationKey:k,workOrderId:wo,equipmentId:'eq1',startedAt:ago(19)},operator)).id,u.id);
+ const u=await fm('uses/start',{operationKey:k,workOrderId:wo,equipmentId:'eq1',startedAt:ago(19),confirm:true},operator);
+ assert.equal((await fm('uses/start',{operationKey:k,workOrderId:wo,equipmentId:'eq1',startedAt:ago(19),confirm:true},operator)).id,u.id);
  await fm('uses/end',{id:u.id,endedAt:ago(17)},operator);
  const row=(await db.first('SELECT * FROM equipment_uses WHERE id=?',u.id))!;
  assert.deepEqual([row.end_source,row.review,row.started_by],['registrado','normal',operator.id]);
@@ -108,19 +108,19 @@ test('uso: Operação inicia e encerra; idempotente pela operationKey; sem tarif
 
 test('uso: sobreposição do mesmo equipamento em outra OS recusa citando a OS',async()=>{
  const wo2=await launchFree(org,ago(40),ago(36),['eq1']);
- const open=await fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq1',startedAt:ago(15)},operator);
+ const open=await fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq1',startedAt:ago(15),confirm:true},operator);
  await rejects(fm('uses/start',{operationKey:key(),workOrderId:wo2,equipmentId:'eq1',startedAt:ago(14)},operator),409,/OS \d{6}/);
  await fm('uses/end',{id:open.id,endedAt:ago(14.5)},operator);
 });
 
 test('uso: mais de uma diária pede confirmação e não grava sem ela',async()=>{
  // Começa às 13 h atrás, dentro da diária aberta pelo uso das 19 h atrás (vai até 11 h atrás), e
- // termina 4 h atrás: entra na 1ª diária e abre a 2ª.
- const u=await fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq1',startedAt:ago(13)},operator);
- const ask=await fm('uses/end',{id:u.id,endedAt:ago(4)},operator);
- assert.equal(ask.confirm,true);assert.equal(ask.dailies,2);assert.match(String(ask.message),/gera 2 diárias \(R\$\s?8\.000,00\)/);
+ // termina 1 h atrás: entra na diária já aberta (não conta) e abre duas novas (11–3 h e 3 h–agora).
+ const u=await fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq1',startedAt:ago(13),confirm:true},operator);
+ const ask=await fm('uses/end',{id:u.id,endedAt:ago(1)},operator);
+ assert.equal(ask.confirm,true);assert.equal(ask.dailies,2);assert.match(String(ask.message),/gera 2 diárias novas \(R\$\s?8\.000,00\)/);
  assert.equal((await db.first('SELECT ended_at FROM equipment_uses WHERE id=?',u.id))!.ended_at,null,'nada gravado');
- await fm('uses/end',{id:u.id,endedAt:ago(4),confirm:true},operator);
+ await fm('uses/end',{id:u.id,endedAt:ago(1),confirm:true},operator);
  assert.ok((await db.first('SELECT ended_at FROM equipment_uses WHERE id=?',u.id))!.ended_at);
  // Registro retroativo completo (início e fim juntos) também pede confirmação.
  const w2=await launchFree(org,ago(200),ago(180),['eq1']);

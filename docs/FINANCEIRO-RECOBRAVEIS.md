@@ -33,35 +33,42 @@ Alguns equipamentos usados nas OS de um cliente são cobrados por **diária**. O
    - horas por diária;
    - data de início da vigência.
 
-   Para mudar o valor, cadastre uma nova vigência; diárias já contadas mantêm o valor da época. Para parar de cobrar, cadastre uma vigência com a cobrança desligada.
+   Para mudar o valor, cadastre uma nova vigência; diárias já contadas mantêm o valor da época. Por isso a nova vigência só pode começar **depois do último uso já registrado** daquele equipamento para o cliente. Para parar de cobrar, cadastre uma vigência com a cobrança desligada.
+
+   Quem tem escopo de organizações vê e cadastra tarifas só dos clientes do seu escopo.
 3. **Registrar o uso na OS.** Em Operação › Apontamentos, a seção **Uso de equipamentos recobráveis** aparece nas OS do cliente com tarifa.
    - Use **Início de uso** e **Fim de uso**.
    - Para registrar um uso que já terminou, informe início e fim juntos.
-   - Se o uso gerar mais de uma diária, o sistema mostra a quantidade e o valor e pede confirmação.
+   - Se o uso gerar mais de uma **diária nova**, o sistema mostra a quantidade e o valor e pede confirmação. Diária já aberta por outra OS do cliente não conta.
+   - Um início em aberto no passado também é conferido: se até agora ele já soma mais de uma diária nova, o sistema pede confirmação.
+   - Mudou um campo depois do aviso? O sistema faz uma nova prévia antes de gravar.
 4. **Conferir.** Ficam **a conferir**:
-   - usos encerrados automaticamente (pelo fim da última etapa com o equipamento, pela dispensa dela ou pelo cancelamento da OS);
+   - usos encerrados automaticamente (pelo fim da última etapa com o equipamento, pela dispensa dela, pela conclusão da OS ou pelo cancelamento);
    - usos que saem do período reservado por mais de 30 min.
 
-   O Financeiro confere ou corrige com motivo. A correção fica na auditoria.
+   O Financeiro confere ou corrige com motivo, na OS ou direto no Painel de recobráveis (quem só tem o acesso Financeiro corrige pelo painel). A correção fica na auditoria.
 5. **Acompanhar.** O **Painel de recobráveis** mostra, por equipamento e cliente, no período:
    - solicitações e programadas;
    - horas planejadas;
    - diárias e receita previstas pelas reservas, e a média por OS;
-   - diárias realizadas, separadas em conferido e a conferir.
+   - diárias realizadas, separadas em conferido e a conferir, com a OS que abriu e as OS atendidas;
+   - usos a conferir: os que começam no período e os que geram diária a conferir nele (um uso esquecido em aberto desde o mês anterior aparece no mês em que gera valor).
 6. **Exportar.** Em Exportação, no grupo Financeiro, estão os conjuntos **Recobráveis: diárias** e **Recobráveis: usos**.
 
 ## Avisos
 
 O Painel central avisa:
 
-- **Uso aberto há uma diária inteira** (provável esquecimento): aparece para quem executa e para o Financeiro.
-- **Usos a conferir:** aparecem só para o Financeiro.
+- **Uso aberto há uma diária inteira** (provável esquecimento): aparece para quem executa e para o Financeiro. O aviso leva à OS; para quem não abre OS, leva ao Painel de recobráveis.
+- **Usos a conferir:** aparecem só para o Financeiro, contando só os clientes do seu escopo.
 
 ## Banco
 
 A migração `0019_financeiro_recobraveis.sql` cria:
 
 - **`recovery_rates`:** as tarifas. Não são alteradas: cada mudança é uma nova vigência.
-- **`equipment_uses`:** os usos. Não são apagados, o mesmo equipamento não tem dois usos ao mesmo tempo e o fim é sempre depois do início.
+- **`equipment_uses`:** os usos. Não são apagados, o mesmo equipamento não tem dois usos ao mesmo tempo e o fim é sempre depois do início. Início ou fim já registrado só muda pela correção de quem tem o acesso Financeiro ou é da Gestão; registrar o fim de um uso aberto é livre.
+
+**Ordem de publicação:** aplicar a `0019` no banco de produção **antes** do merge. Finalizar etapa, dispensar, cancelar e o Painel central passam a consultar as tabelas novas.
 
 As diárias **não são gravadas**: o motor em `lib/recoverables.ts` as calcula a partir dos usos e das tarifas.

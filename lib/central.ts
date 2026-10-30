@@ -121,11 +121,13 @@ export async function centralState(member:Member){
   const list=rates.map(toRate);
   for(const u of open){
    const age=t-Date.parse(u.started_at),limit=(rateAt(list,u.equipment_id,u.org_id,Date.parse(u.started_at))?.hoursPerDay||8)*HOUR;
-   if(age>=limit)alerts.push({id:'use:'+u.id,module:'financeiro',severity:'atencao',title:`${u.tag} em uso há ${hm(age)} sem fim registrado`,detail:`${osNumber(u.number)} · registre o fim do uso na OS`,at:u.started_at,link:{view:'op-os',os:u.work_order_id}});
+   // Quem não abre OS (só o acesso Financeiro) corrige pelo Painel de recobráveis.
+   if(age>=limit)alerts.push({id:'use:'+u.id,module:'financeiro',severity:'atencao',title:`${u.tag} em uso há ${hm(age)} sem fim registrado`,at:u.started_at,
+    ...(canSeeOrders(a)?{detail:`${osNumber(u.number)} · registre o fim do uso na OS`,link:{view:'op-os',os:u.work_order_id}}:{detail:`${osNumber(u.number)} · corrija no Painel de recobráveis`,link:{view:'fin-painel'}})});
   }
  }
  if(finance){
-  const review=(await all("SELECT count(*)::int n FROM equipment_uses WHERE review='a_conferir'"))[0]?.n||0;
+  const review=(await all(`SELECT count(*)::int n FROM equipment_uses WHERE review='a_conferir'${scope?' AND org_id = ANY(?::text[])':''}`,...(scope?[scope]:[])))[0]?.n||0;
   if(review)alerts.push({id:'uses:review',module:'financeiro',severity:'info',title:`${review} uso(s) de equipamento a conferir`,detail:'Confira ou corrija no Painel de recobráveis.',at:null,link:{view:'fin-painel'}});
  }
 

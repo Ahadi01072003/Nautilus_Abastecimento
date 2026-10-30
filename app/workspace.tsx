@@ -110,7 +110,7 @@ export default function Workspace({identity}:{identity:Identity}){
  {view==='op-registro'&&<RealizedActivities refreshKey={registryTick} openOrder={openOrder}/>}
  {view==='op-os'&&<Apontamentos refreshKey={registryTick}/>}
  {view==='fin-tarifas'&&<Rates refreshKey={registryTick}/>}
- {view==='fin-painel'&&<RecoverablePanel refreshKey={registryTick} onOpenOrder={openOrder}/>}
+ {view==='fin-painel'&&<RecoverablePanel refreshKey={registryTick} onOpenOrder={data.actor.modules.includes('op-os')?openOrder:undefined}/>}
  {view==='exportacao'&&<ExportCenter manager={manage} operation={data.actor.modules.includes('op-os')} finance={data.actor.modules.includes('fin-painel')} fuels={data.fuels}/>}
  </ModuleBoundary>}
  {data&&['solicitacoes','abastecimentos'].includes(view)&&<div className="pagination-bar"><span>Página {page+1} · {view==='solicitacoes'?data.pagination.appointments:data.pagination.supplies} registros acessíveis</span><Button variant="outline" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Anterior</Button><Button variant="outline" disabled={(page+1)*data.pagination.limit>=(view==='solicitacoes'?data.pagination.appointments:data.pagination.supplies)} onClick={()=>setPage(p=>p+1)}>Próxima</Button></div>}<div className="privacy-note"><ShieldCheck size={14}/><span>Seu usuário identifica cada lançamento que você faz. A senha é pessoal: não a compartilhe. Solicite ao gestor correções no seu cadastro.</span></div><footer className="main-footer"><span><Compass size={14}/> NAUTILUS</span><p>Precisão. Profundidade. Clareza.</p><small>Horário de Brasília</small></footer></main></SidebarInset><Toaster position="bottom-right" richColors/>

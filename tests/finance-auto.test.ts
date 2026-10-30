@@ -79,7 +79,7 @@ test('fim automático: cancelar a OS encerra o uso aberto',async()=>{
 
 test('aviso: uso aberto há 9 h aparece no Painel central; as diárias contam até agora e ficam a conferir',async()=>{
  const wo=await launch(-12,2,'eq3');
- const u=await fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq3',startedAt:at(-9)});
+ const u=await fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq3',startedAt:at(-9),confirm:true});
  const forOps=(await centralState(operator)).alerts as Row[];
  const al=forOps.find(x=>x.id==='use:'+u.id);
  assert.ok(al,'Operação vê o aviso');assert.equal(al!.module,'financeiro');assert.match(al!.title,/PTA-03 em uso há 9 h sem fim registrado/);
