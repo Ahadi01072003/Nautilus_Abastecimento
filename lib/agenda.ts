@@ -7,7 +7,7 @@ import {type Member,isManager,requireAny} from './permissions';
 import {preventiveRows} from './maintenance';
 import {ordersResources} from './planning';
 import {NO_SECTOR} from './os-order';
-import {resourceFromParams,type Alloc} from './resource-agenda';
+import {resourceFromParams,listFilterLabels,type Alloc} from './resource-agenda';
 
 type Actor=Member&{org_scope:string[]};
 const DAY=86400_000,H=3600_000;
@@ -117,6 +117,10 @@ export async function resourceAgendaData(member:Member,params:URLSearchParams){
   &&Date.parse(a.end)>t0&&Date.parse(a.start)<t1);
  const sectorRows=sectors.filter(s=>s!==NO_SECTOR).length?await db().all('SELECT code,name FROM sectors WHERE code = ANY(?::text[]) ORDER BY code',sectors):[];
  const orgRows=orgs.length?await db().all('SELECT id,acronym,name FROM requester_orgs WHERE id = ANY(?::text[]) ORDER BY acronym',orgs):[];
+ // Filtros herdados da Lista de OS, por extenso no cabeçalho do PDF.
+ const typeId=params.get('type'),locId=params.get('location');
+ const [typeRow,locRow]=await Promise.all([typeId?db().first('SELECT code,name FROM activity_types WHERE id=?',typeId):null,locId?db().first('SELECT name FROM locations WHERE id=?',locId):null]);
+ const filterLabels=listFilterLabels(params,{type:typeRow?{[typeId!]:`${typeRow.code} · ${typeRow.name}`}:{},location:locRow?{[locId!]:locRow.name}:{},sol:Object.fromEntries(orgRows.map(o=>[o.id,o.acronym]))});
  return {period:{from:new Date(t0).toISOString(),to:new Date(t1).toISOString(),days:Math.round((t1-t0)/DAY)},allocations,kinds,picked,
-  filters:{orgs:orgRows,sectors:[...sectorRows,...(sectors.includes(NO_SECTOR)?[{code:NO_SECTOR,name:'Sem setor'}]:[])]},more:r.more,generatedAt:new Date().toISOString()};
+  filters:{orgs:orgRows,sectors:[...sectorRows,...(sectors.includes(NO_SECTOR)?[{code:NO_SECTOR,name:'Sem setor'}]:[])]},filterLabels,more:r.more,generatedAt:new Date().toISOString()};
 }

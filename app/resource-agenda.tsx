@@ -55,7 +55,7 @@ export function ResourcePick({allocs,kinds,picked,onKinds,onPicked}:{allocs:Allo
  </>;
 }
 
-export default function ResourceAgenda({query,orderIds,exportParams,period}:{query:string,orderIds:string[],exportParams:URLSearchParams,period:{from:string,to:string}}){
+export default function ResourceAgenda({query,orderIds,exportParams,exportFilters,period}:{query:string,orderIds:string[],exportParams:URLSearchParams,exportFilters?:string[],period:{from:string,to:string}}){
  const [data,setData]=useState<R|null>(null),[error,setError]=useState(''),[exporting,setExporting]=useState(false);
  const [stored,setStored]=useState<Stored>(readStored);
  const [view,setView]=useState<View>(readView),[width,setWidth]=useState(800);
@@ -139,6 +139,6 @@ export default function ResourceAgenda({query,orderIds,exportParams,period}:{que
    </div>
   </div></div></>}
   <div className="ra-legend"><span><i className="lg-real"/>Período exato da alocação</span><span><i className="lg-tag"/>Alocação curta: texto ao lado da barra</span><span><i className="lg-now"/>Agora</span><span>Equipamentos: período reservado. Funções e materiais: período da etapa que os pede. Alocações que se encostam ficam em faixas separadas. Passe o mouse numa barra para ver todos os detalhes.</span></div>
-  {exporting&&<ResourceExportDialog allocs={all} initial={{kinds,picked:chosen,period:period.from||period.to?period:{from:isoDay(view.start),to:isoDay(end-1)}}} base={exportParams} onClose={()=>setExporting(false)}/>}
+  {exporting&&<ResourceExportDialog allocs={all} initial={{kinds,picked:chosen,period:period.from||period.to?period:{from:isoDay(view.start),to:isoDay(end-1)}}} base={exportParams} filters={exportFilters} onClose={()=>setExporting(false)}/>}
  </div>;
 }

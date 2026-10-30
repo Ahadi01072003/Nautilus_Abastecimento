@@ -9,7 +9,7 @@ import {cookies} from 'next/headers';
 import {redirect} from 'next/navigation';
 import {SESSION_COOKIE,sessionMember} from '@/lib/auth';
 import {resourceAgendaData} from '@/lib/agenda';
-import {db,type Row} from '@/lib/db';
+import {db} from '@/lib/db';
 import {audit} from '@/lib/registry';
 import {rateLimit} from '@/lib/security';
 import {AppError} from '@/lib/domain';
@@ -175,8 +175,7 @@ export default async function ResourceAgendaPdf({searchParams}:{searchParams:Sea
  const orders=new Set(rows.flatMap(x=>x.items.map(i=>i.orderId))).size;
  const busiest=[...rows].sort((a,b)=>b.items.length-a.items.length)[0];
  const picked=r.picked.length?rows.map(x=>x.label).join(', '):'';
- const filters=[r.filters.orgs.length?`Solicitante: ${r.filters.orgs.map((o:Row)=>o.acronym).join(', ')}`:'',r.filters.sectors.length?`Setor: ${r.filters.sectors.map((x:Row)=>x.code==='-'?'sem setor':x.code).join(', ')}`:'',
-  ['type','location','status','number','code'].some(k=>params.get(k))?'demais filtros da Lista de OS aplicados':''].filter(Boolean).join(' · ');
+ const filters=r.filterLabels.join(' · ');
  const hourStep=days<=1?2:days<=3?6:days<=7?12:0;
  const dayList=Array.from({length:days},(_,i)=>t0+i*DAY);
  const colW=TIME_W/days;

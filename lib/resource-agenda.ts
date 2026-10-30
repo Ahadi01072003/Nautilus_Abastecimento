@@ -86,3 +86,21 @@ export function resourceFromParams(q:URLSearchParams):{kinds:ResKind[],picked:st
  const picked=(q.get('recursos')||'').split(',').map(s=>s.trim()).filter(s=>/^(equipamento|funcao|material):.{1,200}$/.test(s)).slice(0,300);
  return {kinds:kinds.length?[...new Set(kinds)]:ALL_KINDS,picked:[...new Set(picked)]};
 }
+
+const LIST_STATUS:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada',todas:'todas, inclusive canceladas'};
+/** Filtros da Lista de OS que a agenda de recursos herda (na janela de exportação e no PDF), em texto e
+ * na ordem da lista. `names` traduz os ids de tipo de atividade, local e solicitante; sem nome, fica o id. */
+export function listFilterLabels(q:URLSearchParams,names:{type?:Record<string,string>,location?:Record<string,string>,sol?:Record<string,string>}){
+ const ids=(k:string)=>(q.get(k)||'').split(',').map(x=>x.trim()).filter(Boolean);
+ const name=(k:'type'|'location'|'sol',id:string)=>names[k]?.[id]||id;
+ const status=q.get('status'),number=(q.get('number')||'').replace(/\D/g,''),code=q.get('code');
+ return [
+  status?`Situação: ${LIST_STATUS[status]||status}`:'',
+  number?`Nº da OS: ${number.padStart(6,'0')}`:'',
+  code?`Código: ${code}`:'',
+  q.get('type')?`Tipo de atividade: ${name('type',q.get('type')!)}`:'',
+  q.get('location')?`Local: ${name('location',q.get('location')!)}`:'',
+  ids('sol').length?`Solicitante: ${ids('sol').map(id=>name('sol',id)).join(', ')}`:'',
+  ids('setor').length?`Setor: ${ids('setor').map(s=>s==='-'?'sem setor':s).join(', ')}`:'',
+ ].filter(Boolean);
+}

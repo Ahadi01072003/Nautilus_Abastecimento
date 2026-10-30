@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {packLanes,labelSide,resourceRows,resourceOptions,resourceParams,resourceFromParams,ALL_KINDS,type Alloc} from '../lib/resource-agenda';
+import {packLanes,labelSide,resourceRows,resourceOptions,resourceParams,resourceFromParams,listFilterLabels,ALL_KINDS,type Alloc} from '../lib/resource-agenda';
 
 const H=3600_000,T0=Date.UTC(2033,4,20,11);
 const at=(h:number)=>new Date(T0+h*H).toISOString();
@@ -47,4 +47,12 @@ test('agenda de recursos: tipos separados ou juntos, recursos específicos e sel
  const q=resourceParams(['equipamento'],['equipamento:eq2']);
  assert.deepEqual(resourceFromParams(q),{kinds:['equipamento'],picked:['equipamento:eq2']});
  assert.deepEqual(resourceFromParams(new URLSearchParams('tipos=xyz&recursos=../etc')),{kinds:ALL_KINDS,picked:[]},'valores inválidos são ignorados');
+});
+
+test('agenda de recursos: filtros herdados da Lista de OS aparecem em texto, na ordem da lista',()=>{
+ const q=new URLSearchParams({status:'programada',number:'11',code:'ICA',type:'t1',location:'l1',sol:'o1,o2',setor:'ABC,-'});
+ const names={type:{t1:'ICA · Içamento'},location:{l1:'Base › Armazém A'},sol:{o1:'CTE',o2:'OCL'}};
+ assert.deepEqual(listFilterLabels(q,names),['Situação: Programada','Nº da OS: 000011','Código: ICA','Tipo de atividade: ICA · Içamento','Local: Base › Armazém A','Solicitante: CTE, OCL','Setor: ABC, sem setor']);
+ assert.deepEqual(listFilterLabels(new URLSearchParams({status:'todas'}),{}),['Situação: todas, inclusive canceladas']);
+ assert.deepEqual(listFilterLabels(new URLSearchParams({inicio:'2026-10-01',fim:'2026-10-31',tipos:'equipamento'}),{}),[],'período e recursos não são filtros da lista');
 });
