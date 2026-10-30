@@ -91,7 +91,7 @@ BEGIN
       OR ('financeiro' = ANY(capabilities) AND NEW.action LIKE 'Financeiro:%')
       -- Exportações (planilha e relatório da OS): o acesso é conferido pelo servidor; aqui só se registra quem exportou.
       OR (NEW.action LIKE 'Exportação:%' AND NEW.entity_id IS NOT NULL
-          AND ('planejamento' = ANY(capabilities) OR 'acompanhamento' = ANY(capabilities) OR 'operacao' = ANY(capabilities)))
+          AND ('planejamento' = ANY(capabilities) OR 'acompanhamento' = ANY(capabilities) OR 'operacao' = ANY(capabilities) OR 'financeiro' = ANY(capabilities)))
     )) THEN
     RAISE EXCEPTION 'Auditoria sem autorização';
   END IF;

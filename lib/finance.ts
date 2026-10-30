@@ -135,6 +135,24 @@ export async function financePanel(member:Member,url:URL){
  return {period:{from,to},rows:rows.sort((x,y)=>x.tag.localeCompare(y.tag)||x.orgName.localeCompare(y.orgName)),detail,orgs:orgs.filter(o=>rates.some(r=>r.orgId===o.id))};
 }
 
+/** Diárias realizadas para a exportação: por equipamento e cliente com tarifa, as que começam no
+ * período (dias de Brasília; sem datas, todas), no escopo de organizações de quem exporta. */
+export async function dailyRows(f:{start:string|null,end:string|null,org:string|null},scope:string[]|null){
+ const rates=(await ratesOf(db())).map(toRate);
+ const t0=f.start?dayStart(f.start):0,t1=f.end?dayStart(f.end)+DAY:Date.now()+DAY;
+ const pairs=[...new Map(rates.filter(r=>(!f.org||r.orgId===f.org)&&(!scope||scope.includes(r.orgId))).map(r=>[r.equipmentId+'|'+r.orgId,r] as const)).values()];
+ const [equipment,orgs]=await Promise.all([db().all('SELECT id,tag FROM equipment'),db().all('SELECT id,name FROM requester_orgs')]);
+ const out:Row[]=[];
+ for(const p of pairs){
+  const uses=await usesNear(db(),p.equipmentId,p.orgId,t0,t1);
+  const numbers=new Map(uses.map(u=>[u.work_order_id as string,Number(u.number)]));
+  for(const d of dailies(uses.map(toInterval),rates.filter(r=>r.equipmentId===p.equipmentId&&r.orgId===p.orgId),Date.now()).filter(d=>d.start>=t0&&d.start<t1))
+   out.push({tag:equipment.find(e=>e.id===p.equipmentId)?.tag,org_name:orgs.find(o=>o.id===p.orgId)?.name,start:new Date(d.start).toISOString(),end:new Date(d.end).toISOString(),
+    opener:d.openerNumber,orders:d.orderIds.map(o=>numbers.get(o)).filter(Boolean),hours_per_day:d.hoursPerDay,hourly_cents:d.hourlyCents,value_cents:d.valueCents,pending:d.pending});
+ }
+ return out.sort((x,y)=>String(x.start).localeCompare(String(y.start))||String(x.tag).localeCompare(String(y.tag)));
+}
+
 // ---- Comandos ----
 
 /** Diárias que este uso tocaria com o período informado (para pedir confirmação acima de 1). */

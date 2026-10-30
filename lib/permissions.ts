@@ -61,7 +61,7 @@ export function modules(a:Member){
  if(has(a,'financeiro'))list.push(...financeModules);
  if(has(a,'cadastros'))list.push(...registryModules);
  // Exportação: o gestor exporta tudo; quem consulta OS exporta os dados de Operação do seu escopo.
- if(isManager(a)||canSeeOrders(a))list.push('exportacao');
+ if(isManager(a)||canSeeOrders(a)||has(a,'financeiro'))list.push('exportacao');
  return list;
 }
 /** Pode consultar OS lançadas (respeitando o escopo de organizações). */

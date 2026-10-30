@@ -7,6 +7,7 @@ import {mutate} from '../lib/service';
 import {registryMutate} from '../lib/registry';
 import {planningMutate,planDetail} from '../lib/planning';
 import {modules,type Member} from '../lib/permissions';
+import {exportData,allowedSets} from '../lib/exports';
 import {financeMutate,financeRates,orderUses,financePanel} from '../lib/finance';
 import type {Database,Row} from '../lib/db';
 
@@ -197,4 +198,21 @@ test('painel: previsto pelas reservas e realizado pelos usos, no período',async
  assert.equal(det.dailies.length,2);assert.equal(det.pending.length,1);
  await rejects(panel('from=2026-09-12&to=2026-09-11'),400);
  await rejects(financePanel(operator,new URL('http://x/')),403);
+});
+
+// ---- Tarefa 7: exportação ----
+test('exportação: diárias e usos com as colunas e valores; sem acesso Financeiro não aparece',async()=>{
+ const url=(sets:string)=>new URL(`http://x/export?sets=${sets}&format=csv&start=2026-09-10&end=2026-09-12&org=${org}`);
+ const lines=async(sets:string,who:Member=fin)=>(await (await exportData(who,url(sets))).text()).replace(/^\uFEFF/,'').trim().split(/\r?\n/);
+ const d=await lines('recobraveis_diarias');
+ assert.equal(d[0],['Equipamento','Cliente','Início da diária','Fim da diária','OS que abriu','OS atendidas','Horas por diária','Valor por hora (R$)','Valor da diária (R$)','Situação'].map(c=>'"'+c+'"').join(';'));
+ assert.equal(d.length-1,3,'três diárias de 10 a 12/09');
+ assert.ok(d.slice(1).every(l=>l.includes('"EMP-01"')&&l.includes('"Cliente Teste"')&&l.includes(';8;500;4000;')));
+ assert.equal(d.slice(1).filter(l=>l.endsWith('"A conferir"')).length,2);
+ const u=await lines('recobraveis_usos');
+ assert.equal(u[0],['OS','Equipamento','Início','Fim','Duração (h)','Origem do fim','Situação','Registrado por','Conferido por'].map(c=>'"'+c+'"').join(';'));
+ assert.equal(u.length-1,4,'quatro usos de 10 a 12/09');
+ assert.ok(!allowedSets(operator).includes('recobraveis_diarias'));
+ assert.ok(allowedSets(fin).includes('recobraveis_usos'));
+ await rejects(exportData(operator,url('recobraveis_usos')),403);
 });
