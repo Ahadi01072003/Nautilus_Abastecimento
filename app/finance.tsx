@@ -1,8 +1,8 @@
 'use client';
 // Financeiro: tarifas dos equipamentos recobráveis (por cliente, com vigência) e painel de
 // recobráveis. Uma tarifa nunca é alterada: cada mudança é uma nova vigência (lib/finance).
-import {useCallback,useEffect,useMemo,useState,FormEvent} from 'react';
-import {Plus,AlertTriangle,LoaderCircle,Receipt} from 'lucide-react';
+import {Fragment,useCallback,useEffect,useMemo,useState,FormEvent} from 'react';
+import {Plus,AlertTriangle,LoaderCircle,Receipt,CheckCheck} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Skeleton} from '@/components/ui/skeleton';
@@ -49,4 +49,42 @@ export function Rates({refreshKey}:{refreshKey?:number}){
    </form>}
   </DialogContent></Dialog>
  </section>;
+}
+
+/** Painel de recobráveis: previsto (reservas) × realizado (usos) por equipamento e cliente, com as
+ * diárias e os usos a conferir de cada linha. */
+export function RecoverablePanel({refreshKey,onOpenOrder}:{refreshKey?:number,onOpenOrder:(id:string)=>void}){
+ const [query,setQuery]=useState<R>({from:'',to:'',org:''}),[data,setData]=useState<R|null>(null),[error,setError]=useState(''),[open,setOpen]=useState('');
+ const refresh=useCallback(async()=>{const q=new URLSearchParams(Object.entries(query).filter(([,v])=>v) as [string,string][]);
+  try{setData(await load<R>('finance/panel?'+q));setError('')}catch(e){setError((e as Error).message)}},[query]);
+ // eslint-disable-next-line react-hooks/set-state-in-effect -- Dados recebidos do servidor.
+ useEffect(()=>{void refresh()},[refresh,refreshKey]);
+ async function confirmUse(id:string){try{const r=await post('finance/uses/confirm',{id});toast.success(r.message||'Conferido.');await refresh()}catch(e){toast.error((e as Error).message)}}
+ if(error)return <div className="error-panel"><AlertTriangle/><h2>Painel indisponível</h2><p>{error}</p></div>;
+ if(!data)return <Skeleton className="h-64 rounded-xl"/>;
+ const rows=data.rows as R[],sum=(k:string)=>rows.reduce((s,r)=>s+Number(r[k]||0),0);
+ const os=(n:number)=>'OS '+String(n).padStart(6,'0');
+ return <>
+  <section className="n-panel fin-filters"><div className="form-grid">
+   <Field label="De"><Input type="date" value={query.from||data.period.from} onChange={e=>setQuery(q=>({...q,from:e.target.value}))}/></Field>
+   <Field label="Até"><Input type="date" value={query.to||data.period.to} onChange={e=>setQuery(q=>({...q,to:e.target.value}))}/></Field>
+   <Field label="Cliente"><Choice value={query.org||'all'} onChange={v=>setQuery(q=>({...q,org:v==='all'?'':v}))} options={[{value:'all',label:'Todos os clientes com tarifa'},...(data.orgs as R[]).map(o=>({value:o.id,label:o.name}))]}/></Field>
+  </div></section>
+  <div className="fin-cards">
+   <div><span>Receita prevista</span><b>{brl(sum('plannedCents'))}</b><small>{sum('plannedDailies')} diária(s) pelas reservas</small></div>
+   <div><span>Realizado conferido</span><b>{brl(sum('confirmedCents'))}</b><small>{sum('dailies')} diária(s) pelos usos</small></div>
+   <div className={sum('pendingCents')?'warn':''}><span>A conferir</span><b>{brl(sum('pendingCents'))}</b><small>uso com fim automático, aberto ou fora do reservado</small></div>
+  </div>
+  <section className="n-panel"><div className="panel-heading"><div><h2>Por equipamento</h2><p>Período {data.period.from.split('-').reverse().join('/')} a {data.period.to.split('-').reverse().join('/')}. A diária entra no período em que começa. Clique numa linha para ver as diárias e os usos a conferir.</p></div></div>
+   {rows.length?<div className="table-scroll"><table className="eu-table fin-table"><thead><tr><th>Equipamento</th><th>Cliente</th><th>Solicitações</th><th>Programadas</th><th>Horas planejadas</th><th>Diárias previstas</th><th>Receita prevista</th><th>Média por OS</th><th>Diárias realizadas</th><th>Conferido</th><th>A conferir</th></tr></thead><tbody>
+    {rows.map(r=>{const k=r.equipmentId+'|'+r.orgId,det=data.detail[k];return <Fragment key={k}>
+     <tr className={`clickable${open===k?' current':''}`} onClick={()=>setOpen(open===k?'':k)}><td><b>{r.tag}</b></td><td>{r.orgName}</td><td>{r.requests}</td><td>{r.scheduled}</td><td>{r.plannedHours.toLocaleString('pt-BR')} h</td><td>{r.plannedDailies}</td><td>{brl(r.plannedCents)}</td><td>{brl(r.avgPerOrderCents)}</td><td>{r.dailies}</td><td>{brl(r.confirmedCents)}</td><td>{r.pendingCents?<b className="warn-text">{brl(r.pendingCents)}</b>:brl(0)}</td></tr>
+     {open===k&&<tr className="fin-detail"><td colSpan={11}>
+      <h4>Diárias realizadas</h4>{det.dailies.length?<ul>{(det.dailies as R[]).map((d,i)=><li key={i}><span>{fmt(new Date(d.start).toISOString())} → {fmt(new Date(d.end).toISOString())}</span><span>aberta pela {os(d.openerNumber)}{d.orderIds.length>1?` · atende ${d.orderIds.length} OS`:''}</span><b>{brl(d.valueCents)}</b>{d.pending&&<Badge tone="warning">A conferir</Badge>}</li>)}</ul>:<p className="muted-text">Nenhuma diária no período.</p>}
+      <h4>Usos a conferir</h4>{det.pending.length?<ul>{(det.pending as R[]).map(u=><li key={u.id}><span>{os(u.number)} · {fmt(u.started_at)} → {u.ended_at?fmt(u.ended_at):'em uso'}</span>{u.end_source&&u.end_source!=='registrado'&&<Badge tone="warning">Fim automático</Badge>}
+       {u.ended_at&&<Button size="sm" variant="outline" onClick={()=>void confirmUse(u.id)}><CheckCheck size={14}/> Conferir</Button>}<Button size="sm" variant="ghost" onClick={()=>onOpenOrder(u.work_order_id)}>Abrir OS para corrigir</Button></li>)}</ul>:<p className="muted-text">Nada a conferir.</p>}
+     </td></tr>}</Fragment>;})}
+   </tbody></table></div>:<Empty icon={Receipt} title="Nenhum equipamento com tarifa" description="Cadastre as tarifas em Financeiro › Tarifas para acompanhar a receita prevista e realizada."/>}
+  </section>
+ </>;
 }

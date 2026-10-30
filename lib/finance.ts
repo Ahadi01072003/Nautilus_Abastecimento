@@ -85,6 +85,56 @@ export async function orderUses(member:Member,workOrderId:string){
   can:{register:isFinance(a)||(a.capabilities.includes('operacao')&&open),correct:isFinance(a)}};
 }
 
+const localDay=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'});
+const dayStart=(d:string)=>Date.parse(d+'T00:00:00-03:00');
+export type PanelRow={equipmentId:string,tag:string,orgId:string,orgName:string,requests:number,scheduled:number,plannedHours:number,plannedDailies:number,
+ plannedCents:number,avgPerOrderCents:number,dailies:number,confirmedCents:number,pendingCents:number};
+
+/** Painel de recobráveis no período (dias de Brasília; padrão: o mês atual), por equipamento e
+ * cliente com tarifa: previsto pelas reservas confirmadas e realizado pelos usos, ambos pelo mesmo
+ * motor de diárias. A diária entra no período em que começa. */
+export async function financePanel(member:Member,url:URL){
+ const a=await requireAny(member,['financeiro']) as Actor;
+ const today=localDay.format(Date.now());
+ const from=url.searchParams.get('from')?isoDay(url.searchParams.get('from')):today.slice(0,8)+'01';
+ const lastDay=(()=>{const [y,m]=from.split('-').map(Number);return new Date(Date.UTC(y,m,0)).toISOString().slice(0,10);})();
+ const to=url.searchParams.get('to')?isoDay(url.searchParams.get('to')):lastDay;
+ if(to<from)throw new AppError('O fim do período deve ser igual ou depois do início.');
+ const t0=dayStart(from),t1=dayStart(to)+DAY;
+ if(t1-t0>370*DAY)throw new AppError('Escolha um período de até um ano.');
+ const org=url.searchParams.get('org')||null;
+ const [rateRows,equipment,orgs]=await Promise.all([ratesOf(db()),db().all('SELECT id,tag FROM equipment'),db().all('SELECT id,name FROM requester_orgs')]);
+ const rates=rateRows.map(toRate);
+ const pairs=[...new Map(rates.filter(r=>(!org||r.orgId===org)&&inScope(a,r.orgId)).map(r=>[r.equipmentId+'|'+r.orgId,r] as const)).values()];
+ const rows:PanelRow[]=[],detail:Record<string,{dailies:Daily[],pending:Row[]}>={};
+ const iso=(t:number)=>new Date(t).toISOString();
+ for(const p of pairs){
+  const mine=rates.filter(r=>r.equipmentId===p.equipmentId&&r.orgId===p.orgId);
+  const [res,uses]=await Promise.all([
+   db().all(`SELECT r.start_at,r.end_at,r.status,w.id order_id,w.number,w.status order_status,
+     EXISTS (SELECT 1 FROM equipment_uses u WHERE u.work_order_id=w.id AND u.equipment_id=r.equipment_id) used
+    FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id
+    WHERE r.equipment_id=? AND w.org_id=? AND r.start_at::timestamptz < ?::timestamptz AND r.end_at::timestamptz > ?::timestamptz`,p.equipmentId,p.orgId,iso(t1+8*DAY),iso(t0-8*DAY)),
+   usesNear(db(),p.equipmentId,p.orgId,t0,t1),
+  ]);
+  const inPeriod=(x:Row)=>ms(x.start_at)<t1&&ms(x.end_at)>t0;
+  const requested=res.filter(x=>inPeriod(x)&&(x.order_status!=='cancelada'||x.used));
+  const orders=new Map(requested.map(x=>[x.order_id as string,x.order_status as string]));
+  const planned=res.filter(x=>x.status==='confirmada'&&x.order_status!=='cancelada');
+  const plannedHours=planned.filter(inPeriod).reduce((h,x)=>h+(Math.min(ms(x.end_at),t1)-Math.max(ms(x.start_at),t0))/H,0);
+  const plan=dailies(planned.map((x,i)=>({id:'r'+i,orderId:x.order_id,orderNumber:Number(x.number),equipmentId:p.equipmentId,orgId:p.orgId,start:ms(x.start_at),end:ms(x.end_at),pending:false})),mine,Date.now())
+   .filter(d=>d.start>=t0&&d.start<t1);
+  const real=dailies(uses.map(toInterval),mine,Date.now()).filter(d=>d.start>=t0&&d.start<t1);
+  const plannedCents=plan.reduce((s,d)=>s+d.valueCents,0);
+  rows.push({equipmentId:p.equipmentId,tag:equipment.find(e=>e.id===p.equipmentId)?.tag||'',orgId:p.orgId,orgName:orgs.find(o=>o.id===p.orgId)?.name||'',
+   requests:orders.size,scheduled:[...orders.values()].filter(s=>s==='programada').length,plannedHours:Math.round(plannedHours*10)/10,
+   plannedDailies:plan.length,plannedCents,avgPerOrderCents:orders.size?Math.round(plannedCents/orders.size):0,
+   dailies:real.length,confirmedCents:real.filter(d=>!d.pending).reduce((s,d)=>s+d.valueCents,0),pendingCents:real.filter(d=>d.pending).reduce((s,d)=>s+d.valueCents,0)});
+  detail[p.equipmentId+'|'+p.orgId]={dailies:real,pending:uses.filter(u=>(u.review==='a_conferir'||!u.ended_at)&&ms(u.started_at)>=t0&&ms(u.started_at)<t1)};
+ }
+ return {period:{from,to},rows:rows.sort((x,y)=>x.tag.localeCompare(y.tag)||x.orgName.localeCompare(y.orgName)),detail,orgs:orgs.filter(o=>rates.some(r=>r.orgId===o.id))};
+}
+
 // ---- Comandos ----
 
 /** Diárias que este uso tocaria com o período informado (para pedir confirmação acima de 1). */

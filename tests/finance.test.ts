@@ -7,7 +7,7 @@ import {mutate} from '../lib/service';
 import {registryMutate} from '../lib/registry';
 import {planningMutate,planDetail} from '../lib/planning';
 import {modules,type Member} from '../lib/permissions';
-import {financeMutate,financeRates,orderUses} from '../lib/finance';
+import {financeMutate,financeRates,orderUses,financePanel} from '../lib/finance';
 import type {Database,Row} from '../lib/db';
 
 let ctx:Awaited<ReturnType<typeof freshDatabase>>,db:Database;
@@ -170,4 +170,31 @@ test('correção: exige motivo, audita antes/depois, não cria sobreposição; c
 test('datas: futuro e antes de 2020 recusados',async()=>{
  await rejects(fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq1',startedAt:iso(Date.now()+2*H)},operator),400,/futuro/);
  await rejects(fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq1',startedAt:'2019-06-01T12:00:00Z'},fin),400,/2020/);
+});
+
+// ---- Tarefa 6: painel ----
+test('painel: previsto pelas reservas e realizado pelos usos, no período',async()=>{
+ const L=(d:string,h:string)=>new Date(`${d}T${h}:00-03:00`).toISOString();
+ // OS programada em 10/09 (08–18) e OS concluída de 11/09 08:00 a 12/09 12:00, ambas com a eq1.
+ const P=await launchFree(org,L('2026-09-10','08:00'),L('2026-09-10','18:00'),['eq1']);
+ const C=await launchFree(org,L('2026-09-11','08:00'),L('2026-09-12','12:00'),['eq1']);
+ await db.run("UPDATE work_orders SET status='concluida' WHERE id=?",C);
+ const reg=(wo:string,a:string,b:string)=>fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq1',startedAt:a,endedAt:b,confirm:true},fin);
+ await reg(P,L('2026-09-10','22:00'),L('2026-09-11','01:00')); // fora do reservado: a conferir; diária começa em 10/09
+ await reg(C,L('2026-09-11','08:00'),L('2026-09-11','10:00')); // dentro: conferida
+ await reg(C,L('2026-09-12','09:00'),L('2026-09-12','10:00'));
+ await reg(C,L('2026-09-12','11:00'),L('2026-09-12','13:00')); // passa 60 min do reservado: a conferir
+ const panel=(q:string)=>financePanel(fin,new URL('http://x/?'+q));
+ const all=(await panel(`from=2026-09-10&to=2026-09-12&org=${org}`)).rows.find(r=>r.equipmentId==='eq1')!;
+ assert.deepEqual([all.requests,all.scheduled,all.plannedHours],[2,1,38]);
+ // Reservas: 10/09 08–18 (2 diárias) + 11/09 08:00 a 12/09 12:00 (4 diárias).
+ assert.deepEqual([all.plannedDailies,all.plannedCents,all.avgPerOrderCents],[6,2400000,1200000]);
+ assert.deepEqual([all.dailies,all.confirmedCents,all.pendingCents],[3,400000,800000]);
+ // Período só com 11 e 12/09: a OS de 10/09 e a diária que começou em 10/09 ficam de fora.
+ const part=(await panel(`from=2026-09-11&to=2026-09-12&org=${org}`)).rows.find(r=>r.equipmentId==='eq1')!;
+ assert.deepEqual([part.requests,part.scheduled,part.dailies,part.confirmedCents,part.pendingCents],[1,0,2,400000,400000]);
+ const det=(await panel(`from=2026-09-11&to=2026-09-12&org=${org}`)).detail[`eq1|${org}`];
+ assert.equal(det.dailies.length,2);assert.equal(det.pending.length,1);
+ await rejects(panel('from=2026-09-12&to=2026-09-11'),400);
+ await rejects(financePanel(operator,new URL('http://x/')),403);
 });

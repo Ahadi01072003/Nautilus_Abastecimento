@@ -11,7 +11,7 @@ import {centralState} from '@/lib/central';
 import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
 import {planningState,planningMutate,planDetail,availability,validateDraft,ordersList,ordersRefs,ordersSteps,ordersResources} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
-import {financeRates,orderUses,financeMutate} from '@/lib/finance';
+import {financeRates,orderUses,financeMutate,financePanel} from '@/lib/finance';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
@@ -105,6 +105,7 @@ export async function GET(req:Request){try{
  if(path==='tv'){await rateLimit(member.id,'read');return json(await tvData(member,url));}
  if(path==='condition'){await rateLimit(member.id,'read');return json(await conditionState(member));}
  if(path==='finance/rates'){await rateLimit(member.id,'read');return json(await financeRates(member));}
+ if(path==='finance/panel'){await rateLimit(member.id,'read');return json(await financePanel(member,url));}
  if(path==='finance/order-uses'){await rateLimit(member.id,'read');return json(await orderUses(member,url.searchParams.get('os')||''));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
