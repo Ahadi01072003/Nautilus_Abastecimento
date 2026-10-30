@@ -1,10 +1,10 @@
 // Agenda de recursos para imprimir ou salvar em PDF (A4 paisagem). Uma linha por recurso
 // (equipamento, função ou material) e as datas do período no eixo horizontal; cada alocação com a
 // OS, o horário e a quantidade. Mesma regra da tela (lib/resource-agenda): tipos e recursos
-// escolhidos, barra com largura mínima e faixas pela extensão visível (nada se sobrepõe). Depois do
+// escolhidos, barra no período exato com o texto ao lado quando não cabe e faixas pelo que é desenhado (nada se sobrepõe). Depois do
 // cronograma, o detalhe de cada alocação em tabela (no papel não há "passar o mouse").
 import type {Metadata} from 'next';
-import type {CSSProperties} from 'react';
+import {Fragment,type CSSProperties} from 'react';
 import {cookies} from 'next/headers';
 import {redirect} from 'next/navigation';
 import {SESSION_COOKIE,sessionMember} from '@/lib/auth';
@@ -86,13 +86,18 @@ body{font:9pt/1.35 var(--f-body);margin:0}
 .grp{display:flex;align-items:center;gap:2mm;padding:0 3mm;background:#e8eeec;border-bottom:.3mm solid #c7d0ce;font:800 7.4pt/1 var(--f-body);flex:none}
 .grp small{font:600 6.2pt/1 var(--f-mono);color:#087f77}
 .bar{position:absolute;height:${LANE-1.2}mm;box-sizing:border-box;border:.3mm solid var(--c);border-left:1.2mm solid var(--c);border-radius:.8mm;padding:.5mm 1.2mm;overflow:hidden;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:.2mm;white-space:nowrap;
- background:linear-gradient(90deg,color-mix(in srgb,var(--c) 24%,#fff) 0 var(--real),transparent var(--real)),repeating-linear-gradient(135deg,#fff 0 .8mm,color-mix(in srgb,var(--c) 10%,#fff) .8mm 1.6mm)}
+ background:color-mix(in srgb,var(--c) 24%,#fff)}
+.bar.thin{border:0;border-radius:.3mm;background:var(--c);padding:0}
+.tag{position:absolute;height:${LANE-1.2}mm;box-sizing:border-box;padding:0 1mm;overflow:hidden;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:.2mm;white-space:nowrap}
+.tag.right{border-left:.4mm dotted var(--c)}.tag.left{border-right:.4mm dotted var(--c);align-items:flex-end;text-align:right}
+.tag b{font:700 6.2pt/1 var(--f-mono);color:#0b1d25}.tag b em{font-style:normal;font-weight:600;margin-left:1mm;color:#33474e}
+.tag i{font:500 5.6pt/1 var(--f-mono);font-style:normal;color:#33474e;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .bar b{font:700 6.2pt/1 var(--f-mono);color:#0b1d25}.bar b em{font-style:normal;font-weight:600;margin-left:1mm;color:#33474e}
 .bar i{font:500 5.6pt/1 var(--f-mono);font-style:normal;color:#33474e;overflow:hidden;text-overflow:ellipsis}
 .empty{margin:auto;color:#4b5f66;font-size:10pt}
 .legend{display:flex;flex-wrap:wrap;gap:4mm;font-size:6.8pt;color:#4b5f66;align-items:center}
 .legend i{display:inline-block;width:6mm;height:2.6mm;margin-right:1.2mm;vertical-align:-.4mm;border:.3mm solid #087f77;border-left:1.2mm solid #087f77;background:color-mix(in srgb,#087f77 22%,#fff)}
-.legend i.m{background:repeating-linear-gradient(135deg,#fff 0 .8mm,color-mix(in srgb,#087f77 9%,#fff) .8mm 1.6mm)}
+.legend i.m{width:3mm;border:0;border-right:.4mm dotted #087f77;background:linear-gradient(90deg,#087f77 0 1mm,transparent 1mm)}
 .legend i.f{border-color:#4f5fe0;background:color-mix(in srgb,#4f5fe0 22%,#fff)}.legend i.t{border-color:#c25e00;background:color-mix(in srgb,#c25e00 22%,#fff)}
 .foot{display:flex;justify-content:space-between;gap:4mm;font:500 6.6pt/1.2 var(--f-mono);letter-spacing:.06em;color:#6c7c82;margin-top:auto}
 .dtab{border:.3mm solid #9fb0ad;display:flex;flex-direction:column}
@@ -126,8 +131,8 @@ export default async function ResourceAgendaPdf({searchParams}:{searchParams:Sea
  await db().tx(tx=>audit(tx,member,'Exportação: agenda de recursos',`agenda-recursos:${one(s.inicio)}:${one(s.fim)}`,{from:one(s.inicio),to:one(s.fim),kinds:r.kinds,resources:r.picked.length,allocations:allocCount}));
  const t0=Date.parse(r.period.from),t1=Date.parse(r.period.to),days=r.period.days,span=t1-t0;
  const mm=(t:number)=>(t-t0)/span*TIME_W;
- // Faixas em milímetros, com a largura mínima da barra (recortada ao período).
- for(const x of rows)x.lanes=packLanes(x.items,t=>mm(Math.max(t0,Math.min(t1,t))),MIN_W,GAP);
+ // Faixas em milímetros: barra no período exato (recortada ao período) e texto ao lado quando não cabe.
+ for(const x of rows)x.lanes=packLanes(x.items,t=>mm(Math.max(t0,Math.min(t1,t))),MIN_W,GAP,TIME_W,0);
 
  // Paginação pela altura real de cada linha; recurso com muitas faixas continua na folha seguinte.
  const pages:Piece[][]=[];let cur:Piece[]=[],used=0;
@@ -209,15 +214,15 @@ export default async function ResourceAgendaPdf({searchParams}:{searchParams:Sea
       <div className="rinfo"><b>{g.label}{x.cont?' (cont.)':''}</b><span>{g.sub}</span><small>{g.orders} OS · {g.kind==='material'?`${num(g.total||0,3)} ${g.unit}`:`${num(g.hours)} h`}</small></div>
       <div className="rtime" style={{['--grid' as string]:grid} as CSSProperties}>
        {weekend.map(d=><i key={d} className="we" style={{left:`${(d-t0)/span*100}%`,width:`${100/days}%`}}/>)}
-       {items.map((it,j)=>{const a=Math.max(t0,it.a),b=Math.min(t1,it.b),l=mm(a),real=Math.max(.6,mm(b)-l),w=Math.min(Math.max(real,MIN_W),TIME_W-l);
-        const left=Math.min(l,TIME_W-MIN_W);
-        return <div key={j} className="bar" style={{left:`${left}mm`,width:`${Math.max(w,MIN_W)}mm`,top:`${(it.lane-x.lanes[0])*LANE+ROW_PAD/2+.6}mm`,['--real' as string]:`${Math.min(100,real/Math.max(w,MIN_W)*100)}%`} as CSSProperties}>
-         <b>{it.a<t0?'◂ ':''}OS {os(it.number)}{what(g,it)&&<em>{what(g,it)}</em>}</b><i>{when(it.a,it.b)}{it.b>t1?' ▸':''}</i></div>;})}
+       {items.map((it,j)=>{const a=Math.max(t0,it.a),b=Math.min(t1,it.b),l=mm(a),r=mm(b),w=Math.max(.6,r-l),top=`${(it.lane-x.lanes[0])*LANE+ROW_PAD/2+.6}mm`;
+        const text=<><b>{it.a<t0?'◂ ':''}OS {os(it.number)}{what(g,it)&&<em>{what(g,it)}</em>}</b><i>{when(it.a,it.b)}{it.b>t1?' ▸':''}</i></>;
+        return <Fragment key={j}><div className={`bar${w<2.4?' thin':''}`} style={{left:`${l}mm`,width:`${w}mm`,top}}>{it.side==='in'&&text}</div>
+         {it.side!=='in'&&<div className={`tag ${it.side}`} style={{left:`${it.side==='right'?r+GAP:l-GAP-MIN_W}mm`,width:`${MIN_W}mm`,top}}>{text}</div>}</Fragment>;})}
       </div>
      </div>;})())}
     {!rows.length&&<p className="empty">Nenhuma alocação dos recursos escolhidos entre {range}.</p>}
    </div>
-   <div className="legend"><span><i/>Período reservado ou da etapa</span><span><i className="m"/>Extensão mínima para leitura (alocação curta)</span><span><i/>Equipamento</span><span><i className="f"/>Função (pessoas)</span><span><i className="t"/>Material</span><span>◂ ▸ começa ou termina fora do período · detalhe na folha {pages.length+1}</span></div>
+   <div className="legend"><span><i/>Período exato, reservado ou da etapa</span><span><i className="m"/>Alocação curta: texto ao lado da barra</span><span><i/>Equipamento</span><span><i className="f"/>Função (pessoas)</span><span><i className="t"/>Material</span><span>◂ ▸ começa ou termina fora do período · detalhe na folha {pages.length+1}</span></div>
    <div className="foot"><span>Folha {p+1} de {sheets} · {rows.length} recurso(s) · {allocCount} alocação(ões)</span><span>Horários de Brasília · NAUTILUS</span></div>
   </section>)}
   {detail.map((list,q)=><section key={'d'+q} className="page">

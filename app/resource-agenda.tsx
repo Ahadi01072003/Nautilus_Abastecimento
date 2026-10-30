@@ -4,8 +4,8 @@
 // alocação com a OS, o horário e a quantidade. Navegação igual à do Gantt de atividades: roda do
 // mouse aproxima/afasta mantendo a data sob o cursor, arrastar o fundo move o período, setas e + −
 // no teclado, Ano/Mês/Dia, Hoje e Ajustar ao período. O período escolhido fica guardado na sessão
-// (nada puxa a tela de volta para hoje). Barra com largura mínima e faixas pela extensão visível:
-// alocações curtas e próximas continuam legíveis e nunca se sobrepõem (lib/resource-agenda).
+// (nada puxa a tela de volta para hoje). Barra sempre no período exato; texto que não cabe vai numa
+// etiqueta ao lado e as faixas contam com ela: nada se sobrepõe (lib/resource-agenda).
 import {Fragment,useCallback,useEffect,useMemo,useRef,useState,type KeyboardEvent,type PointerEvent as RPointerEvent} from 'react';
 import {Truck,Users,Package,AlertTriangle,FileDown,ZoomIn,ZoomOut,CalendarCheck,Maximize2} from 'lucide-react';
 import {Skeleton} from '@/components/ui/skeleton';
@@ -24,7 +24,7 @@ const hm=new Intl.DateTimeFormat('pt-BR',{timeZone:TZ,hour:'2-digit',minute:'2-d
 const os=(n:number)=>String(n).padStart(6,'0');
 const qty=(n:number)=>n.toLocaleString('pt-BR',{maximumFractionDigits:3});
 const STORE='nautilus.orders.resources',VIEW='nautilus.resources.view',WHEEL='nautilus.gantt.wheel';
-/** Barra nunca menor que MIN px; as faixas usam essa largura. Alturas fixas para alinhar as colunas. */
+/** Largura do texto (dentro da barra ou na etiqueta ao lado). Alturas fixas para alinhar as colunas. */
 const MIN=140,GAP=8,LANE=62,GROUP_H=30;
 const rowH=(lanes:number)=>Math.max(64,lanes*LANE+12);
 const when=(a:number,b:number)=>dm.format(a)===dm.format(b)?`${dm.format(a)} ${hm.format(a)}–${hm.format(b)}`:`${dm.format(a)} ${hm.format(a)} → ${dm.format(b)} ${hm.format(b)}`;
@@ -70,7 +70,7 @@ export default function ResourceAgenda({query,orderIds,exportParams,period}:{que
  const all=useMemo(()=>{const shown=new Set(idKey.split(','));return ((data?.allocations||[]) as Alloc[]).filter(a=>shown.has(a.orderId));},[data,idKey]);
  const chosen=useMemo(()=>{const ok=new Set(resourceOptions(all,kinds).map(o=>o.value));return picked.filter(p=>ok.has(p));},[all,kinds,picked]);
  const x=useCallback((t:number)=>(t-view.start)/view.span*width,[view,width]);
- const rows=useMemo(()=>{const r=resourceRows(all,kinds,chosen);for(const g of r)g.lanes=packLanes(g.items,x,MIN,GAP);return r;},[all,kinds,chosen,x]);
+ const rows=useMemo(()=>{const r=resourceRows(all,kinds,chosen);for(const g of r)g.lanes=packLanes(g.items,x,MIN,GAP,width,0);return r;},[all,kinds,chosen,x,width]);
 
  // Navegação igual à do Gantt.
  const area=useRef<HTMLDivElement>(null),drag=useRef<{x:number,start:number}|null>(null);
@@ -120,24 +120,25 @@ export default function ResourceAgenda({query,orderIds,exportParams,period}:{que
      {scale.ticks.map(t=><i key={t.t} className={`g-line ${t.major?'major':''}`} style={{left:x(t.t)}}/>)}
      {now>view.start&&now<end&&<i className="g-now" style={{left:x(now)}} title="Agora"/>}
      {rows.map((g,i)=>{
-      const shown=g.items.filter(it=>{const l=x(it.a);return l<width&&Math.max(l+MIN,x(it.b))>0;});
+      const shown=g.items.filter(it=>x(it.a)<width&&x(it.b)>0);
       const before=g.items.filter(it=>it.b<=view.start).at(-1),after=g.items.find(it=>it.a>=end);
       return <Fragment key={g.id}>{group(g,i)&&<div className="ra-gspace" style={{height:GROUP_H}} aria-hidden/>}
       <div className={`ra-track k-${g.kind}`} style={{height:rowH(g.lanes)}}>
-       {shown.map((it,j)=>{const l=x(it.a),real=Math.max(2,x(it.b)-l),w=Math.max(real,MIN);
+       {shown.map((it,j)=>{const l=x(it.a),r=x(it.b),cut=l<0,left=Math.max(0,l),w=Math.max(2,r-left),top=it.lane*LANE+6;
         const what=g.kind==='equipamento'?'':g.kind==='funcao'?`${qty(it.quantity)}×`:`${qty(it.quantity)} ${it.unit}`;
         const tip=`OS ${os(it.number)} · ${it.activity}${it.step?`\nEtapa: ${it.step}`:''}\n${fmt(it.start)} → ${fmt(it.end)} (${dur(it.a,it.b)})${what?`\nQuantidade: ${what}`:''}`;
-        // Barra que começa antes do período visível: recortada na borda esquerda, com o texto à vista.
-        const cut=l<0,left=cut?0:l,vis=cut?w+l:w;
-        return <span key={j} className={`ra-bar${cut?' cut':''}`} title={tip} style={{left,width:vis,top:it.lane*LANE+6,['--real' as string]:`${Math.max(0,cut?real+l:real)}px`}}>
-         <b>OS {os(it.number)}{what&&<em>{what}</em>}</b><i>{when(it.a,it.b)}</i>{it.step&&<small>{it.step}</small>}</span>;})}
+        const text=<><b>OS {os(it.number)}{what&&<em>{what}</em>}</b><i>{when(it.a,it.b)}</i>{it.step&&<small>{it.step}</small>}</>;
+        // A barra ocupa só o período real (começo e fim exatos no calendário); barra que começa antes
+        // do período visível é recortada na borda esquerda. Texto que não cabe vai na etiqueta ao lado.
+        return <Fragment key={j}><span className={`ra-bar${cut?' cut':''}${w<14?' thin':''}`} title={tip} style={{left,width:w,top}}>{it.side==='in'&&text}</span>
+         {it.side!=='in'&&<span className={`ra-tag ${it.side}`} title={tip} style={{left:it.side==='right'?r+GAP:left-GAP-MIN,width:MIN,top}}>{text}</span>}</Fragment>;})}
        {!shown.length&&before&&<button type="button" className="ra-off left" onClick={()=>center(before.a)} title="Ir para a alocação anterior">◂ {dm.format(before.a)}</button>}
        {!shown.length&&after&&<button type="button" className="ra-off right" onClick={()=>center(after.a)} title="Ir para a próxima alocação">{dm.format(after.a)} ▸</button>}
       </div></Fragment>;})}
     </div>
    </div>
   </div></div></>}
-  <div className="ra-legend"><span><i className="lg-real"/>Período real da alocação</span><span><i className="lg-min"/>Extensão mínima para leitura (alocação curta)</span><span><i className="lg-now"/>Agora</span><span>Equipamentos: período reservado. Funções e materiais: período da etapa que os pede. Alocações que se encostam ficam em faixas separadas. Passe o mouse numa barra para ver todos os detalhes.</span></div>
+  <div className="ra-legend"><span><i className="lg-real"/>Período exato da alocação</span><span><i className="lg-tag"/>Alocação curta: texto ao lado da barra</span><span><i className="lg-now"/>Agora</span><span>Equipamentos: período reservado. Funções e materiais: período da etapa que os pede. Alocações que se encostam ficam em faixas separadas. Passe o mouse numa barra para ver todos os detalhes.</span></div>
   {exporting&&<ResourceExportDialog allocs={all} initial={{kinds,picked:chosen,period:period.from||period.to?period:{from:isoDay(view.start),to:isoDay(end-1)}}} base={exportParams} onClose={()=>setExporting(false)}/>}
  </div>;
 }
