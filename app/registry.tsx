@@ -18,7 +18,7 @@ import Condition from './condition';
 const roles:Record<string,string>={fueler:'Abastecedor',planner:'Planejador',operator:'Operador',maintainer:'Mantenedor',manager:'Gestão'};
 /** Módulo principal de cada perfil (não aparece de novo nos acessos adicionais). */
 const profileModule:Record<string,string>={fueler:'abastecimento',planner:'planejamento',operator:'operacao',maintainer:'manutencao'};
-const capabilityNames:Record<string,string>={abastecimento:'Abastecimento',planejamento:'Planejamento',operacao:'Operação',manutencao:'Manutenção',cadastros:'Cadastros gerais',acompanhamento:'Acompanhamento de OS (consulta)'};
+const capabilityNames:Record<string,string>={abastecimento:'Abastecimento',planejamento:'Planejamento',operacao:'Operação',manutencao:'Manutenção',cadastros:'Cadastros gerais',financeiro:'Financeiro',acompanhamento:'Acompanhamento de OS (consulta)'};
 const kindNames:Record<string,string>={unidade:'Unidade',area:'Área',local:'Local'};
 const categoryKinds:[string,string,string][]=[['ocorrencia','Ocorrências','Evento ou observação durante a atividade, sem interrupção necessária.'],['impacto','Impactos','Consequência sobre prazo, produtividade, recurso, qualidade ou execução. Não pressupõe parada.'],['bloqueio','Bloqueios','Impedimento que interrompe ou impede a execução de uma etapa.']];
 export const moments:Record<string,string>={pre_atividade:'Pré-atividade',pre_uso:'Pré-uso de equipamento',durante:'Durante a atividade',pos_atividade:'Pós-atividade / encerramento'};

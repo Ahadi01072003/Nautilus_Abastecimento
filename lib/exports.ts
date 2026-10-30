@@ -2,8 +2,9 @@
 // organizações), em Excel (.xlsx, uma aba por conjunto) ou CSV (.zip quando há mais de um conjunto).
 // Os nomes de tabela e colunas vêm só das definições abaixo; filtros entram como parâmetros.
 import {db,type Row} from './db';
+import {dailyRows} from './finance';
 import {AppError,isoDay} from './domain';
-import {type Member,isManager,canSeeOrders,loadAccess} from './permissions';
+import {type Member,isManager,canSeeOrders,loadAccess,has} from './permissions';
 import {osNumber} from './planning';
 import {audit} from './registry';
 import {xlsx,csv,zip,type Sheet,type Cell} from './files';
@@ -25,9 +26,11 @@ const hours=(seconds:unknown)=>Math.round(Number(seconds||0)/360)/10;
 
 type Filters={start:string|null;end:string|null;fuel:string|null;org:string|null};
 type Scope={orgs:string[]|null};
-type Def={label:string;group:'abastecimento'|'operacao';
+type Def={label:string;group:'abastecimento'|'operacao'|'financeiro';columns:string[];map:(r:Row)=>Cell[];
  /** FROM/JOIN + WHERE fixo; os filtros são acrescentados por where(). */
- from:string;order:string;select:string;where:(f:Filters,s:Scope)=>[string[],unknown[]];columns:string[];map:(r:Row)=>Cell[]};
+ from?:string;order?:string;select?:string;where?:(f:Filters,s:Scope)=>[string[],unknown[]];
+ /** Conjunto calculado (sem SQL direto): usado no lugar de from/select. */
+ load?:(f:Filters,s:Scope)=>Promise<Row[]>};
 
 const range=(col:string,f:Filters):[string[],unknown[]]=>{const w:string[]=[],v:unknown[]=[];
  if(f.start){w.push(`${col}::timestamptz>=?`);v.push(new Date(f.start+'T00:00:00-03:00').toISOString());}
@@ -90,6 +93,19 @@ export const DATASETS:Record<string,Def>={
   where:(f,v)=>{const [w,x]=osWhere(f,v);return [[...w,"w.status<>'cancelada'"],x];},
   columns:['OS','Data','Atividade','Etapa','Tipo de equipamento','TAG do equipamento','Horas planejadas'],
   map:r=>[osNumber(r.number),day(r.start_at),r.activity_name,r.free?null:r.step_name,r.type_name,r.tag,hours(r.planned_s)]},
+ recobraveis_diarias:{label:'Recobráveis: diárias',group:'financeiro',
+  load:(f,s)=>dailyRows({start:f.start,end:f.end,org:f.org},s.orgs),
+  columns:['Equipamento','Cliente','Início da diária','Fim da diária','OS que abriu','OS atendidas','Horas por diária','Valor por hora (R$)','Valor da diária (R$)','Situação'],
+  map:r=>[r.tag,r.org_name,d(r.start),d(r.end),osNumber(r.opener),(r.orders as number[]).map(osNumber).join(', '),r.hours_per_day,r.hourly_cents/100,r.value_cents/100,r.pending?'A conferir':'Conferida']},
+ recobraveis_usos:{label:'Recobráveis: usos',group:'financeiro',
+  from:`FROM equipment_uses u JOIN work_orders w ON w.id=u.work_order_id JOIN equipment e ON e.id=u.equipment_id`,
+  order:'u.started_at::timestamptz,e.tag',
+  select:`w.number,e.tag,u.started_at,u.ended_at,u.end_source,u.review,u.started_by_name,u.reviewed_by_name,
+   extract(epoch FROM (coalesce(u.ended_at::timestamptz,now())-u.started_at::timestamptz))::float8 used_s`,
+  where:(f,s)=>{const [w,v]=range('u.started_at',f);if(s.orgs){w.push('w.org_id = ANY(?::text[])');v.push(s.orgs);}if(f.org){w.push('w.org_id=?');v.push(f.org);}return [w,v];},
+  columns:['OS','Equipamento','Início','Fim','Duração (h)','Origem do fim','Situação','Registrado por','Conferido por'],
+  map:r=>[osNumber(r.number),r.tag,d(r.started_at),d(r.ended_at),hours(r.used_s),r.ended_at?({registrado:'Registrado',etapa:'Fim automático (etapa)',cancelamento:'Fim automático (cancelamento)'} as Record<string,string>)[r.end_source]:'Em uso',
+   ({normal:'Normal',a_conferir:'A conferir',conferido:'Conferido'} as Record<string,string>)[r.review],r.started_by_name,r.reviewed_by_name]},
  checklists:{label:'Checklists',group:'operacao',from:`FROM checklist_instances i JOIN checklist_versions v ON v.id=i.version_id JOIN checklist_templates ct ON ct.id=v.template_id ${OS_JOIN}i.work_order_id LEFT JOIN equipment eq ON eq.id=i.equipment_id`,order:'w.number,i.created_at',
   select:`i.*,v.title,v.version,v.moment,ct.code,eq.tag equipment_tag,w.number,(SELECT count(*) FROM checklist_answers a WHERE a.instance_id=i.id)::int answers,(SELECT count(*) FROM checklist_answers a WHERE a.instance_id=i.id AND a.answer='NC')::int nc`,
   where:osWhere,columns:['OS','Checklist','Versão','Momento','Equipamento','Situação','Respostas','NC','Iniciado por','Iniciado em','Concluído por','Concluído em','ID da OS'],
@@ -97,7 +113,7 @@ export const DATASETS:Record<string,Def>={
 };
 
 /** Conjuntos que o usuário pode exportar (o servidor confere de novo a cada pedido). */
-export function allowedSets(a:Member){return Object.entries(DATASETS).filter(([,def])=>def.group==='abastecimento'?isManager(a):isManager(a)||canSeeOrders(a)).map(([k])=>k);}
+export function allowedSets(a:Member){return Object.entries(DATASETS).filter(([,def])=>def.group==='abastecimento'?isManager(a):def.group==='financeiro'?isManager(a)||has(a,'financeiro'):isManager(a)||canSeeOrders(a)).map(([k])=>k);}
 
 async function prepare(member:Member,url:URL){
  const a=await loadAccess(member);
@@ -115,13 +131,15 @@ async function prepare(member:Member,url:URL){
  if(f.org&&scope.orgs&&!scope.orgs.includes(f.org))throw new AppError('Organização fora do seu acesso.',403);
  return {a,sets,f,scope};
 }
-const clause=(def:Def,f:Filters,s:Scope)=>{const [w,v]=def.where(f,s);return {sql:w.length?' WHERE '+w.join(' AND '):'',values:v};};
+const clause=(def:Def,f:Filters,s:Scope)=>{const [w,v]=def.where!(f,s);return {sql:w.length?' WHERE '+w.join(' AND '):'',values:v};};
+/** Quantidade de linhas do conjunto (calculado ou SQL). */
+const countOf=async(def:Def,f:Filters,s:Scope)=>{if(def.load)return (await def.load(f,s)).length;const c=clause(def,f,s);return Number((await db().first(`SELECT count(*)::int n ${def.from}${c.sql}`,...c.values))?.n||0);};
 
 /** Prévia: só contagens, para conferir antes de gerar o arquivo. */
 export async function exportPreview(member:Member,url:URL){
  const {sets,f,scope}=await prepare(member,url);
  const counts:Record<string,number>={};
- for(const k of sets){const def=DATASETS[k],c=clause(def,f,scope);counts[k]=Number((await db().first(`SELECT count(*)::int n ${def.from}${c.sql}`,...c.values))?.n||0);}
+ for(const k of sets)counts[k]=await countOf(DATASETS[k],f,scope);
  return {counts,limit:LIMIT,total:TOTAL};
 }
 
@@ -143,11 +161,13 @@ export async function exportData(member:Member,url:URL){
  const format=legacy?'csv':url.searchParams.get('format')==='csv'?'csv':'xlsx';
  const sheets:Sheet[]=[];let sum=0;
  for(const k of sets){
-  const def=DATASETS[k],c=clause(def,f,scope);
-  const total=Number((await db().first(`SELECT count(*)::int n ${def.from}${c.sql}`,...c.values))?.n||0);
+  const def=DATASETS[k];
+  const loaded=def.load?await def.load(f,scope):null;
+  const total=loaded?loaded.length:await countOf(def,f,scope);
   if(total>LIMIT)throw new AppError(`${def.label}: ${total.toLocaleString('pt-BR')} registros. Escolha um período menor (limite de ${LIMIT.toLocaleString('pt-BR')} por conjunto).`,413);
   sum+=total;if(sum>TOTAL)throw new AppError(`Arquivo grande demais: mais de ${TOTAL.toLocaleString('pt-BR')} linhas somando os conjuntos. Escolha um período menor ou menos conjuntos.`,413);
-  const rows=await db().all(`SELECT ${def.select} ${def.from}${c.sql} ORDER BY ${def.order} LIMIT ${LIMIT}`,...c.values);
+  const c=loaded?null:clause(def,f,scope);
+  const rows=loaded||await db().all(`SELECT ${def.select} ${def.from}${c!.sql} ORDER BY ${def.order} LIMIT ${LIMIT}`,...c!.values);
   if(k==='os'){const eff=await effective(rows.map(r=>r.id));for(const r of rows)r.effective_s=eff.get(r.id)||0;}
   sheets.push({name:def.label,columns:def.columns,rows:rows.map(def.map),total});
  }

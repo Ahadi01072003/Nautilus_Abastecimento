@@ -11,6 +11,7 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
+import EquipmentUses from './equipment-uses';
 import {Choice,Badge,Empty,Field,OrgTag,fmt,post,load,fromLocalInput,Period,type R} from './kit';
 import {osLabel} from './planning';
 import OsRuler,{effective} from './os-ruler';
@@ -113,6 +114,7 @@ export default function OrderExecution({orderId,onChanged}:{orderId:string,onCha
     </div>
    </section>}
 
+  <EquipmentUses orderId={orderId} refreshKey={Date.parse(data.serverNow)} onChanged={()=>void refresh()}/>
   <Tabs defaultValue="notes"><TabsList className="n-tabs"><TabsTrigger value="notes">Apontamentos{sel?` · ${sel.plan.name}`:''}</TabsTrigger><TabsTrigger value="checklists">Checklists</TabsTrigger><TabsTrigger value="history">Histórico</TabsTrigger></TabsList>
    <TabsContent value="notes"><section className="n-panel">{occ.length?<ul className="occ-list">{occ.map(o=><li key={o.id} className={o.blocking&&o.status==='aberto'?'open':''}><div><Badge tone={o.kind==='bloqueio'?'danger':o.kind==='impacto'?'warning':'info'}>{kindNames[o.kind]}{o.kind==='impacto'&&o.blocking?' com bloqueio':''}</Badge>{openImpact(o)&&<Badge tone="warning">Em aberto</Badge>}{o.category_name&&<Badge>{o.category_name}</Badge>}{o.late?<Badge tone="warning">Registro tardio</Badge>:null}{o.impediment_id&&<Badge tone="danger">NC crítica</Badge>}<b>{o.description}</b></div>
      <small>{!sel&&<>Etapa “{name(o.os_step_id)}” · </>}Ocorrido {fmt(o.occurred_at)} · registrado {fmt(o.registered_at)} por {o.author_name}{o.severity?` · severidade ${({baixa:'baixa',media:'média',alta:'alta'} as Record<string,string>)[o.severity]||o.severity}`:''}{o.impact_start?` · impacto ${fmt(o.impact_start)} → ${o.impact_end?fmt(o.impact_end):'em aberto'}`:''}</small>

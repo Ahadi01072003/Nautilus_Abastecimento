@@ -20,7 +20,9 @@ let org:string,loc:string,flow:string,cat:string,type:string;
 const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects(p,(e:{status?:number;message:string})=>{if(status)assert.equal(e.status,status,e.message);if(pattern)assert.match(e.message,pattern);return true;});
 const key=()=>crypto.randomUUID();
 const H=3600000;
-const at=(h:number)=>new Date(Date.now()+h*H).toISOString();
+// Instante base fixo no arquivo: horários calculados na mesma chamada não ficam milissegundos fora da janela.
+const T0=Date.now();
+const at=(h:number)=>new Date(T0+h*H).toISOString();
 const set=async(who:Member,caps:string[],profile='fueler')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
 const reg=(p:string,b:Row,who:Member=manager)=>registryMutate('registry/'+p,b,who) as Promise<Row>;
 const ops=(path:string,b:Row,who:Member=operator)=>operationMutate('ops/'+path,{operationKey:key(),...b},who) as Promise<Row>;
