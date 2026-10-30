@@ -11,7 +11,9 @@ export const RES_KINDS:{id:ResKind,label:string,one:string}[]=[
 export const ALL_KINDS:ResKind[]=RES_KINDS.map(k=>k.id);
 export type Alloc={kind:ResKind,key:string,label:string,sub?:string|null,start:string,end:string,step?:string|null,quantity:number,unit?:string|null,
  orderId:string,number:number,activity:string,status:string,orgId:string,sector:string|null};
-export type ResItem=Alloc&{a:number,b:number,lane:number};
+/** Onde fica o texto da alocação: dentro da barra ou numa etiqueta ao lado dela. */
+export type Side='in'|'right'|'left';
+export type ResItem=Alloc&{a:number,b:number,lane:number,side:Side};
 export type ResRow={id:string,kind:ResKind,label:string,sub:string,unit:string|null,items:ResItem[],lanes:number,hours:number,total:number|null,orders:number};
 
 /** Identificador do recurso na seleção (tipo + chave): "equipamento:<id>", "material:<id>|t". */
@@ -34,7 +36,7 @@ export function resourceRows(allocs:Alloc[],kinds:ResKind[],picked:string[]=[]):
   const a=ms(x.start),b=ms(x.end);if(a==null||b==null||b<a)continue;
   const id=resId(x);
   const r=by.get(id)||{id,kind:x.kind,label:x.label,sub:x.sub||'',unit:x.unit||null,items:[],lanes:1,hours:0,total:null,orders:0};
-  r.items.push({...x,a,b,lane:0});by.set(id,r);
+  r.items.push({...x,a,b,lane:0,side:'in'});by.set(id,r);
  }
  const rows=[...by.values()];
  for(const r of rows){
@@ -46,16 +48,28 @@ export function resourceRows(allocs:Alloc[],kinds:ResKind[],picked:string[]=[]):
  return ALL_KINDS.flatMap(k=>rows.filter(r=>r.kind===k).sort((p,q)=>p.label.localeCompare(q.label,'pt-BR')));
 }
 
-/** Faixas pela extensão VISÍVEL da barra (com a largura mínima), não só pelo horário: duas
- * alocações curtas e próximas nunca se sobrepõem no desenho. `x` converte instante em posição
- * (px ou mm) e `min`/`gap` usam a mesma unidade. Devolve a quantidade de faixas. */
-export function packLanes(items:ResItem[],x:(t:number)=>number,min:number,gap:number){
+/** A barra fica SEMPRE no período exato (nunca alongada para caber o texto): em qualquer zoom, o
+ * começo e o fim batem com o calendário. O texto vai dentro quando cabe; quando não, numa etiqueta
+ * ao lado: à direita, ou à esquerda se passar da borda `limit`. `lo` é a borda esquerda à vista
+ * (barra que começa antes do período conta só o trecho visível). Mesma unidade em tudo (px ou mm). */
+export function labelSide(l:number,r:number,label:number,gap:number,limit=Infinity,lo=-Infinity):Side{
+ const vl=Math.max(l,lo);
+ if(r-vl>=label)return 'in';
+ return r+gap+label<=limit||vl-gap-label<lo?'right':'left';
+}
+
+/** Faixas pela extensão DESENHADA (barra exata + etiqueta ao lado quando o texto não cabe): duas
+ * alocações curtas e próximas nunca se sobrepõem, nem o texto delas. `x` converte instante em posição
+ * (px ou mm) e `label`/`gap` usam a mesma unidade. Grava a faixa e o lado do texto em cada item e
+ * devolve a quantidade de faixas. */
+export function packLanes(items:ResItem[],x:(t:number)=>number,label:number,gap:number,limit=Infinity,lo=-Infinity){
  const ends:number[]=[];
  for(const it of items){
-  const l=x(it.a),r=Math.max(x(it.b),l+min);
-  let lane=ends.findIndex(e=>e+gap<=l);
-  if(lane<0){lane=ends.length;ends.push(0);}
-  ends[lane]=r;it.lane=lane;
+  const l=x(it.a),r=x(it.b),side=labelSide(l,r,label,gap,limit,lo);
+  const from=side==='left'?Math.max(l,lo)-gap-label:l,to=side==='right'?r+gap+label:r;
+  let lane=ends.findIndex(e=>e+gap<=from);
+  if(lane<0){lane=ends.length;ends.push(-Infinity);}
+  ends[lane]=to;it.lane=lane;it.side=side;
  }
  return Math.max(1,ends.length);
 }
