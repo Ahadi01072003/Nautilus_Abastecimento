@@ -127,12 +127,39 @@ export async function requestDetail(member:Member,requestId:string){
   db().all('SELECT action,author_name,created_at,detail FROM audits WHERE entity_id=? ORDER BY created_at',r.id),
  ]);
  const st=r.status as RequestStatus,planner=isManager(a)||a.capabilities.includes('planejamento');
- return {request:{...r,rec:recNumber(r.number),activity:activityOf(r),quotes:undefined},
+ return {request:{...r,rec:recNumber(r.number),activity:activityOf(r),quotes:undefined} as Row,
   quotes:quotes.map(q=>({id:q.id,supplierId:q.supplier_id,supplierName:q.supplier_name,proposalNumber:q.proposal_number,validUntil:q.valid_until,leadTime:q.lead_time,receivedAt:q.received_at,notes:q.notes,
    createdByName:q.created_by_name,chosen:q.id===r.chosen_quote_id,totals:quoteTotals(Number(q.value_cents),Number(r.margin_bp),Number(r.tax_bp))})),
   attachments,reports,history,
   can:{edit:st==='em_cotacao',send:st==='em_cotacao',reopen:st==='enviada'||(st==='autorizada'&&!r.work_order_id),authorize:st==='enviada',
    cancel:['em_cotacao','enviada','autorizada'].includes(st),plan:st==='autorizada'&&!r.work_order_id&&planner}};
+}
+
+/** Retrato da solicitação para o relatório enviado ao cliente: dados, recursos com nome, cotações com
+ * os valores da regra A e a justificativa. Guardado por versão (recovery_reports), não muda depois. */
+async function snapshotOf(ex:Executor,r:Row){
+ const quotes=await ex.all('SELECT q.*,s.name supplier_name FROM recovery_quotes q JOIN suppliers s ON s.id=q.supplier_id WHERE q.request_id=? ORDER BY coalesce(q.received_at,q.created_at),q.created_at',r.id);
+ const res=(r.resources||[]) as Row[];
+ const names=async(table:string,ids:string[])=>new Map((ids.length?await ex.all(`SELECT id,name FROM ${table} WHERE id = ANY(?::text[])`,ids):[]).map(x=>[x.id as string,x.name as string]));
+ const [et,fn,mt]=await Promise.all([names('equipment_types',res.map(x=>x.equipmentTypeId).filter(Boolean)),names('job_functions',res.map(x=>x.functionId).filter(Boolean)),names('materials',res.map(x=>x.materialId).filter(Boolean))]);
+ return {request:{rec:recNumber(r.number),org:r.org_name,orgAcronym:r.org_acronym,person:r.person_name,activity:activityOf(r),description:r.description,plannedStart:r.planned_start,plannedEnd:r.planned_end,
+   notes:r.notes,marginBp:Number(r.margin_bp),taxBp:Number(r.tax_bp),justification:r.justification||null,
+   resources:res.map(x=>x.materialId?`${x.amount} ${x.unit} · ${mt.get(x.materialId)||'material'}`:`${x.quantity}× ${x.equipmentTypeId?et.get(x.equipmentTypeId)||'equipamento':fn.get(x.functionId)||'função'}`)},
+  quotes:quotes.map(q=>({id:q.id,supplierName:q.supplier_name,proposalNumber:q.proposal_number,validUntil:q.valid_until,leadTime:q.lead_time,receivedAt:q.received_at,
+   totals:quoteTotals(Number(q.value_cents),Number(r.margin_bp),Number(r.tax_bp))}))};
+}
+
+/** Relatório de uma versão enviada (padrão: a última) para a página de impressão. A cotação escolhida
+ * vem da solicitação atual, se já autorizada, e só aparece na última versão. */
+export async function requestReport(member:Member,requestId:string,version?:number){
+ const a=await finance(member);
+ const r=await loadRequest(db(),a,requestId);
+ const rep=version?await db().first('SELECT * FROM recovery_reports WHERE request_id=? AND version=?',r.id,version)
+  :await db().first('SELECT * FROM recovery_reports WHERE request_id=? ORDER BY version DESC LIMIT 1',r.id);
+ if(!rep)throw new AppError('Relatório não encontrado: envie a solicitação ao cliente para gerá-lo.',404);
+ const latest=Number((await db().first('SELECT max(version) v FROM recovery_reports WHERE request_id=?',r.id))!.v);
+ return {request:{...r,rec:recNumber(r.number)} as Row,snapshot:rep.snapshot as Row,version:Number(rep.version),latest,issuedAt:rep.issued_at as string,issuedByName:rep.issued_by_name as string,
+  chosenQuoteId:Number(rep.version)===latest&&['autorizada','em_execucao','concluida'].includes(r.status)?r.chosen_quote_id as string:null};
 }
 
 // ---- Comandos ----
@@ -282,6 +309,64 @@ export async function financeRequestsMutate(path:string,b:Row,member:Member){
     return {id:qid,message:`Cotação registrada (${n} de 3).`};
    });
   }catch(e){dbError(e);}
+ }
+
+ if(['finance/requests/send','finance/requests/reopen','finance/requests/authorize','finance/requests/cancel'].includes(path)){
+  try{
+   return await db().tx(async tx=>{
+    const r=await loadRequest(tx,a,b.id,true);
+    if(b.version!==r.version)throw new AppError('A solicitação foi alterada em outra tela. Atualize para continuar.',409);
+    const t=now(),bump=(sql:string,...v:unknown[])=>tx.run(`UPDATE recovery_requests SET ${sql},version=version+1,updated_at=? WHERE id=?`,...v,t,r.id);
+
+    if(path==='finance/requests/send'){
+     if(r.status!=='em_cotacao')throw new AppError('Só dá para enviar uma solicitação em cotação.',409);
+     const n=Number((await tx.first('SELECT count(*)::int n FROM recovery_quotes WHERE request_id=?',r.id))!.n);
+     if(!n)throw new AppError('Registre ao menos uma cotação antes de enviar ao cliente.',409);
+     const justification=text(b.justification,1000)||null;
+     if(n<3&&!justification)throw new AppError(`Há ${n} de 3 cotações: escreva a justificativa para enviar com menos de 3.`,409);
+     await bump("status='enviada',justification=?",justification);
+     const version=Number((await tx.first('SELECT coalesce(max(version),0)+1 v FROM recovery_reports WHERE request_id=?',r.id))!.v);
+     const snap=await snapshotOf(tx,{...r,justification});
+     await tx.run('INSERT INTO recovery_reports(id,request_id,version,issued_at,issued_by,issued_by_name,snapshot) VALUES(?,?,?,?,?,?,?::text::jsonb)',id(),r.id,version,t,a.id,a.name,JSON.stringify(snap));
+     await audit(tx,a,'Financeiro: solicitação enviada ao cliente',r.id,{number:r.number,report:version,quotes:n});
+     return {ok:true,version,message:`${recNumber(r.number)} enviada ao cliente. Relatório versão ${version} pronto para imprimir.`};
+    }
+    if(path==='finance/requests/reopen'){
+     const reason=required(b.reason,'Motivo',1000);
+     if(!(r.status==='enviada'||(r.status==='autorizada'&&!r.work_order_id)))throw new AppError(r.work_order_id?'A solicitação já tem OS: cancele a OS no Planejamento antes de reabrir.':'Só dá para reabrir uma solicitação enviada ou autorizada.',409);
+     await bump("status='em_cotacao',chosen_quote_id=NULL,chosen_total_cents=NULL,signer_name=NULL,signer_role=NULL,signed_at=NULL,plan_id=NULL");
+     await audit(tx,a,'Financeiro: cotação reaberta',r.id,{number:r.number,from:r.status,reason,unlinkedPlan:r.plan_id||undefined});
+     return {ok:true,message:`${recNumber(r.number)} voltou a "Em cotação".`};
+    }
+    if(path==='finance/requests/authorize'){
+     if(r.status!=='enviada')throw new AppError('Só dá para autorizar uma solicitação enviada ao cliente.',409);
+     const q=await tx.first('SELECT * FROM recovery_quotes WHERE id=? AND request_id=?',required(b.quoteId,'Cotação escolhida',100),r.id);
+     if(!q)throw new AppError('Escolha uma cotação desta solicitação.');
+     const signerName=required(b.signerName,'Nome de quem assinou pelo cliente',160),signerRole=required(b.signerRole,'Cargo de quem assinou',120),signedAt=isoDay(b.signedAt);
+     if(signedAt>today())throw new AppError('A data da assinatura não pode estar no futuro.');
+     // O relatório assinado tem de ser posterior ao último envio: a assinatura da versão anterior não vale.
+     const last=(await tx.first('SELECT version,issued_at FROM recovery_reports WHERE request_id=? ORDER BY version DESC LIMIT 1',r.id))!;
+     if(!await tx.first("SELECT 1 FROM finance_attachments WHERE request_id=? AND kind='relatorio_assinado' AND replaced_by IS NULL AND created_at>=?",r.id,last.issued_at))
+      throw new AppError(`Anexe o relatório assinado pelo cliente (versão ${last.version}) antes de autorizar.`,409);
+     const totals=quoteTotals(Number(q.value_cents),Number(r.margin_bp),Number(r.tax_bp));
+     await bump("status='autorizada',chosen_quote_id=?,chosen_total_cents=?,signer_name=?,signer_role=?,signed_at=?",q.id,totals.totalCents,signerName,signerRole,signedAt);
+     await audit(tx,a,'Financeiro: solicitação autorizada pelo cliente',r.id,{number:r.number,quote:q.id,totalCents:totals.totalCents,signerName,signerRole,signedAt});
+     return {ok:true,message:`${recNumber(r.number)} autorizada. Valores travados.`};
+    }
+    // Cancelamento: com OS em execução, cancela-se a OS antes (decisão do usuário em 30/10/2026).
+    const reason=required(b.reason,'Motivo',1000);
+    if(r.status==='em_execucao')throw new AppError('A OS desta solicitação está em execução: cancele a OS no Planejamento antes. A solicitação volta a Autorizada e pode ser cancelada.',409);
+    if(!['em_cotacao','enviada','autorizada'].includes(r.status))throw new AppError('Esta solicitação já foi concluída ou cancelada.',409);
+    await bump("status='cancelada',cancel_reason=?,plan_id=NULL",reason);
+    await audit(tx,a,'Financeiro: solicitação cancelada',r.id,{number:r.number,from:r.status,reason});
+    return {ok:true,message:`${recNumber(r.number)} cancelada.`};
+   });
+  }catch(e){
+   const m=(e as {message?:string}).message||'';
+   if(/Autorização exige o anexo do relatório assinado/.test(m))throw new AppError('Anexe o relatório assinado pelo cliente antes de autorizar.',409);
+   if(/Autorização exige a cotação escolhida/.test(m))throw new AppError('Escolha uma cotação desta solicitação.',409);
+   dbError(e);
+  }
  }
 
  throw new AppError('Ação não encontrada.',404);

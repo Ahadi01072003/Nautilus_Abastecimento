@@ -7,6 +7,7 @@ import {flowsState,flowsMutate,flowVersion} from '@/lib/flows';
 import {revisionMutate} from '@/lib/revision';
 import {realizeActivity,validateRealized,recoverableEquipment} from '@/lib/realized';
 import {financeConfig,financeRequestsMutate,requestDetail,requestList} from '@/lib/finance-requests';
+import {uploadAttachment,downloadAttachment,readAttachmentBody} from '@/lib/finance-files';
 import {cancelOrder} from '@/lib/cancel';
 import {centralState} from '@/lib/central';
 import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecords,maintenanceReadings,maintenanceMutate} from '@/lib/maintenance';
@@ -111,6 +112,7 @@ export async function GET(req:Request){try{
  if(path==='finance/config'){await rateLimit(member.id,'read');return json(await financeConfig(member));}
  if(path==='finance/requests'){await rateLimit(member.id,'read');return json(await requestList(member,url));}
  if(path==='finance/request'){await rateLimit(member.id,'read');return json(await requestDetail(member,url.searchParams.get('id')||''));}
+ if(path==='finance/attachment'){await rateLimit(member.id,'read');return await downloadAttachment(member,url.searchParams.get('id')||'');}
  if(path==='finance/order-uses'){await rateLimit(member.id,'read');return json(await orderUses(member,url.searchParams.get('os')||''));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
@@ -136,6 +138,8 @@ export async function POST(req:Request){try{
  }
  const {member}=await session();
  await rateLimit(member.id,'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
+ // Anexo do Financeiro: corpo binário (até 4 MB), lido antes e no lugar do JSON.
+ if(path==='finance/attachments')return json(await uploadAttachment(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
  // Fluxos e checklists levam várias etapas/perguntas por envio.
  const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'||path==='planning/save'||path==='maint/plan'?262144:undefined);
  if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));

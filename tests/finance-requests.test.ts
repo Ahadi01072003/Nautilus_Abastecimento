@@ -7,7 +7,8 @@ import {freshDatabase,addMember,seedOperation} from './helpers';
 import {mutate} from '../lib/service';
 import {registryMutate} from '../lib/registry';
 import {modules,type Member} from '../lib/permissions';
-import {financeConfig,financeRequestsMutate,requestDetail,requestList} from '../lib/finance-requests';
+import {financeConfig,financeRequestsMutate,requestDetail,requestList,requestReport} from '../lib/finance-requests';
+import {uploadAttachment,downloadAttachment} from '../lib/finance-files';
 import type {Database,Row} from '../lib/db';
 
 let ctx:Awaited<ReturnType<typeof freshDatabase>>,db:Database;
@@ -118,4 +119,87 @@ test('escopo e acesso',async()=>{
  const r=await newRequest({title:'Escopo'});
  await rejects(requestDetail(scoped,r.id),404);
  assert.ok(!(await requestList(scoped,new URL('http://x/'))).rows.some((x:Row)=>x.id===r.id));
+});
+
+const PDF=(n=64)=>{const b=new Uint8Array(n);b.set([0x25,0x50,0x44,0x46,0x2d]);return b;};
+const PNG=()=>new Uint8Array([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a,0,0,0,0]);
+const upload=(request:string,kind:string,name:string,bytes:Uint8Array,who:Member=fin,extra:Record<string,string>={})=>uploadAttachment(who,new URLSearchParams({request,kind,name,...extra}),bytes) as Promise<Row>;
+const ver=async(id:string)=>(await requestDetail(fin,id)).request.version as number;
+/** Solicitação com as três cotações do exemplo (Alfa 10.000,00; Beta 25.000,50; Gama 8.333,33). */
+async function withQuotes(title:string,n=3){
+ const r=await newRequest({title});
+ const list=[['Fornecedor Alfa','10.000,00'],['Fornecedor Beta','25.000,50'],['Fornecedor Gama','8333,33']].slice(0,n);
+ for(const [s,v] of list)await fr('quotes',{requestId:r.id,supplierName:s,value:v});
+ return r.id as string;
+}
+
+test('envio com menos de 3 sem justificativa é recusado; com justificativa gera o relatório versão 1',async()=>{
+ const id=await withQuotes('Envio com uma cotação',1);
+ await rejects(fr('requests/send',{id,version:await ver(id)}),409,/justificativa/);
+ await fr('requests/send',{id,version:await ver(id),justification:'Só um fornecedor atende na região'});
+ const d=await requestDetail(fin,id);
+ assert.equal(d.request.status,'enviada');assert.deepEqual(d.reports.map((x:Row)=>x.version),[1]);
+ const rep=await requestReport(fin,id);
+ assert.equal(rep.version,1);assert.equal(rep.snapshot.request.justification,'Só um fornecedor atende na região');
+ assert.equal(rep.snapshot.quotes[0].totals.totalCents,1222222);
+});
+
+test('reabrir com motivo volta a "Em cotação" e o novo envio gera a versão 2',async()=>{
+ const id=await withQuotes('Reabertura');
+ await fr('requests/send',{id,version:await ver(id)});
+ // Assinatura da versão 1 recebida antes da reabertura: não vale para autorizar a versão 2.
+ await upload(id,'relatorio_assinado','assinado-v1.pdf',PDF());
+ await rejects(fr('requests/reopen',{id,version:await ver(id)}),400,/Motivo/);
+ await fr('requests/reopen',{id,version:await ver(id),reason:'Cliente pediu nova proposta do Alfa'});
+ assert.equal((await requestDetail(fin,id)).request.status,'em_cotacao');
+ const alfa=(await requestDetail(fin,id)).quotes.find((q:Row)=>q.supplierName==='Fornecedor Alfa')!;
+ await fr('quotes',{id:alfa.id,requestId:id,supplierId:alfa.supplierId,value:'9.000,00'});
+ await fr('requests/send',{id,version:await ver(id)});
+ assert.deepEqual((await requestDetail(fin,id)).reports.map((x:Row)=>x.version),[1,2]);
+ const v1=await requestReport(fin,id,1),v2=await requestReport(fin,id,2);
+ const q=(rep:Row)=>(rep.snapshot.quotes as Row[]).find(x=>x.supplierName==='Fornecedor Alfa')!.totals.quotedCents;
+ assert.equal(q(v1),1000000,'versão 1 guarda o valor da época');assert.equal(q(v2),900000);
+ const auth=async()=>fr('requests/authorize',{id,version:await ver(id),quoteId:alfa.id,signerName:'Pessoa do Cliente',signerRole:'Fiscal',signedAt:'2026-10-29'});
+ await rejects(auth(),409,/versão 2/);
+ await upload(id,'relatorio_assinado','assinado-v2.pdf',PDF());
+ await auth();
+ assert.equal(Number((await requestDetail(fin,id)).request.chosen_total_cents),1100000);
+});
+
+test('autorizar sem anexo do relatório assinado é recusado; com anexo autoriza e trava valores',async()=>{
+ const id=await withQuotes('Autorização');
+ await fr('requests/send',{id,version:await ver(id)});
+ const alfa=(await requestDetail(fin,id)).quotes.find((q:Row)=>q.supplierName==='Fornecedor Alfa')!;
+ const auth=async()=>fr('requests/authorize',{id,version:await ver(id),quoteId:alfa.id,signerName:'Pessoa do Cliente',signerRole:'Fiscal',signedAt:'2026-10-29'});
+ await rejects(auth(),409,/relatório assinado/);
+ await upload(id,'relatorio_assinado','relatorio-assinado.pdf',PDF());
+ await auth();
+ const d=await requestDetail(fin,id);
+ assert.equal(d.request.status,'autorizada');assert.equal(Number(d.request.chosen_total_cents),1222222);
+ assert.ok(d.quotes.find((q:Row)=>q.id===alfa.id)!.chosen);
+ await rejects(fr('quotes',{id:alfa.id,requestId:id,supplierId:alfa.supplierId,value:'1,00'}),409,/não está mais em cotação/);
+ await rejects(fr('requests/save',{id,version:await ver(id),orgId:org,personId:person,title:'Outro',plannedStart:'2026-11-10T11:00:00.000Z',resources:[]}),409,/em cotação/);
+ // Cancelar exige motivo.
+ const other=await withQuotes('Cancelamento',1);
+ await rejects(fr('requests/cancel',{id:other,version:await ver(other)}),400,/Motivo/);
+ await fr('requests/cancel',{id:other,version:await ver(other),reason:'Cliente desistiu'});
+ assert.equal((await requestDetail(fin,other)).request.status,'cancelada');
+});
+
+test('anexos: tipo errado e acima de 4 MB recusados; substituição sem apagar; download sem acesso recusado',async()=>{
+ const id=await withQuotes('Anexos',1);
+ const exe=new Uint8Array([0x4d,0x5a,0x90,0,3,0,0,0]);
+ await rejects(upload(id,'outro','programa.pdf',exe,fin,{description:'Teste'}),415,/PDF, JPG ou PNG/);
+ await rejects(upload(id,'outro','grande.pdf',PDF(4_194_305),fin,{description:'Grande'}),413,/4 MB/);
+ const a1=await upload(id,'relatorio_assinado','v1.pdf',PDF());
+ const a2=await upload(id,'relatorio_assinado','v2.pdf',PDF());
+ const rows=await db.all('SELECT id,replaced_by FROM finance_attachments WHERE request_id=? AND kind=? ORDER BY created_at',id,'relatorio_assinado');
+ assert.equal(rows.length,2);assert.equal(rows.find(x=>x.id===a1.id)!.replaced_by,a2.id);
+ const png=await upload(id,'outro','x.pdf',PNG(),fin,{description:'Foto da placa'});
+ assert.equal((await db.first('SELECT content_type FROM finance_attachments WHERE id=?',png.id))!.content_type,'image/png');
+ await rejects(downloadAttachment(operator,a2.id),403);
+ await rejects(downloadAttachment(scoped,a2.id),404);
+ const res=await downloadAttachment(fin,a2.id);
+ assert.equal(res.headers.get('content-type'),'application/pdf');assert.match(res.headers.get('content-disposition')||'',/attachment; filename\*=UTF-8''v2\.pdf/);
+ assert.equal((await res.arrayBuffer()).byteLength,64);
 });
