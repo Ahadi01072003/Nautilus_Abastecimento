@@ -121,6 +121,8 @@ CREATE TABLE IF NOT EXISTS finance_attachments (
   CONSTRAINT attachment_size CHECK (octet_length(content) = size_bytes)
 );
 CREATE INDEX IF NOT EXISTS idx_finance_attachments_request ON finance_attachments(request_id);
+-- Histórico da solicitação (auditoria por entidade).
+CREATE INDEX IF NOT EXISTS idx_audits_entity ON audits(entity_id, created_at);
 
 -- Solicitação: não é apagada; nasce "Em cotação"; situação só pelos caminhos da spec §6 (com OS em
 -- execução não se cancela: cancela-se a OS antes); dados só mudam em "Em cotação"; autorizar exige a

@@ -8,6 +8,7 @@ import {audit,idList} from './registry';
 import {preventiveRows} from './maintenance';
 import {filterSectors} from './board';
 import {onPlanLaunched,onPlanReplaced} from './recovery-link';
+import {recNumber} from './recovery-quote';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -690,6 +691,9 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
  if(org&&!inScope(a,org.id))throw new AppError('Organização fora do seu acesso.',403);
  const revision=await revisionContext(plan);
  if(plan.work_order_id&&(org?.id||null)!==plan.org_id)throw new AppError('A organização solicitante da OS não muda na revisão.');
+ // Rascunho de uma solicitação de recobrável autorizada: o cliente é o que autorizou a cotação.
+ if(!plan.work_order_id&&(org?.id||null)!==plan.org_id){const rec=await first("SELECT number FROM recovery_requests WHERE plan_id=? AND status='autorizada'",plan.id);
+  if(rec)throw new AppError(`Este rascunho é da solicitação de recobrável ${recNumber(Number(rec.number))}: o cliente não muda. Para outro cliente, reabra a solicitação no Financeiro.`,409);}
  const person=await activeOr('requester_people',b.requesterPersonId,'Pessoa solicitante',plan.requester_person_id);
  if(person&&person.org_id!==org?.id)throw new AppError('A pessoa solicitante deve pertencer à organização escolhida.');
  const location=await activeOr('locations',b.locationId,'Local',plan.location_id);

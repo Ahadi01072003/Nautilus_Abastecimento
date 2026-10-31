@@ -7,7 +7,7 @@ import {freshDatabase,addMember,seedOperation} from './helpers';
 import {mutate} from '../lib/service';
 import {registryMutate} from '../lib/registry';
 import {modules,type Member} from '../lib/permissions';
-import {financeConfig,financeRequestsMutate,requestDetail,requestList,requestReport} from '../lib/finance-requests';
+import {financeConfig,financeRequestsMutate,requestDetail,requestList,requestReport,reaisToCents} from '../lib/finance-requests';
 import {uploadAttachment,downloadAttachment} from '../lib/finance-files';
 import {planningMutate,planDetail,ordersList} from '../lib/planning';
 import {operationMutate,orderDetail} from '../lib/operation';
@@ -389,4 +389,25 @@ test('exportação: Recobráveis: atividades com colunas e valores',async()=>{
  assert.ok(lines.find(l=>l.includes('"Painel em cotação"'))!.includes('"Em cotação"'));
  assert.ok(allowedSets(fin).includes('recobraveis_atividades'));assert.ok(!allowedSets(operator).includes('recobraveis_atividades'));
  await rejects(exportData(operator,url),403);
+});
+
+// ---- Correções da revisão final ----
+test('valor em reais: ponto de milhar sem vírgula é milhar; decimal com vírgula ou ponto',()=>{
+ for(const [v,c] of [['10.000',1000000],['1.500',150000],['R$ 1.000',100000],['1.234.567',123456700],['25.000,50',2500050],['10.000,00',1000000],['8333,33',833333],['8333.33',833333],['10.5',1050],['0,01',1]] as const)assert.equal(reaisToCents(v,'Valor'),c,v);
+ assert.equal(reaisToCents(1000.5,'Valor'),100050);
+ for(const v of [10.555,2e9,-1])assert.throws(()=>reaisToCents(v,'Valor'),String(v));
+});
+
+test('rascunho ligado à solicitação não troca de cliente (a OS não liga a outro cliente)',async()=>{
+ const id=await authorized({title:'Troca de cliente',plannedStart:day(20,8),plannedEnd:day(20,17)});
+ const planId=await plan(id);
+ const p=(await planDetail(fin,planId)).plan;
+ const body=(orgId:string,personId:string)=>({id:p.id,version:p.version,title:p.title,orgId,requesterPersonId:personId,locationId:loc,plannedStart:p.planned_start,plannedEnd:p.planned_end,description:p.description,
+  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:['eq1'],operatorIds:[]}))});
+ await rejects(planningMutate('planning/save',body(other,otherPerson),fin),409,/REC-\d{6}/);
+ assert.equal((await planDetail(fin,planId)).plan.org_id,org);
+});
+
+test('auditoria indexada por entidade (histórico da solicitação)',async()=>{
+ assert.ok(await db.first("SELECT 1 FROM pg_indexes WHERE tablename='audits' AND indexname='idx_audits_entity'"));
 });

@@ -8,9 +8,9 @@ import {audit} from './registry';
 
 const now=()=>new Date().toISOString();
 
-/** OS lançada a partir do rascunho ligado à solicitação. */
+/** OS lançada a partir do rascunho ligado à solicitação (só do mesmo cliente que autorizou). */
 export async function onPlanLaunched(tx:Executor,a:Member,planId:string,workOrderId:string){
- const r=await tx.first("UPDATE recovery_requests SET status='em_execucao',work_order_id=?,version=version+1,updated_at=? WHERE plan_id=? AND status='autorizada' AND work_order_id IS NULL RETURNING id,number",workOrderId,now(),planId);
+ const r=await tx.first("UPDATE recovery_requests SET status='em_execucao',work_order_id=?,version=version+1,updated_at=? WHERE plan_id=? AND status='autorizada' AND work_order_id IS NULL AND org_id IS NOT DISTINCT FROM (SELECT org_id FROM work_orders WHERE id=?) RETURNING id,number",workOrderId,now(),planId,workOrderId);
  if(r)await audit(tx,a,'Planejamento: solicitação de recobrável em execução',r.id,{number:r.number,workOrderId});
 }
 

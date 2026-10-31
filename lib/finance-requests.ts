@@ -26,11 +26,16 @@ export function percentBp(value:unknown,label:string){
  if(Math.abs(n*100-bp)>1e-6)throw new AppError(`${label}: use até duas casas decimais.`);
  return bp;
 }
-/** Valor em reais digitado ("10.000,00", "8333,33" ou "8333.33") em centavos. */
+/** Valor em reais digitado ("10.000,00", "10.000", "8333,33" ou "8333.33") em centavos. Sem vírgula,
+ * pontos em grupos de 3 dígitos são de milhar ("10.000" = dez mil), como se escreve no Brasil. */
 export function reaisToCents(value:unknown,label:string){
- if(typeof value==='number'){if(!Number.isFinite(value)||value<0)throw new AppError(`${label}: valor inválido.`);return Math.round(value*100);}
+ if(typeof value==='number'){
+  if(!Number.isFinite(value)||value<0||value>100000000||Math.abs(value*100-Math.round(value*100))>1e-6)throw new AppError(`${label}: valor inválido.`);
+  return Math.round(value*100);
+ }
  let s=String(value??'').trim().replace(/^R\$\s*/,'').replace(/\s/g,'');
  if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');
+ else if(/^\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'');
  const n=Number(s);
  if(!s||!Number.isFinite(n)||n<0||n>100000000)throw new AppError(`${label}: informe o valor em reais.`);
  if(Math.abs(n*100-Math.round(n*100))>1e-6)throw new AppError(`${label}: use até duas casas decimais.`);

@@ -24,7 +24,7 @@ const pct=(bp:number)=>(bp/100).toLocaleString('pt-BR',{maximumFractionDigits:2}
 const osLabel=(n:number)=>'OS '+String(n).padStart(6,'0');
 const MAX_FILE=4*1024*1024;
 /** Valor digitado em reais ("10.000,00", "8333,33") em centavos, só para a prévia (o servidor confere). */
-const cents=(v:string)=>{let s=String(v||'').trim().replace(/^R\$\s*/,'').replace(/\s/g,'');if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=Number(s);return s&&Number.isFinite(n)&&n>=0?Math.round(n*100):null;};
+const cents=(v:string)=>{let s=String(v||'').trim().replace(/^R\$\s*/,'').replace(/\s/g,'');if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');else if(/^\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'');const n=Number(s);return s&&Number.isFinite(n)&&n>=0?Math.round(n*100):null;};
 const totalsOf=(c:number|null,m:number,t:number)=>{if(c==null)return null;try{return quoteTotals(c,m,t)}catch{return null}};
 /** Envio do anexo: corpo binário, parâmetros na URL. */
 async function sendFile(params:R,file:File){
@@ -237,7 +237,7 @@ function QuoteForm({request:r,quote:q,quotes,suppliers,onClose,onDone}:{request:
    <Field label="Prazo de execução"><Input maxLength={80} placeholder="Ex.: 5 dias úteis" value={f.leadTime} onChange={e=>setF(x=>({...x,leadTime:e.target.value}))}/></Field>
    <Field label="Recebida em"><Input type="date" max={today()} value={f.receivedAt} onChange={e=>setF(x=>({...x,receivedAt:e.target.value}))}/></Field>
    <Field label="Observações" wide><Textarea maxLength={1000} rows={2} value={f.notes} onChange={e=>setF(x=>({...x,notes:e.target.value}))}/></Field>
-   <dl className="wide rq-preview">{t?<><div><dt>Margem</dt><dd>{brl(t.marginCents)}</dd></div><div><dt>Subtotal</dt><dd>{brl(t.subtotalCents)}</dd></div><div><dt>Impostos</dt><dd>{brl(t.taxCents)}</dd></div><div className="total"><dt>Valor a faturar</dt><dd>{brl(t.totalCents)}</dd></div></>:<div><dt>Valor a faturar</dt><dd>Informe o valor da proposta</dd></div>}</dl>
+   <dl className="wide rq-preview">{t?<><div><dt>Valor cotado</dt><dd>{brl(t.quotedCents)}</dd></div><div><dt>Margem</dt><dd>{brl(t.marginCents)}</dd></div><div><dt>Subtotal</dt><dd>{brl(t.subtotalCents)}</dd></div><div><dt>Impostos</dt><dd>{brl(t.taxCents)}</dd></div><div className="total"><dt>Valor a faturar</dt><dd>{brl(t.totalCents)}</dd></div></>:<div><dt>Valor a faturar</dt><dd>Informe o valor da proposta</dd></div>}</dl>
   </div><Footer busy={busy} error={error} onClose={onClose} label={q?'Salvar cotação':'Registrar cotação'} disabled={!f.supplierId||(creating&&!f.supplierName.trim())||!t}/></form>
  </Shell>;
 }
