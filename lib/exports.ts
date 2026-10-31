@@ -3,6 +3,7 @@
 // Os nomes de tabela e colunas vêm só das definições abaixo; filtros entram como parâmetros.
 import {db,type Row} from './db';
 import {dailyRows,forecastRows} from './finance';
+import {requestRows} from './finance-requests';
 import {AppError,isoDay} from './domain';
 import {type Member,isManager,canSeeOrders,loadAccess,has} from './permissions';
 import {osNumber} from './planning';
@@ -15,6 +16,7 @@ const d=(v:unknown):Cell=>v?new Date(String(v)):null;
 const day=(v:unknown):Cell=>v?new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo'}).format(new Date(String(v))):null;
 const min=(v:unknown)=>v===null||v===undefined?null:Math.round(Number(v)/60);
 const local=(v:unknown)=>v?new Date(String(v)).toLocaleString('sv-SE',{timeZone:'America/Sao_Paulo'}):'';
+const REQUEST:Record<string,string>={em_cotacao:'Em cotação',enviada:'Enviada ao cliente',autorizada:'Autorizada',em_execucao:'Em execução',concluida:'Concluída',cancelada:'Cancelada'};
 const ORDER:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
 const STEP:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 const KIND:Record<string,string>={ocorrencia:'Ocorrência',impacto:'Impacto',bloqueio:'Bloqueio'};
@@ -109,6 +111,11 @@ export const DATASETS:Record<string,Def>={
   columns:['Equipamento','Cliente da tarifa','OS','Cliente da OS','Situação da OS','Início da reserva','Fim da reserva','Horas no período','Diárias previstas','Valor previsto (R$)','Entra no previsto','Observação'],
   map:r=>[r.tag,r.rate_org,osNumber(r.number),r.order_org,ORDER[r.status]||r.status,d(r.start),d(r.end),r.hours,r.dailies,r.value_cents/100,r.counted?'Sim':'Não',
    r.note?String(r.note)[0].toUpperCase()+String(r.note).slice(1):null]},
+ recobraveis_atividades:{label:'Recobráveis: atividades',group:'financeiro',
+  load:(f,s)=>requestRows({start:f.start,end:f.end,org:f.org},s.orgs),
+  columns:['REC','Situação','Solicitante','Atividade','Data prevista','Fornecedor escolhido','Valor cotado (R$)','Margem (R$)','Subtotal (R$)','Impostos (R$)','Valor a faturar (R$)','OS','Autorizada em'],
+  map:r=>{const t=r.totals as Row|null,c=(k:string)=>t?t[k]/100:null;return [r.rec,REQUEST[r.status]||r.status,r.org_name,r.activity,d(r.planned_start),r.chosen_supplier||null,c('quotedCents'),c('marginCents'),c('subtotalCents'),c('taxCents'),
+   r.chosen_total_cents==null?null:Number(r.chosen_total_cents)/100,r.wo_number?osNumber(r.wo_number):null,r.signed_at?String(r.signed_at).split('-').reverse().join('/'):null];}},
  recobraveis_usos:{label:'Recobráveis: usos',group:'financeiro',
   from:`FROM equipment_uses u JOIN work_orders w ON w.id=u.work_order_id JOIN equipment e ON e.id=u.equipment_id`,
   order:'u.started_at::timestamptz,e.tag',

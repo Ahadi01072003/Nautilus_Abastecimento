@@ -168,6 +168,19 @@ export async function requestReport(member:Member,requestId:string,version?:numb
   chosenQuoteId:Number(rep.version)===latest&&['autorizada','em_execucao','concluida'].includes(r.status)?r.chosen_quote_id as string:null};
 }
 
+/** Linhas da exportação "Recobráveis: atividades": pela data prevista de início (dias de Brasília),
+ * cliente e escopo. Valores da cotação escolhida pela regra A; sem escolha, ficam em branco. */
+export async function requestRows(f:{start:string|null,end:string|null,org:string|null},scope:string[]|null){
+ const where:string[]=[],values:unknown[]=[];
+ if(f.start){where.push('r.planned_start::timestamptz>=?::timestamptz');values.push(new Date(f.start+'T00:00:00-03:00').toISOString());}
+ if(f.end){where.push('r.planned_start::timestamptz<=?::timestamptz');values.push(new Date(f.end+'T23:59:59.999-03:00').toISOString());}
+ if(f.org){where.push('r.org_id=?');values.push(f.org);}
+ if(scope){where.push('r.org_id = ANY(?::text[])');values.push(scope);}
+ const rows=await db().all(`${SELECT_REQUEST.replace('s.name chosen_supplier,','s.name chosen_supplier,cq.value_cents chosen_value_cents,')}${where.length?' WHERE '+where.join(' AND '):''} ORDER BY r.number LIMIT 20001`,...values);
+ return rows.map(r=>({...r,rec:recNumber(r.number),activity:activityOf(r),
+  totals:r.chosen_value_cents==null?null:quoteTotals(Number(r.chosen_value_cents),Number(r.margin_bp),Number(r.tax_bp))}));
+}
+
 // ---- Comandos ----
 
 /** Recursos necessários (mesmo formato da OS sem fluxo): tipo de equipamento ou função com quantidade

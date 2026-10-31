@@ -823,3 +823,6 @@ body{font-family:var(--f-body)}
 .rq-badge span{font-family:var(--f-mono);font-size:11.5px}
 @media(max-width:900px){.rq-filters .form-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.rq-filters .form-grid{grid-template-columns:1fr}.rq-actions>*{flex:1 1 100%;justify-content:center}.rq-quotes,.rq-body{padding:12px}.rq-row-actions{white-space:normal}}
+.fin-activities{margin-bottom:16px}.fin-activities .fin-cards{grid-template-columns:repeat(4,minmax(0,1fr));margin:0;padding:14px 22px 18px}
+@media(max-width:900px){.fin-activities .fin-cards{grid-template-columns:1fr 1fr}}
+@media(max-width:560px){.fin-activities .fin-cards{grid-template-columns:1fr;padding:12px}}

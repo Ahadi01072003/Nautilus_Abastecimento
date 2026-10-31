@@ -14,6 +14,8 @@ import {operationMutate,orderDetail} from '../lib/operation';
 import {cancelOrder} from '../lib/cancel';
 import {flowsMutate} from '../lib/flows';
 import {onOrderCancelled} from '../lib/recovery-link';
+import {financePanel} from '../lib/finance';
+import {exportData,allowedSets} from '../lib/exports';
 import type {Database,Row} from '../lib/db';
 
 let ctx:Awaited<ReturnType<typeof freshDatabase>>,db:Database;
@@ -344,4 +346,47 @@ test('lista de OS mostra o selo da solicitação; valor só para quem tem Financ
  const p=await head(planner),f=await head(fin);
  assert.equal(p.number,asPlanner.recovery_number);assert.equal(p.totalCents,undefined);assert.equal(p.supplier,undefined);
  assert.equal(f.totalCents,1222222);assert.equal(f.supplier,'Fornecedor Alfa');
+});
+
+// ---- Painel e exportação ----
+const may=(d:number,h:number)=>new Date(Date.UTC(2032,4,d,h+3)).toISOString();
+let mayReady:Promise<void>|null=null;
+/** Maio/2032: uma em cotação, uma enviada, uma autorizada, uma em execução e uma concluída. */
+function seedMay(){
+ return mayReady??=(async()=>{
+  await newRequest({title:'Painel em cotação',plannedStart:may(3,8)});
+  const sent=await withQuotes('Painel enviada',1);
+  await fr('requests/save',{id:sent,version:await ver(sent),orgId:org,personId:person,title:'Painel enviada',plannedStart:may(4,8),resources:[]});
+  await fr('requests/send',{id:sent,version:await ver(sent),justification:'Só um fornecedor'});
+  await authorized({title:'Painel autorizada',plannedStart:may(5,8),plannedEnd:may(5,17)});
+  const running=await authorized({title:'Painel em execução',plannedStart:may(6,8),plannedEnd:may(6,17)});
+  await launchPlan(await plan(running));
+  const done=await authorized({title:'Painel concluída',plannedStart:may(7,8),plannedEnd:may(7,17)});
+  await finishAll(await launchPlan(await plan(done)));
+ })();
+}
+
+test('painel: bloco Atividades conta por situação e soma autorizadas e concluídas',async()=>{
+ await seedMay();
+ const p=await financePanel(fin,new URL('http://x/?from=2032-05-01&to=2032-05-31'));
+ assert.deepEqual(p.activities,{emCotacao:1,enviadas:1,autorizadas:2,concluidas:1,authorizedCents:2444444,concludedCents:1222222});
+ const filtered=await financePanel(fin,new URL(`http://x/?from=2032-05-01&to=2032-05-31&org=${other}`));
+ assert.equal(filtered.activities.emCotacao+filtered.activities.autorizadas,0,'filtro de cliente vale para o bloco');
+ const outside=await financePanel(scoped,new URL('http://x/?from=2032-05-01&to=2032-05-31'));
+ assert.equal(outside.activities.autorizadas,0,'fora do escopo não conta');
+});
+
+test('exportação: Recobráveis: atividades com colunas e valores',async()=>{
+ await seedMay();
+ const url=new URL('http://x/export?sets=recobraveis_atividades&format=csv&start=2032-05-01&end=2032-05-31');
+ const lines=(await (await exportData(fin,url)).text()).replace(/^\uFEFF/,'').trim().split(/\r?\n/);
+ assert.equal(lines[0],['REC','Situação','Solicitante','Atividade','Data prevista','Fornecedor escolhido','Valor cotado (R$)','Margem (R$)','Subtotal (R$)','Impostos (R$)','Valor a faturar (R$)','OS','Autorizada em'].map(c=>'"'+c+'"').join(';'));
+ assert.equal(lines.length-1,5);
+ const row=lines.find(l=>l.includes('"Painel autorizada"'))!;
+ assert.ok(row.includes('"Autorizada"'));assert.ok(row.includes('"Fornecedor Alfa";10000;1000;11000;1222,22;12222,22;'),row);
+ assert.ok(row.endsWith('"29/10/2026"'),row);
+ assert.ok(lines.find(l=>l.includes('"Painel concluída"'))!.includes('"OS 0'));
+ assert.ok(lines.find(l=>l.includes('"Painel em cotação"'))!.includes('"Em cotação"'));
+ assert.ok(allowedSets(fin).includes('recobraveis_atividades'));assert.ok(!allowedSets(operator).includes('recobraveis_atividades'));
+ await rejects(exportData(operator,url),403);
 });
