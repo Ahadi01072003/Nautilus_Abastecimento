@@ -28,6 +28,8 @@ import OpsBoard from './ops-board';
 import Apontamentos from './ops-apontamentos';
 import ExportCenter from './export-center';
 import {Rates,RecoverablePanel} from './finance';
+import RecoveryRequests from './finance-requests';
+import FinanceConfig from './finance-config';
 import {PreventivePanel,MaintenanceCriteria,Correctives,Readings} from './maintenance';
 import Central from './central';
 type State={actor:R;fuels:R[];equipment:R[];operators:R[];supplies:R[];movements:R[];requests:R[];members:R[];holidays:R[];audits:R[];stats:R[];daily:R[];appointments:R[];executors:R[];notifications:R[];pagination:{page:number;limit:number;appointments:number;supplies:number};emailReady:boolean;emailSetup?:EmailSetup;access?:{defaultPassword:string|null;temporaryPasswordDays:number};generatedAt:string};
@@ -110,6 +112,8 @@ export default function Workspace({identity}:{identity:Identity}){
  {view==='op-registro'&&<RealizedActivities refreshKey={registryTick} openOrder={openOrder}/>}
  {view==='op-os'&&<Apontamentos refreshKey={registryTick}/>}
  {view==='fin-tarifas'&&<Rates refreshKey={registryTick}/>}
+ {view==='fin-solicitacoes'&&<RecoveryRequests refreshKey={registryTick} canPlan={data.actor.modules.includes('plan-atividade')} canCreateResource={data.actor.modules.includes('plan-atividade')} onOpenPlan={id=>{openPlan(id);navigate('plan-atividade')}} onOpenOrder={data.actor.modules.includes('op-os')?openOrder:undefined}/>}
+ {view==='fin-config'&&<FinanceConfig refreshKey={registryTick}/>}
  {view==='fin-painel'&&<RecoverablePanel refreshKey={registryTick} onOpenOrder={data.actor.modules.includes('op-os')?openOrder:undefined}/>}
  {view==='exportacao'&&<ExportCenter manager={manage} operation={data.actor.modules.includes('op-os')} finance={data.actor.modules.includes('fin-painel')} fuels={data.fuels}/>}
  </ModuleBoundary>}

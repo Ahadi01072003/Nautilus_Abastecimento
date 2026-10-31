@@ -18,6 +18,7 @@ import ResourceAgenda from './resource-agenda';
 import {ArrangeControls,useOsView,useNow} from './os-arrange';
 import {arrangeOrders,flatRows,viewToParams,type Flags,type OsGroup,type OsItem} from '@/lib/os-order';
 import {listFilterLabels} from '@/lib/resource-agenda';
+import {RecoveryBadge} from './recovery-badge';
 
 /** Horário de Brasília para o campo datetime-local e de volta (com fuso explícito). */
 const toLocal=toLocalInput;
@@ -30,7 +31,7 @@ const statusNames:Record<string,[string,string]>={programada:['Programada','info
 /** Período numa linha só (início e fim lado a lado). */
 const range=(a?:string|null,b?:string|null)=><Period a={a} b={b}/>;
 
-type Need={equipmentTypeId:string|null,functionId:string|null,materialId:string|null,quantity:number|null,amount:number|null,unit:string|null};
+export type Need={equipmentTypeId:string|null,functionId:string|null,materialId:string|null,quantity:number|null,amount:number|null,unit:string|null};
 /** Período de uso de um equipamento (OS sem fluxo), em horário local; ausente = a OS inteira. */
 type Use={start:string,end:string};
 type Step={key:string,id:string,name:string,description:string,required:boolean,included:boolean,dependsOn:string[],defaultMinutes:number|null,start:string,end:string,locationId:string,needs:Need[],equipmentIds:string[],operatorIds:string[],uses:Record<string,Use>};
@@ -307,7 +308,7 @@ function EquipmentUse({tag,equipmentId,step:s,planId,stepId,editable,onChange}:{
 const KINDS:[string,string,string][]=[['equipment_type','Equipamento (tipo)','equipmentTypes'],['function','Função','functions'],['material','Material','materials']];
 /** Adiciona uma necessidade (tipo de equipamento, função ou material). Se o recurso não existe,
  * é cadastrado na hora (o servidor devolve o cadastro existente quando o nome já existe). */
-function NeedAdder({refs,needs,onRefs,onAdd}:{refs:R,needs:Need[],onRefs:()=>Promise<void>,onAdd:(n:Need)=>void}){
+export function NeedAdder({refs,needs,onRefs,onAdd,create=true}:{refs:R,needs:Need[],onRefs:()=>Promise<void>,onAdd:(n:Need)=>void,create?:boolean}){
  const [open,setOpen]=useState(false),[kind,setKind]=useState('equipment_type'),[item,setItem]=useState(''),[qty,setQty]=useState('1'),[unit,setUnit]=useState(''),[name,setName]=useState(''),[busy,setBusy]=useState(false);
  const list=KINDS.find(k=>k[0]===kind)![2];
  const taken=(id:string)=>needs.some(n=>(kind==='material'?n.materialId:kind==='function'?n.functionId:n.equipmentTypeId)===id);
@@ -328,7 +329,7 @@ function NeedAdder({refs,needs,onRefs,onAdd}:{refs:R,needs:Need[],onRefs:()=>Pro
  if(!open)return <button type="button" className="text-action" onClick={()=>setOpen(true)}><PackagePlus size={14} className="inline"/> Adicionar recurso</button>;
  return <div className="need-adder">
   <Choice label="Tipo de recurso" value={kind} onChange={v=>{setKind(v);reset()}} options={KINDS.map(([value,label])=>({value,label}))}/>
-  <Choice label="Recurso" value={item} onChange={v=>{setItem(v);if(kind==='material'&&v!=='__new')setUnit((refs.materials as R[]).find(m=>m.id===v)?.unit||'')}} placeholder="Escolha" options={[...options.map(x=>({value:x.id,label:kind==='material'?`${x.name} (${x.unit})`:x.name})),{value:'__new',label:'+ Cadastrar novo…'}]}/>
+  <Choice label="Recurso" value={item} onChange={v=>{setItem(v);if(kind==='material'&&v!=='__new')setUnit((refs.materials as R[]).find(m=>m.id===v)?.unit||'')}} placeholder="Escolha" options={[...options.map(x=>({value:x.id,label:kind==='material'?`${x.name} (${x.unit})`:x.name})),...(create?[{value:'__new',label:'+ Cadastrar novo…'}]:[])]}/>
   {creating&&<Input aria-label="Nome do novo recurso" maxLength={100} placeholder={kind==='material'?'Nome do material':kind==='function'?'Nome da função':'Nome do tipo de equipamento'} value={name} onChange={e=>setName(e.target.value)}/>}
   <Input aria-label="Quantidade" className="qty" inputMode="decimal" value={qty} onChange={e=>setQty(e.target.value)}/>
   {kind==='material'?<Input aria-label="Unidade de medida" className="unit" list="units" maxLength={12} placeholder="un" value={unit} onChange={e=>setUnit(e.target.value)}/>:<span className="unit-fixed">{kind==='function'?'pessoa(s)':'equipamento(s)'}</span>}
@@ -408,7 +409,7 @@ export function Orders({refreshKey,planRefs,onPlanRefs,onExec,onRevise}:{refresh
   :resources?<ResourceAgenda query={query} orderIds={shown.map(r=>r.item.id)} period={{from:filters.from,to:filters.to}} exportParams={resExport} exportFilters={resFilters}/>
   :view.display==='gantt'?<Gantt groups={groups} orgs={refs.orgs} now={now} onOpen={id=>{const o=(rows.orders as R[]).find(x=>x.id===id);if(o)openDetail(o)}}/>:<>
    <div className="table-scroll orders-table"><Table><TableHeader><TableRow><TableHead>OS</TableHead><TableHead>Atividade</TableHead><TableHead>Solicitante</TableHead><TableHead>Local</TableHead><TableHead>Período planejado</TableHead><TableHead>Real</TableHead><TableHead>Situação</TableHead><TableHead>Etapas</TableHead></TableRow></TableHeader><TableBody>{groups.map(g=><Fragment key={g.key}>{g.label&&<TableRow className="group-row"><TableCell colSpan={8}><div className="group-head">{head(g)}</div></TableCell></TableRow>}{g.rows.map(({item:o,flags:fl})=><TableRow key={o.id} className="clickable" onClick={()=>void openDetail(o)}><TableCell><button className="tag-label" onClick={e=>{e.stopPropagation();void openDetail(o)}}>{osLabel(o.number)}</button>{o.sector_code&&<small>{o.sector_code}</small>}</TableCell><TableCell><b>{o.activity_name}</b><small title={o.description||undefined}>{[o.activity_code,clip(o.description)].filter(Boolean).join(' · ')||'—'}</small></TableCell><TableCell><OrgTag org={orgOf(o.org_id)}/></TableCell><TableCell><span className="loc-cell" title={paths.get(o.location_id)||undefined}>{(()=>{const parts=(paths.get(o.location_id)||'—').split(' › ');return <><b>{parts[parts.length-1]}</b>{parts.length>1&&<small>{parts[parts.length-2]}</small>}</>;})()}</span></TableCell><TableCell>{o.planned_start?range(o.planned_start,o.planned_end):<span className="pending-text">Sem início planejado</span>}</TableCell><TableCell>{o.actual_start?range(o.actual_start,o.actual_end):'—'}</TableCell><TableCell>{status(o,fl)}</TableCell><TableCell>{o.steps_done}/{o.steps_total}</TableCell></TableRow>)}</Fragment>)}</TableBody></Table></div>
-   <ul className="order-cards">{groups.map(g=><Fragment key={g.key}>{g.label&&<li className="group-head">{head(g)}</li>}{g.rows.map(({item:o,flags:fl})=><li key={o.id}><button type="button" onClick={()=>void openDetail(o)}><div><b>{osLabel(o.number)}{o.sector_code?` · ${o.sector_code}`:''}</b><OrgTag org={orgOf(o.org_id)}/></div><span>{o.activity_name}</span><small><CalendarRange size={12} className="inline"/> {o.planned_start?range(o.planned_start,o.planned_end):'Sem início planejado'}</small><small><MapPin size={12} className="inline"/> {paths.get(o.location_id)||'—'}</small>{status(o,fl)}</button></li>)}</Fragment>)}</ul>
+   <ul className="order-cards">{groups.map(g=><Fragment key={g.key}>{g.label&&<li className="group-head">{head(g)}</li>}{g.rows.map(({item:o,flags:fl})=><li key={o.id}><button type="button" onClick={()=>void openDetail(o)}><div><b>{osLabel(o.number)}{o.sector_code?` · ${o.sector_code}`:''}</b><OrgTag org={orgOf(o.org_id)}/></div><span>{o.activity_name}</span>{o.recovery_number&&<RecoveryBadge number={o.recovery_number} supplier={o.recovery_supplier} totalCents={o.recovery_total_cents}/>}<small><CalendarRange size={12} className="inline"/> {o.planned_start?range(o.planned_start,o.planned_end):'Sem início planejado'}</small><small><MapPin size={12} className="inline"/> {paths.get(o.location_id)||'—'}</small>{status(o,fl)}</button></li>)}</Fragment>)}</ul>
   </>}
   </section>
 

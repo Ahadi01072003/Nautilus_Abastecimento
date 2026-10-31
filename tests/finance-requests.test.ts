@@ -305,6 +305,9 @@ test('vincular OS existente: mesmo cliente, sem solicitação; OS já concluída
  const wo=await freeOrder(org,person,14);
  await finishAll(wo);
  const id=await authorized({title:'Içamento vinculado'});
+ // Candidatas: OS do mesmo cliente, não cancelada e sem solicitação.
+ const linkable=((await requestDetail(fin,id)).linkable as Row[]).map(o=>o.id);
+ assert.ok(linkable.includes(wo));assert.ok(!linkable.includes(launchedOrder),'OS já ligada não aparece');
  await rejects(fr('requests/link',{id,workOrderId:wo},operator),403);
  await rejects(fr('requests/link',{id,workOrderId:launchedOrder}),409,/já tem solicitação/);
  await fr('requests/link',{id,workOrderId:wo},planner);
@@ -336,4 +339,9 @@ test('lista de OS mostra o selo da solicitação; valor só para quem tem Financ
  const asPlanner=await list(planner),asFin=await list(fin);
  assert.ok(asPlanner.recovery_number>0);assert.equal(asPlanner.recovery_total_cents,undefined);assert.equal(asPlanner.recovery_supplier,undefined);
  assert.equal(asFin.recovery_number,asPlanner.recovery_number);assert.equal(Number(asFin.recovery_total_cents),1222222);assert.equal(asFin.recovery_supplier,'Fornecedor Alfa');
+ // Mesmo selo no cabeçalho da OS.
+ const head=async(who:Member)=>(await orderDetail(who,launchedOrder)).recovery as Row;
+ const p=await head(planner),f=await head(fin);
+ assert.equal(p.number,asPlanner.recovery_number);assert.equal(p.totalCents,undefined);assert.equal(p.supplier,undefined);
+ assert.equal(f.totalCents,1222222);assert.equal(f.supplier,'Fornecedor Alfa');
 });

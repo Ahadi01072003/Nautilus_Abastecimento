@@ -127,10 +127,13 @@ export async function requestDetail(member:Member,requestId:string){
   db().all('SELECT action,author_name,created_at,detail FROM audits WHERE entity_id=? ORDER BY created_at',r.id),
  ]);
  const st=r.status as RequestStatus,planner=isManager(a)||a.capabilities.includes('planejamento');
+ // Para "Vincular OS existente": OS do mesmo cliente, não cancelada e sem outra solicitação.
+ const linkable=st==='autorizada'&&!r.work_order_id?await db().all(`SELECT w.id,w.number,w.status,w.planned_start,w.planned_end,coalesce(nullif(w.title,''),t.name) activity FROM work_orders w JOIN activity_types t ON t.id=w.activity_type_id
+  WHERE w.org_id=? AND w.status<>'cancelada' AND NOT EXISTS (SELECT 1 FROM recovery_requests x WHERE x.work_order_id=w.id) ORDER BY w.number DESC LIMIT 100`,r.org_id):[];
  return {request:{...r,rec:recNumber(r.number),activity:activityOf(r),quotes:undefined} as Row,
   quotes:quotes.map(q=>({id:q.id,supplierId:q.supplier_id,supplierName:q.supplier_name,proposalNumber:q.proposal_number,validUntil:q.valid_until,leadTime:q.lead_time,receivedAt:q.received_at,notes:q.notes,
    createdByName:q.created_by_name,chosen:q.id===r.chosen_quote_id,totals:quoteTotals(Number(q.value_cents),Number(r.margin_bp),Number(r.tax_bp))})),
-  attachments,reports,history,
+  attachments,reports,history,linkable,
   can:{edit:st==='em_cotacao',send:st==='em_cotacao',reopen:st==='enviada'||(st==='autorizada'&&!r.work_order_id),authorize:st==='enviada',
    cancel:['em_cotacao','enviada','autorizada'].includes(st),plan:st==='autorizada'&&!r.work_order_id&&planner}};
 }

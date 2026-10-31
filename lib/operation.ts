@@ -52,7 +52,10 @@ export async function orderDetail(member:Member,workOrderId:string){
   db().all('SELECT id,name,acronym,color FROM requester_orgs WHERE id=?',wo.org_id),
  ]);
  const caps=a.capabilities||[];
- return {order:wo,plan,realizedUses,steps,equipmentTags,operatorNames,orgs,intervals,occurrences,events,requirements,instances:instances.map(i=>({...i,answers:answers.filter(x=>x.instance_id===i.id)})),questions,complementary,categories,
+ // Selo "Recobrável REC-…": fornecedor e valor a faturar só para Financeiro e Gestão.
+ const rec=await db().first('SELECT r.id,r.number,r.status,r.chosen_total_cents,s.name supplier FROM recovery_requests r LEFT JOIN recovery_quotes q ON q.id=r.chosen_quote_id LEFT JOIN suppliers s ON s.id=q.supplier_id WHERE r.work_order_id=?',wo.id);
+ const recovery=rec?{id:rec.id as string,number:Number(rec.number),status:rec.status as string,...(has(a,'financeiro')?{supplier:rec.supplier as string|null,totalCents:rec.chosen_total_cents==null?null:Number(rec.chosen_total_cents)}:{})}:null;
+ return {order:wo,plan,realizedUses,recovery,steps,equipmentTags,operatorNames,orgs,intervals,occurrences,events,requirements,instances:instances.map(i=>({...i,answers:answers.filter(x=>x.instance_id===i.id)})),questions,complementary,categories,
   impediments:impediments.filter(i=>used.includes(i.equipment_id)),serverNow:now(),
   can:{execute:isManager(a)||caps.includes('operacao'),plan:isManager(a)||caps.includes('planejamento'),cancel:canCancelOrders(a)}};
 }
