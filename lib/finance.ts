@@ -171,7 +171,15 @@ export async function financePanel(member:Member,url:URL){
   detail[p.equipmentId+'|'+p.orgId]={dailies:real.map(d=>({...d,orderNumbers:d.orderIds.map(o=>numbers.get(o)!).filter(Boolean)})),
    pending:uses.filter(u=>(u.review==='a_conferir'||!u.ended_at)&&((ms(u.started_at)>=t0&&ms(u.started_at)<t1)||inPending.has(u.id))),forecast:origin,others};
  }
- return {period:{from,to},rows:rows.sort((x,y)=>x.tag.localeCompare(y.tag)||x.orgName.localeCompare(y.orgName)),detail,orgs:orgs.filter(o=>inScope(a,o.id)&&rates.some(r=>r.orgId===o.id))};
+ // Bloco Atividades: solicitações de recobrável pela data prevista de início, no período, no cliente
+ // filtrado e no escopo. "Autorizadas" inclui as em execução (autorizadas e ainda não concluídas).
+ const where=['planned_start::timestamptz>=?::timestamptz','planned_start::timestamptz<?::timestamptz'],values:unknown[]=[new Date(t0).toISOString(),new Date(t1).toISOString()];
+ if(org){where.push('org_id=?');values.push(org);}
+ if(!isManager(a)&&a.org_scope.length){where.push('org_id = ANY(?::text[])');values.push(a.org_scope);}
+ const byStatus=await db().all(`SELECT status,count(*)::int n,coalesce(sum(chosen_total_cents),0)::bigint cents FROM recovery_requests WHERE ${where.join(' AND ')} GROUP BY status`,...values);
+ const n=(...st:string[])=>byStatus.filter(x=>st.includes(x.status)).reduce((t,x)=>t+Number(x.n),0),cents=(...st:string[])=>byStatus.filter(x=>st.includes(x.status)).reduce((t,x)=>t+Number(x.cents),0);
+ const activities={emCotacao:n('em_cotacao'),enviadas:n('enviada'),autorizadas:n('autorizada','em_execucao'),concluidas:n('concluida'),authorizedCents:cents('autorizada','em_execucao'),concludedCents:cents('concluida')};
+ return {period:{from,to},rows:rows.sort((x,y)=>x.tag.localeCompare(y.tag)||x.orgName.localeCompare(y.orgName)),detail,activities,orgs:orgs.filter(o=>inScope(a,o.id)&&rates.some(r=>r.orgId===o.id))};
 }
 
 /** Diárias realizadas para a exportação: por equipamento e cliente com tarifa, as que começam no

@@ -235,7 +235,7 @@ test('disponibilidade segue a regra do banco: equipamento de etapa em execução
  // Dentro do período previsto da etapa em andamento: ocupado, dizendo até quando.
  const during=await availability(planner,new URL(`http://x/?start=${at(132)}&end=${at(133)}`));
  const e=during.equipment.find((x:Row)=>x.id==='eq2')!;
- assert.equal(e.status,'reservado');assert.match(e.detail,/ainda não finalizada: ocupado até/);
+ assert.equal(e.status,'reservado');assert.match(e.detail,/reservado para a etapa/);
  await rejects(launch(132,133,'eq2'),409);
  // Depois do fim previsto da etapa (134 h), outra OS reserva normalmente (antes, ficava travado para sempre).
  const later=await availability(planner,new URL(`http://x/?start=${at(140)}&end=${at(144)}`));

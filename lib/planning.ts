@@ -3,10 +3,12 @@
 // lançamento idempotente e cancelamento. O banco garante o intertravamento (reservation_guard).
 import {db,type Executor,type Row} from './db';
 import {AppError,required,text} from './domain';
-import {type Member,isManager,requireAny,canSeeOrders,canCancelOrders} from './permissions';
+import {type Member,isManager,has,requireAny,canSeeOrders,canCancelOrders} from './permissions';
 import {audit,idList} from './registry';
 import {preventiveRows} from './maintenance';
 import {filterSectors} from './board';
+import {onPlanLaunched,onPlanReplaced} from './recovery-link';
+import {recNumber} from './recovery-quote';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -86,13 +88,11 @@ async function conflictsMany(a:Actor,equipmentIds:string[],start:string,end:stri
  const out=new Map<string,Row[]>();
  if(!equipmentIds.length)return out;
  const rows=await all(`SELECT r.id,r.equipment_id,r.start_at,r.end_at,r.status,r.plan_id,r.plan_step_id,p.status plan_status,p.author_id,p.author_name,p.org_id,p.work_order_id,s.name step_name,w.number
-  ,(o.id IS NOT NULL AND r.end_at::timestamptz >= s.planned_end::timestamptz) running,s.planned_end step_end,greatest(r.end_at::timestamptz,now()) busy_until
   FROM reservations r JOIN plans p ON p.id=r.plan_id JOIN plan_steps s ON s.id=r.plan_step_id LEFT JOIN work_orders w ON w.id=p.work_order_id
-  LEFT JOIN os_steps o ON o.plan_step_id=r.plan_step_id AND o.status IN ('em_execucao','bloqueada','pausada')
-  WHERE r.equipment_id = ANY(?::text[]) AND r.status<>'liberada' AND r.start_at::timestamptz < ?::timestamptz
-   AND (CASE WHEN o.id IS NOT NULL AND r.end_at::timestamptz >= s.planned_end::timestamptz THEN greatest(r.end_at::timestamptz,now()) ELSE r.end_at::timestamptz END) > ?::timestamptz ORDER BY r.start_at`,equipmentIds,end,start);
- // Mesma regra do banco (reservation_guard): horas de uso definidas valem como planejadas, mesmo com a
- // etapa em andamento; o equipamento da etapa inteira segue ocupado até a etapa ser finalizada.
+  WHERE r.equipment_id = ANY(?::text[]) AND r.status<>'liberada' AND p.mode<>'realizada' AND (r.status='confirmada' OR r.plan_id=?::text)
+   AND r.start_at::timestamptz < ?::timestamptz AND r.end_at::timestamptz > ?::timestamptz ORDER BY r.start_at`,equipmentIds,ignore.planId||null,end,start);
+ // Mesma regra do banco (reservation_guard): só OS lançada disputa (rascunho não segura o equipamento)
+ // e a reserva vale até o fim previsto, mesmo com a etapa em andamento.
  for(const r of labelled(a,rows,ignore)){const l=out.get(r.equipment_id)||[];l.push(r);out.set(r.equipment_id,l);}
  return out;
 }
@@ -103,9 +103,6 @@ function labelled(a:Actor,rows:Row[],ignore:{planId?:string,stepId?:string,workO
   const when=period(r.start_at,r.end_at);
   const label=r.plan_status==='draft'
    ?(own?`reserva provisória de planejamento (${r.plan_id===ignore.planId?'neste rascunho, ':''}etapa “${r.step_name}”, responsável ${r.author_name}), em ${when}`:`reserva provisória de planejamento em ${when}`)
-   :r.running?(()=>{const late=r.step_end&&ms(r.step_end)<Date.now();
-     const until=late?`passou do fim previsto (${fmtDate(r.step_end)}) e segue em uso até ser finalizada`:`ocupado até ${fmtDate(r.busy_until)}, fim previsto da etapa`;
-     return inScope(a,r.org_id)?`em uso na etapa “${r.step_name}” da ${osNumber(r.number)}, ainda não finalizada: ${until}`:`em uso em outra OS, etapa ainda não finalizada: ${until}`;})()
    :(inScope(a,r.org_id)?`reservado para a etapa “${r.step_name}” da ${osNumber(r.number)}, em ${when}`:`reservado para outra OS em ${when}`);
   return {...r,label};
  });
@@ -150,7 +147,9 @@ export async function availability(member:Member,url:URL){
  if(!start||!end||ms(end)<=ms(start))throw new AppError('Informe um intervalo válido.');
  const stepId=url.searchParams.get('stepId')||undefined,planId=url.searchParams.get('planId')||undefined;
  const [equipment,impediments,operators]=await Promise.all([all('SELECT id,tag FROM equipment WHERE active=1 ORDER BY tag'),all('SELECT equipment_id,reason FROM equipment_impediments WHERE released_at IS NULL AND opened_at::timestamptz < ?::timestamptz',end),all('SELECT id FROM operators WHERE active=1')]);
- const plan=planId?await first('SELECT p.work_order_id,p.base_plan_id,s.step_key FROM plans p LEFT JOIN plan_steps s ON s.id=? AND s.plan_id=p.id WHERE p.id=?',stepId||'',planId):null;
+ const plan=planId?await first('SELECT p.work_order_id,p.base_plan_id,p.mode,s.step_key FROM plans p LEFT JOIN plan_steps s ON s.id=? AND s.plan_id=p.id WHERE p.id=?',stepId||'',planId):null;
+ // Atividade realizada: registro do que já foi feito, sem agenda a respeitar (tudo livre, sem aviso).
+ if(plan?.mode==='realizada')return {equipment:equipment.map(e=>({id:e.id,status:'livre',detail:''})),operators:operators.map(o=>({id:o.id,status:'livre',detail:''}))};
  const workOrderId=plan?.work_order_id||null,stepKey=plan?.step_key;
  // Revisão: equipamento já reservado na versão vigente para a mesma etapa continua aceito (é a mesma reserva).
  const carried=plan?.base_plan_id&&stepKey?await baseReservations(plan.base_plan_id):null;
@@ -167,13 +166,13 @@ export async function availability(member:Member,url:URL){
  const busy=await all(`SELECT pp.operator_id,pp.plan_step_id,st.name step_name,st.planned_start,st.planned_end,p.id plan_id,p.status plan_status,p.author_id,p.author_name,p.org_id,w.number
   FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id AND st.included=1 JOIN plans p ON p.id=pp.plan_id
   LEFT JOIN work_orders w ON w.id=p.work_order_id LEFT JOIN os_steps o ON o.plan_step_id=st.id
-  WHERE p.status IN ('draft','launched') AND st.planned_start IS NOT NULL AND st.planned_end IS NOT NULL
+  WHERE (p.status='launched' OR p.id IS NOT DISTINCT FROM ?::text) AND p.mode<>'realizada' AND st.planned_start IS NOT NULL AND st.planned_end IS NOT NULL
    AND st.planned_start::timestamptz < ?::timestamptz AND st.planned_end::timestamptz > ?::timestamptz
    AND (w.id IS NULL OR w.status NOT IN ('cancelada','concluida'))
    AND (o.id IS NULL OR o.status NOT IN ('concluida','dispensada','cancelada'))
    AND pp.plan_step_id IS DISTINCT FROM ?::text
    AND NOT (?::text IS NOT NULL AND p.work_order_id = ?::text AND p.id IS DISTINCT FROM ?::text)
-  ORDER BY st.planned_start::timestamptz`,end,start,stepId||null,workOrderId,workOrderId,planId||null);
+  ORDER BY st.planned_start::timestamptz`,planId||null,end,start,stepId||null,workOrderId,workOrderId,planId||null);
  const people=operators.map(o=>{const mine=busy.filter(b=>b.operator_id===o.id);
   return {id:o.id,status:mine.length?'ocupado':'livre',detail:mine.map(b=>{const when=period(b.planned_start,b.planned_end);
    if(b.plan_status==='draft')return b.plan_id===planId?`nesta atividade, etapa “${b.step_name}”, em ${when}`:`rascunho de planejamento${b.author_id===a.id||isManager(a)?` de ${b.author_name}`:''}, em ${when}`;
@@ -183,6 +182,8 @@ export async function availability(member:Member,url:URL){
 
 /** Pendências (impedem o lançamento) e avisos. Só depende dos dados carregados. */
 export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impediments:Row[],orgs:Row[],locations:Row[],functions?:Row[],frozen?:Set<string>,carried?:(stepKey:string,equipmentId:string)=>boolean,keepLocations?:Set<string>}){
+ // Atividade realizada: os recursos são o registro do que foi usado; não há aviso nem pendência deles.
+ const resources=plan.mode!=='realizada';
  const errors:{step?:string,message:string}[]=[],warnings:{step?:string,kind?:string,message:string}[]=[];
  if(plan.free&&!String(plan.title||'').trim())errors.push({message:'Informe o título da atividade.'});
  if(!plan.org_id)errors.push({message:'Informe a organização solicitante.'});
@@ -210,6 +211,7 @@ export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impe
    if(!p.included){warnings.push({step:s.step_key,message:`${name} dependia de “${p.name}”, que não foi incluída: a dependência foi ignorada.`});continue;}
    if(p.planned_end&&ms(s.planned_start)<ms(p.planned_end))errors.push({step:s.step_key,message:`${name}: começa antes do fim de “${p.name}” (dependência término → início).`});
   }
+  if(!resources)continue;
   for(const n of s.needs as Row[]){
    if(n.material_id)continue;
    if(n.equipment_type_id){
@@ -258,6 +260,8 @@ export async function validation(plan:Plan,a:Actor){
  ]);
  const keepLocations=new Set((plan.base_plan_id?await all('SELECT location_id FROM plans WHERE id=? UNION SELECT location_id FROM plan_steps WHERE plan_id=?',plan.base_plan_id,plan.base_plan_id):[]).map(r=>r.location_id as string).filter(Boolean));
  const result=validatePlan(plan,{equipment,operators,impediments,orgs,locations,functions,frozen:revision?.frozen,carried:revision?.carried,keepLocations});
+ // Atividade realizada: sem conferência de agenda, preventiva ou equipe (só os dados do registro).
+ if(plan.mode==='realizada')return result;
  // Manutenção: equipamento com preventiva vencida é aviso (o bloqueio, quando existe, já é pendência).
  const used=new Set(plan.steps.filter(s=>s.included&&!revision?.frozen.has(s.step_key)).flatMap(s=>s.equipment_ids as string[]));
  if(used.size)for(const r of (await preventiveRows()).filter(x=>used.has(x.equipmentId)&&(x.status==='atrasada'||x.status==='pendente')))
@@ -275,19 +279,12 @@ export async function validation(plan:Plan,a:Actor){
  // Início previsto no passado (OS nova planejada): aviso, a OS nasce com início vencido.
  if(plan.mode!=='realizada'&&!plan.work_order_id&&plan.planned_start&&ms(plan.planned_start)<Date.now()-5*60000)
   result.warnings.push({message:`O início previsto (${fmtDate(plan.planned_start)}) já passou: a OS será lançada com início vencido. Ajuste as datas se ela ainda não começou.`});
- // Equipamento da etapa inteira de outra OS que passou do fim previsto e não foi finalizada: a reserva
- // daqui é aceita (o atraso não segura o futuro), mas a etapa só começa quando aquela terminar.
- const eqIds=[...new Set(plan.steps.filter(s=>s.included&&!revision?.frozen.has(s.step_key)).flatMap(s=>s.equipment_ids as string[]))];
- if(eqIds.length)for(const l of await all(`SELECT e.tag,w.number,w.org_id,st.name,st.planned_end FROM reservations r JOIN equipment e ON e.id=r.equipment_id JOIN plan_steps st ON st.id=r.plan_step_id
-   JOIN os_steps o ON o.plan_step_id=r.plan_step_id AND o.status IN ('em_execucao','bloqueada','pausada') JOIN work_orders w ON w.id=o.work_order_id
-   WHERE r.equipment_id = ANY(?::text[]) AND r.status<>'liberada' AND r.end_at::timestamptz >= st.planned_end::timestamptz AND st.planned_end::timestamptz < now() AND w.id IS DISTINCT FROM ?::text`,eqIds,plan.work_order_id||null))
-  result.warnings.push({message:`Equipamento ${l.tag} segue em uso na etapa “${l.name}” ${inScope(a,l.org_id)?`da ${osNumber(l.number)}`:'de outra OS'}, que passou do fim previsto (${fmtDate(l.planned_end)}). Se ela não for finalizada até o horário desta OS, a etapa daqui não poderá começar.`});
  // Colaborador em etapas sobrepostas: aviso (não há reserva exclusiva de pessoas).
  for(const s of plan.steps.filter(x=>x.included&&x.planned_start&&x.planned_end&&x.operator_ids.length&&!revision?.frozen.has(x.step_key))){
   const clash=await all(`SELECT DISTINCT o.name,st.name step_name,st.planned_start,st.planned_end,w.number FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id JOIN plans p ON p.id=pp.plan_id JOIN operators o ON o.id=pp.operator_id LEFT JOIN work_orders w ON w.id=p.work_order_id
    WHERE pp.operator_id = ANY(?::text[]) AND pp.plan_step_id<>? AND p.status IN ('draft','launched') AND st.included=1 AND st.planned_start IS NOT NULL
    AND st.planned_start::timestamptz < ?::timestamptz AND st.planned_end::timestamptz > ?::timestamptz
-   AND (p.status='launched' OR p.id=?) AND (p.id=? OR p.work_order_id IS DISTINCT FROM ?::text)
+   AND (p.status='launched' OR p.id=?) AND (p.id=? OR p.work_order_id IS DISTINCT FROM ?::text) AND p.mode<>'realizada'
    AND NOT EXISTS (SELECT 1 FROM work_orders cw WHERE cw.id=p.work_order_id AND cw.status='cancelada')`,s.operator_ids,s.id,s.planned_end,s.planned_start,plan.id,plan.id,plan.work_order_id||null);
   // Paralelismo de pessoas: só sinaliza (não bloqueia), dizendo quem, onde e quando.
   for(const c of clash)result.warnings.push({step:s.step_key,kind:'paralelismo',message:`Etapa “${s.name}”: ${c.name} também está na etapa “${c.step_name}”${c.number?` da ${osNumber(c.number)}`:' de um rascunho'}, em ${period(c.planned_start,c.planned_end)}.`});
@@ -361,8 +358,9 @@ export async function ordersList(member:Member,url:URL){
  const number=url.searchParams.get('number');if(number){const n=Number(number.replace(/\D/g,''));if(Number.isSafeInteger(n)&&n>0){where.push('w.number=?');values.push(n);}}
  const rows=await all(`SELECT w.*,p.description,p.requester_person_id,coalesce(nullif(w.code,''),CASE WHEN t.system=1 THEN '' ELSE t.code END) activity_code,coalesce(nullif(w.title,''),t.name) activity_name,t.system free,nullif(w.code,'') sector_code,(SELECT sc.name FROM sectors sc WHERE sc.code=w.code) sector_name,
   (SELECT count(*) FROM os_steps s WHERE s.work_order_id=w.id) steps_total,(SELECT count(*) FROM os_steps s WHERE s.work_order_id=w.id AND s.status IN ('concluida','dispensada')) steps_done,
-  (SELECT count(*) FROM reservations r JOIN equipment_impediments i ON i.equipment_id=r.equipment_id AND i.released_at IS NULL WHERE r.plan_id=w.current_plan_id AND r.status='confirmada') blocked_resources
-  FROM work_orders w JOIN plans p ON p.id=w.current_plan_id JOIN activity_types t ON t.id=w.activity_type_id${where.length?' WHERE '+where.join(' AND '):''}
+  (SELECT count(*) FROM reservations r JOIN equipment_impediments i ON i.equipment_id=r.equipment_id AND i.released_at IS NULL WHERE r.plan_id=w.current_plan_id AND r.status='confirmada') blocked_resources,
+  rr.number recovery_number,rr.chosen_total_cents recovery_total_cents,(SELECT s.name FROM recovery_quotes q JOIN suppliers s ON s.id=q.supplier_id WHERE q.id=rr.chosen_quote_id) recovery_supplier
+  FROM work_orders w JOIN plans p ON p.id=w.current_plan_id JOIN activity_types t ON t.id=w.activity_type_id LEFT JOIN recovery_requests rr ON rr.work_order_id=w.id${where.length?' WHERE '+where.join(' AND '):''}
   ORDER BY CASE WHEN w.status IN ('em_andamento','encerramento_pendente') THEN 0 WHEN w.status='programada' THEN (CASE WHEN w.planned_start::timestamptz < now() THEN 1 ELSE 2 END) WHEN w.status='concluida' THEN 3 ELSE 4 END,
    CASE WHEN w.status IN ('concluida','cancelada') THEN -extract(epoch FROM coalesce(w.actual_end,w.planned_end)::timestamptz) ELSE extract(epoch FROM w.planned_start::timestamptz) END,w.number
   LIMIT ${LIST_LIMIT+1}`,...values);
@@ -370,8 +368,9 @@ export async function ordersList(member:Member,url:URL){
  const more=rows.length>LIST_LIMIT;if(more)rows.length=LIST_LIMIT;
  const counted=await all(`SELECT w.org_id,count(*)::int n FROM work_orders w JOIN plans p ON p.id=w.current_plan_id JOIN activity_types t ON t.id=w.activity_type_id${where.length?' WHERE '+where.join(' AND '):''} GROUP BY w.org_id`,...values);
  const counts:Record<string,number>=Object.fromEntries(counted.map(r=>[r.org_id,r.n]));
- const t=Date.now();
- return {orders:rows.map((r):Row=>({...r,late:r.status==='programada'&&ms(r.planned_start)<t})),counts,total:counted.reduce((n,r)=>n+r.n,0),more,scoped:!!scope};
+ const t=Date.now(),money=has(a,'financeiro');
+ // Selo "Recobrável REC-…" para todos; fornecedor e valor a faturar só para Financeiro e Gestão.
+ return {orders:rows.map((r):Row=>{const o:Row={...r,late:r.status==='programada'&&ms(r.planned_start)<t};if(!money){delete o.recovery_total_cents;delete o.recovery_supplier;}return o;}),counts,total:counted.reduce((n,r)=>n+r.n,0),more,scoped:!!scope};
 }
 
 /** Agenda de uso dos recursos das OS da lista (mesmos filtros): equipamentos (reservas), funções e
@@ -412,7 +411,7 @@ export async function ordersRefs(member:Member){
 /** Tipo de atividade de sistema da OS sem fluxo: criado na primeira vez, com uma etapa de execução
  * cujo início e fim acompanham as datas macro da OS. Não aparece no Cadastro de fluxo. */
 export const FREE_CODE='SYS.SEM-FLUXO';
-async function freeType(tx:Executor,a:Member){
+export async function freeType(tx:Executor,a:Member){
  const find=()=>tx.first("SELECT t.*,v.id flow_version_id FROM activity_types t JOIN flow_versions v ON v.activity_type_id=t.id AND v.version=t.current_version WHERE t.code=? AND t.system=1",FREE_CODE);
  const found=await find();if(found)return found;
  const tid=id(),vid=id(),t=now();
@@ -425,7 +424,7 @@ async function freeType(tx:Executor,a:Member){
  return r;
 }
 
-async function createDraftFrom(tx:Executor,a:Member,activityTypeId:string,header:Row={}){
+export async function createDraftFrom(tx:Executor,a:Member,activityTypeId:string,header:Row={}){
  const type=await tx.first('SELECT t.*,v.id flow_version_id FROM activity_types t JOIN flow_versions v ON v.activity_type_id=t.id AND v.version=t.current_version WHERE t.id=?',activityTypeId);
  if(!type)throw new AppError('Tipo de atividade não encontrado.',404);
  if(!type.active)throw new AppError('Este tipo de atividade está inativo.');
@@ -514,6 +513,8 @@ export async function planningMutate(path:string,b:Row,member:Member){
    await tx.run("UPDATE reservations SET status='confirmada' WHERE plan_id=? AND status='provisoria'",plan.id);
    for(const s of plan.steps.filter(x=>x.included))await tx.run('INSERT INTO os_steps(id,work_order_id,step_key,plan_step_id) VALUES(?,?,?,?)',id(),wid,s.step_key,s.id);
    const required=await createRequirements(tx,wid,plan);
+   // Rascunho ligado a uma solicitação de recobrável autorizada: a solicitação passa a "Em execução".
+   await onPlanLaunched(tx,a,plan.id,wid);
    await audit(tx,a,'Planejamento: OS lançada',wid,{number:w!.number,planId:plan.id,steps:plan.steps.filter(x=>x.included).length,reservations:plan.steps.flatMap(s=>s.equipment_ids).length,checklists:required});
    return {workOrderId:wid,number:w!.number as number};
   });
@@ -552,6 +553,7 @@ export async function planningMutate(path:string,b:Row,member:Member){
    if(!changed)throw new AppError('Este rascunho foi alterado em outra tela. Atualize para continuar.',409);
    await releaseAll(tx,plan.id,'Tipo de atividade trocado');
    const r=await createDraftFrom(tx,a,idOf(b.activityTypeId,'Tipo de atividade'),plan);
+   await onPlanReplaced(tx,a,plan.id,r.pid);
    await audit(tx,a,'Planejamento: tipo de atividade trocado',r.pid,{from:plan.activity_code,to:r.type.code,previousPlan:plan.id});
    return r;
   });
@@ -684,6 +686,9 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
  if(org&&!inScope(a,org.id))throw new AppError('Organização fora do seu acesso.',403);
  const revision=await revisionContext(plan);
  if(plan.work_order_id&&(org?.id||null)!==plan.org_id)throw new AppError('A organização solicitante da OS não muda na revisão.');
+ // Rascunho de uma solicitação de recobrável autorizada: o cliente é o que autorizou a cotação.
+ if(!plan.work_order_id&&(org?.id||null)!==plan.org_id){const rec=await first("SELECT number FROM recovery_requests WHERE plan_id=? AND status='autorizada'",plan.id);
+  if(rec)throw new AppError(`Este rascunho é da solicitação de recobrável ${recNumber(Number(rec.number))}: o cliente não muda. Para outro cliente, reabra a solicitação no Financeiro.`,409);}
  const person=await activeOr('requester_people',b.requesterPersonId,'Pessoa solicitante',plan.requester_person_id);
  if(person&&person.org_id!==org?.id)throw new AppError('A pessoa solicitante deve pertencer à organização escolhida.');
  const location=await activeOr('locations',b.locationId,'Local',plan.location_id);
@@ -759,8 +764,10 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
   if(x.frozen||(current&&current.start_at===ws&&current.end_at===we))continue;
   // Revisão: manter o equipamento da versão vigente dentro do mesmo intervalo não é reserva nova.
   if(revision?.base.some(r=>r.step_key===x.s.step_key&&r.equipment_id===e&&ms(r.start_at)<=ms(ws)&&ms(r.end_at)>=ms(we)))continue;
+  // Atividade realizada: registro do que já foi feito, sem intertravamento.
+  if(plan.mode==='realizada')continue;
   const tag=equipment.find(y=>y.id===e)!.tag;
-  // Impedimento aberto depois do fim do período não afeta o período (ex.: atividade já realizada).
+  // Impedimento aberto depois do fim do período não afeta o período.
   const block=await first('SELECT reason FROM equipment_impediments WHERE equipment_id=? AND released_at IS NULL AND opened_at::timestamptz < ?::timestamptz LIMIT 1',e,we);
   if(block)throw new AppError(`Equipamento ${tag} bloqueado por impedimento técnico: ${block.reason}. Escolha outro equipamento.`,409);
   const busy=(await conflicts(a,e,ws!,we!,{planId:plan.id,stepId:x.s.id,workOrderId:plan.work_order_id}));

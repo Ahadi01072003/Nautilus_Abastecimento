@@ -2,7 +2,7 @@
 // Configuração central de módulos e telas. Uma tela só aparece quando existe e quando o
 // servidor a libera em actor.modules; o servidor revalida cada consulta e comando.
 import {useEffect,useState} from 'react';
-import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign} from 'lucide-react';
+import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign,FileSpreadsheet,Settings2} from 'lucide-react';
 import {Sidebar,SidebarContent,SidebarHeader,SidebarFooter,SidebarGroup,SidebarGroupLabel,SidebarMenu,SidebarMenuItem,SidebarMenuButton,SidebarMenuSub,SidebarMenuSubItem,SidebarMenuSubButton,useSidebar} from '@/components/ui/sidebar';
 import {signOut} from './login';
 import Bathy from './bathy';
@@ -38,7 +38,9 @@ export const MODULES:Module[]=[
  ]},
  {id:'financeiro',label:'Financeiro',icon:Landmark,screens:[
   {id:'fin-painel',label:'Painel de recobráveis',icon:BadgeDollarSign,subtitle:'Diárias previstas e realizadas por equipamento, conferidas e a conferir.'},
+  {id:'fin-solicitacoes',label:'Solicitação de recobráveis',icon:FileSpreadsheet,subtitle:'Cotações dos fornecedores por atividade, relatório para o cliente assinar e a OS ligada.'},
   {id:'fin-tarifas',label:'Tarifas',icon:Receipt,subtitle:'Valor por hora e horas por diária de cada equipamento cobrado, com vigência.'},
+  {id:'fin-config',label:'Configurações',icon:Settings2,subtitle:'Clientes habilitados para recobráveis, margem e impostos por cliente e fornecedores.'},
  ]},
  {id:'cadastros',label:'Cadastros gerais',icon:Database,screens:[
   {id:'cad-solicitantes',label:'Solicitantes e clientes',icon:Building2,subtitle:'Organizações solicitantes, etiquetas visuais e pessoas de contato.'},

@@ -10,6 +10,12 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-30-financeiro-solicitacoes-recobraveis-design.md` (aprovada em 30/10/2026). Depende da Frente A (já em produção: acesso Financeiro, menu, `lib/finance.ts`).
 
+## Decisões do usuário (30/10/2026)
+
+1. Cliente novo: sugestão de margem e impostos = vigência cadastrada mais recente (de qualquer cliente).
+2. OS com fluxo: os recursos da solicitação vão para a descrição do rascunho; OS sem fluxo: viram recursos da etapa.
+3. Cancelar solicitação com OS em execução: recusado; cancela-se a OS antes (a solicitação volta a Autorizada).
+
 ## Global Constraints
 
 - Repositório público: código, docs e testes só com valores fictícios ("Cliente Teste", "Fornecedor Alfa/Beta/Gama", margem 10% e impostos 10% ou 12,5%). Percentuais reais só no banco, cadastrados na tela.
@@ -46,7 +52,7 @@
   - `type QuoteTotals={quotedCents:number,marginCents:number,subtotalCents:number,taxCents:number,totalCents:number}`
   - `quoteTotals(quotedCents:number,marginBp:number,taxBp:number):QuoteTotals` — lança `AppError` se P não for inteiro ≥ 0 ou se `marginBp`/`taxBp` saírem de 0..9999.
   - `type RequestStatus='em_cotacao'|'enviada'|'autorizada'|'em_execucao'|'concluida'|'cancelada'`
-  - `const NEXT:Record<RequestStatus,RequestStatus[]>` = `em_cotacao→[enviada,cancelada]`, `enviada→[em_cotacao,autorizada,cancelada]`, `autorizada→[em_cotacao,em_execucao,cancelada]`, `em_execucao→[autorizada,concluida,cancelada]`, `concluida→[]`, `cancelada→[]`.
+  - `const NEXT:Record<RequestStatus,RequestStatus[]>` = `em_cotacao→[enviada,cancelada]`, `enviada→[em_cotacao,autorizada,cancelada]`, `autorizada→[em_cotacao,em_execucao,cancelada]`, `em_execucao→[autorizada,concluida]`, `concluida→[]`, `cancelada→[]`.
   - `canMove(from:RequestStatus,to:RequestStatus):boolean`
   - `recNumber(n:number):string` → `REC-000001`.
 
@@ -55,7 +61,7 @@
   - `regra A: subtotal + impostos = valor a faturar para qualquer valor`: para P em `[1,99,12345,99999999,1234567890]` e pares `(1000,1250),(0,0),(1500,0),(0,1250)` → `subtotal+tax===total` e `tax>=0`.
   - `regra A: percentuais diferentes por cliente`: `quoteTotals(1000000,1000,1250).totalCents===1257143` e margem `100000`.
   - `entradas inválidas recusadas`: P negativo, P fracionário, `taxBp=10000`, `marginBp=-1` → `AppError`.
-  - `caminhos de situação`: `canMove('em_cotacao','enviada')`, `canMove('enviada','em_cotacao')`, `canMove('autorizada','em_execucao')`, `canMove('em_execucao','autorizada')` e `canMove('em_execucao','cancelada')` verdadeiros (spec §6: cancelar a qualquer momento antes de concluir); `canMove('em_cotacao','autorizada')` e `canMove('concluida','cancelada')` falsos.
+  - `caminhos de situação`: `canMove('em_cotacao','enviada')`, `canMove('enviada','em_cotacao')`, `canMove('autorizada','em_execucao')`, `canMove('em_execucao','autorizada')` verdadeiros; `canMove('em_cotacao','autorizada')`, `canMove('concluida','cancelada')` e `canMove('em_execucao','cancelada')` falsos (decisão do usuário em 30/10: com OS em execução, cancele a OS antes).
   - `recNumber(1)==='REC-000001'`.
 - [ ] **Step 2: Run** `node --import tsx --test tests/recovery-quote.test.ts` — Expected: FAIL (módulo inexistente).
 - [ ] **Step 3: Implement `lib/recovery-quote.ts`** em aritmética inteira: `margin=floor((2·P·m+10000)/20000)`, `total=floor((2·P·(10000+m)+(10000−i))/(2·(10000−i)))` (todos os produtos cabem em `Number.MAX_SAFE_INTEGER` para P ≤ 10¹⁰ centavos; limite P a `10_000_000_000`).
@@ -132,7 +138,7 @@
   - `MAX_ATTACHMENT=4_194_304`; `sniff(bytes:Uint8Array):'application/pdf'|'image/jpeg'|'image/png'|null` (`%PDF-`, `FF D8 FF`, `89 50 4E 47 0D 0A 1A 0A`).
   - `uploadAttachment(member,params:URLSearchParams,body:Uint8Array)` — params `request`, `quote?`, `kind`, `name`, `description?`; recusa tipo (415 "Envie PDF, JPG ou PNG.") e tamanho (413 "Arquivo acima de 4 MB."); mesmo `kind` + mesma cotação substitui o anterior (`replaced_by`); só Financeiro/Gestão e dentro do escopo.
   - `downloadAttachment(member,id)` → `Response` com `Content-Type` gravado, `Content-Disposition: attachment; filename*=UTF-8''…`, `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`.
-  - `financeRequestsMutate` ganha: `finance/requests/send` `{id,version,justification?}` (menos de 3 cotações sem justificativa → 409; grava `recovery_reports` com `snapshot` = dados + cotações + totais, versão = maior + 1); `finance/requests/reopen` `{id,version,reason}` (de `enviada` ou `autorizada` sem OS; de `autorizada` limpa `chosen_quote_id`, `chosen_total_cents`, assinatura e `plan_id`); `finance/requests/authorize` `{id,version,quoteId,signerName,signerRole,signedAt}` (copia `totals.totalCents` para `chosen_total_cents`); `finance/requests/cancel` `{id,version,reason}` (qualquer situação antes de `concluida`; em `em_execucao` a OS continua e o vínculo fica no histórico).
+  - `financeRequestsMutate` ganha: `finance/requests/send` `{id,version,justification?}` (menos de 3 cotações sem justificativa → 409; grava `recovery_reports` com `snapshot` = dados + cotações + totais, versão = maior + 1); `finance/requests/reopen` `{id,version,reason}` (de `enviada` ou `autorizada` sem OS; de `autorizada` limpa `chosen_quote_id`, `chosen_total_cents`, assinatura e `plan_id`); `finance/requests/authorize` `{id,version,quoteId,signerName,signerRole,signedAt}` (copia `totals.totalCents` para `chosen_total_cents`); `finance/requests/cancel` `{id,version,reason}` (em `em_cotacao`, `enviada` ou `autorizada`; em `em_execucao` → 409 "A OS desta solicitação está em execução: cancele a OS no Planejamento antes. A solicitação volta a Autorizada e pode ser cancelada.").
   - `requestReport(member,id,version?)` → `{request, snapshot, version, issuedAt}` para a página.
 
 - [ ] **Step 1: Write the failing tests:**

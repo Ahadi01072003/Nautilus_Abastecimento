@@ -13,6 +13,7 @@ import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import EquipmentUses from './equipment-uses';
 import {Choice,Badge,Empty,Field,OrgTag,fmt,post,load,fromLocalInput,Period,type R} from './kit';
+import {RecoveryBadge} from './recovery-badge';
 import {osLabel} from './planning';
 import OsRuler,{effective} from './os-ruler';
 import {Digits,hms} from './ops-board';
@@ -95,6 +96,7 @@ export default function OrderExecution({orderId,onChanged}:{orderId:string,onCha
    <div className="oshead">
     <div className="row"><span className="id">{osLabel(order.number)} · {plan.free?(order.activity_code||'sem fluxo'):`${plan.activity_code} v${plan.flow_version}`}{order.origin==='realizada'?' · realizada sem planejamento':''}{order.revision?` · revisão ${order.revision}`:''}</span><span className="row" style={{gap:10}}>{active.some(s=>s.status==='bloqueada')&&<span className="st bloqueada"><i/>Etapa bloqueada</span>}<span className={`st ${order.status}`}><i/>{orderNames[order.status][0]}</span></span></div>
     <h2>{order.activity_name}</h2>
+    {data.recovery&&<RecoveryBadge number={data.recovery.number} supplier={data.recovery.supplier} totalCents={data.recovery.totalCents}/>}
    </div>
    <dl className="facts"><div><dt>Solicitante</dt><dd><OrgOf data={data}/></dd></div><div><dt>Planejado</dt><dd><Period a={order.planned_start} b={order.planned_end}/></dd></div><div><dt>Real</dt><dd>{order.actual_start?<Period a={order.actual_start} b={order.actual_end}/>:'Não iniciada'}</dd></div><div><dt>Etapas</dt><dd>{done} de {steps.length} concluídas{order.closed_at?` · encerrada ${fmt(order.closed_at)}`:''}</dd></div></dl>
    {/* Descrição da atividade: entre o cabeçalho da OS e a régua. */}

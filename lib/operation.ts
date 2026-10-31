@@ -7,6 +7,7 @@ import {type Member,isManager,has,requireAny,canCancelOrders} from './permission
 import {audit} from './registry';
 import {loadPlan,instant,osNumber,period} from './planning';
 import {closeOpenUses} from './finance';
+import {onOrderClosed} from './recovery-link';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -51,7 +52,10 @@ export async function orderDetail(member:Member,workOrderId:string){
   db().all('SELECT id,name,acronym,color FROM requester_orgs WHERE id=?',wo.org_id),
  ]);
  const caps=a.capabilities||[];
- return {order:wo,plan,realizedUses,steps,equipmentTags,operatorNames,orgs,intervals,occurrences,events,requirements,instances:instances.map(i=>({...i,answers:answers.filter(x=>x.instance_id===i.id)})),questions,complementary,categories,
+ // Selo "Recobrável REC-…": fornecedor e valor a faturar só para Financeiro e Gestão.
+ const rec=await db().first('SELECT r.id,r.number,r.status,r.chosen_total_cents,s.name supplier FROM recovery_requests r LEFT JOIN recovery_quotes q ON q.id=r.chosen_quote_id LEFT JOIN suppliers s ON s.id=q.supplier_id WHERE r.work_order_id=?',wo.id);
+ const recovery=rec?{id:rec.id as string,number:Number(rec.number),status:rec.status as string,...(has(a,'financeiro')?{supplier:rec.supplier as string|null,totalCents:rec.chosen_total_cents==null?null:Number(rec.chosen_total_cents)}:{})}:null;
+ return {order:wo,plan,realizedUses,recovery,steps,equipmentTags,operatorNames,orgs,intervals,occurrences,events,requirements,instances:instances.map(i=>({...i,answers:answers.filter(x=>x.instance_id===i.id)})),questions,complementary,categories,
   impediments:impediments.filter(i=>used.includes(i.equipment_id)),serverNow:now(),
   can:{execute:isManager(a)||caps.includes('operacao'),plan:isManager(a)||caps.includes('planejamento'),cancel:canCancelOrders(a)}};
 }
@@ -119,7 +123,10 @@ export async function checkClosure(tx:Executor,a:Member,wo:Row){
  await tx.run("UPDATE work_orders SET status='concluida',actual_end=coalesce(?,actual_end),closed_at=?,version=version+1 WHERE id=?",physicalEnd,now(),wo.id);
  await event(tx,a,wo,null,'encerramento','close:'+wo.id,{physicalEnd});
  // Encerramento por dispensa ou revisão vem do Planejamento: a auditoria segue o acesso de quem age.
- await audit(tx,a,`${has(a,'operacao')?'Operação':'Planejamento'}: OS encerrada`,wo.id,{number:wo.number,physicalEnd});
+ const origin=has(a,'operacao')?'Operação':'Planejamento';
+ await audit(tx,a,`${origin}: OS encerrada`,wo.id,{number:wo.number,physicalEnd});
+ // Solicitação de recobrável em execução ligada à OS passa a "Concluída".
+ await onOrderClosed(tx,a,wo.id,origin);
  return 'concluida';
 }
 
@@ -139,16 +146,16 @@ async function startBlockers(tx:Executor,wo:Row,s:Row,lock=true){
   // Horas de uso que começam depois (OS sem fluxo): o equipamento não é usado agora, então não
   // impede o início; a reserva dele já garante o período planejado.
   if(!e.used_now)continue;
-  // Em uso em outra etapa aberta: equipamento da etapa inteira (até finalizar) ou dentro das horas
-  // de uso definidas agora. Horas de uso já encerradas deixam o equipamento livre (regra da reserva).
+  // Em uso em outra etapa aberta dentro do período reservado dela. Passado o fim previsto (ou as horas
+  // de uso), o equipamento fica livre, mesmo com aquela etapa ainda em andamento (regra da reserva).
   const busy=await tx.first(`SELECT w.number,p.name FROM reservations r JOIN os_steps o ON o.plan_step_id=r.plan_step_id JOIN plan_steps p ON p.id=o.plan_step_id JOIN work_orders w ON w.id=o.work_order_id
    WHERE r.equipment_id=? AND r.status<>'liberada' AND o.status = ANY(?::text[]) AND o.id<>?
-    AND (r.end_at::timestamptz >= p.planned_end::timestamptz OR (r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now())) LIMIT 1`,e.equipment_id,ACTIVE,s.id);
+    AND r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now() LIMIT 1`,e.equipment_id,ACTIVE,s.id);
   if(busy){out.push(`Equipamento ${e.tag} ainda em uso na etapa “${busy.name}” da ${osNumber(busy.number)}.`);continue;}
   // Início fora do horário reservado (antecipado ou atrasado): outra OS com o equipamento reservado
   // agora impede o início; a reserva desta etapa não cobre o momento atual.
   const held=await tx.first(`SELECT w.number,p.name,r.start_at,r.end_at FROM reservations r JOIN plans pl ON pl.id=r.plan_id JOIN work_orders w ON w.id=pl.work_order_id JOIN plan_steps p ON p.id=r.plan_step_id
-   WHERE r.equipment_id=? AND r.status='confirmada' AND w.id<>? AND w.status IN ('programada','em_andamento','encerramento_pendente')
+   WHERE r.equipment_id=? AND r.status='confirmada' AND w.id<>? AND pl.mode<>'realizada' AND w.status IN ('programada','em_andamento','encerramento_pendente')
     AND r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now() LIMIT 1`,e.equipment_id,wo.id);
   if(held)out.push(`Equipamento ${e.tag} está reservado agora para a etapa “${held.name}” da ${osNumber(held.number)} (${period(held.start_at,held.end_at)}). Inicie no horário da sua reserva (${period(e.start_at,e.end_at)}) ou peça ao Planejamento para ajustar.`);
  }

@@ -46,7 +46,7 @@ export const registryModules=['cad-solicitantes','cad-locais','cad-equipamentos'
 export const planningModules=['plan-fluxos','plan-atividade','plan-os'];
 export const operationModules=['op-painel','op-os','op-registro'];
 export const maintenanceModules=['man-painel','man-criterios','man-corretivas','man-leituras'];
-export const financeModules=['fin-painel','fin-tarifas'];
+export const financeModules=['fin-painel','fin-solicitacoes','fin-tarifas','fin-config'];
 /** Telas liberadas: o módulo principal do perfil e os módulos dos acessos adicionais (o gestor vê
  * todos). O servidor revalida cada consulta e comando. */
 export function modules(a:Member){

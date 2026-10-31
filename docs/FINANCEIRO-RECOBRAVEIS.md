@@ -75,3 +75,88 @@ A migração `0019_financeiro_recobraveis.sql` cria:
 **Ordem de publicação:** aplicar a `0019` no banco de produção **antes** do merge. Finalizar etapa, dispensar, cancelar e o Painel central passam a consultar as tabelas novas.
 
 As diárias **não são gravadas**: o motor em `lib/recoverables.ts` as calcula a partir dos usos e das tarifas.
+
+---
+
+# Financeiro · solicitação de recobráveis por atividade
+
+Margem, impostos, fornecedores, clientes e valores deste documento são fictícios (margem 10%, impostos 10%, Fornecedor Alfa, Beta e Gama). Os percentuais reais ficam só no banco.
+
+## O que faz
+
+Uma atividade do cliente que será executada por fornecedor e cobrada do cliente (recobrável) passa por:
+
+1. **Solicitação** com cliente, pessoa solicitante, atividade (tipo cadastrado ou atividade livre), data prevista e recursos.
+2. **Cotações** dos fornecedores, registradas aos poucos ("1 de 3", "2 de 3"…).
+3. **Envio ao cliente:** o sistema guarda a versão do relatório (1, 2…) para imprimir, com o valor a faturar de cada cotação.
+4. **Autorização:** a cotação escolhida pelo cliente, quem assinou, a data e o **relatório assinado anexado** (obrigatório). Os valores ficam travados.
+5. **OS:** "Planejar OS" abre o Planejamento de atividade já preenchido, ou "Vincular OS existente" do mesmo cliente.
+
+## Cálculo (regra A)
+
+Para cada cotação, em centavos e com metade para cima:
+
+| Linha | Regra | Exemplo (Fornecedor Alfa) |
+|---|---|---|
+| Valor cotado (P) | valor da proposta | 10.000,00 |
+| Margem | arredondar(P × margem) | 1.000,00 |
+| Subtotal | P + margem | 11.000,00 |
+| **Valor a faturar** | arredondar(P × (1 + margem) ÷ (1 − impostos)) | **12.222,22** |
+| Impostos | valor a faturar − subtotal | 1.222,22 |
+
+Os impostos absorvem o centavo da diferença: a soma sempre fecha. O cálculo fica em `lib/recovery-quote.ts` e não é gravado (o valor a faturar da cotação escolhida é copiado na autorização).
+
+## Passo a passo
+
+1. **Financeiro › Configurações:**
+   - habilite o cliente para recobráveis;
+   - cadastre margem e impostos com a data de vigência. Para um cliente novo, a tela sugere a vigência cadastrada mais recentemente;
+   - cadastre os fornecedores (ou cadastre na hora, na cotação).
+2. **Financeiro › Solicitação de recobráveis › Criar nova solicitação.** A solicitação guarda a margem e os impostos vigentes no dia em que foi criada: uma nova vigência não muda solicitações antigas.
+3. **Registrar cotação** a cada proposta recebida (fornecedor, valor, número, validade, prazo, data de recebimento, observações e o anexo da proposta). O mesmo fornecedor não aparece duas vezes.
+4. **Enviar ao cliente.** Com menos de 3 cotações, escreva a justificativa (sai no relatório). **Imprimir relatório** abre a página para imprimir ou salvar em PDF, com a coluna "Escolha do cliente" e as assinaturas da Gestão Interna e da Gestão do Cliente.
+5. **Autorizar:** marque a cotação escolhida, informe quem assinou, o cargo e a data, e anexe o relatório assinado. O relatório assinado tem de ser posterior ao último envio: a assinatura de uma versão anterior não vale.
+6. **Planejar OS** (quem tem acesso ao Planejamento):
+   - **atividade livre** → OS sem fluxo, com o título e os recursos como necessidades da etapa;
+   - **tipo de atividade** → OS com as etapas do fluxo, e os recursos listados na descrição.
+
+   Complete local, equipamentos e equipe e lance a OS.
+
+## Situações
+
+| Situação | Como chega | O que se faz |
+|---|---|---|
+| Em cotação | ao criar, ou ao reabrir | editar dados e cotações; enviar; cancelar |
+| Enviada ao cliente | "Enviar ao cliente" | imprimir; reabrir (com motivo); autorizar; cancelar |
+| Autorizada | "Autorizar", ou OS cancelada | planejar ou vincular OS; reabrir (sem OS); cancelar |
+| Em execução | OS lançada ou vinculada | acompanhar a OS |
+| Concluída | OS concluída | — |
+| Cancelada | "Cancelar" (com motivo) | — |
+
+- **Reabrir** volta a "Em cotação" e limpa a escolha, a assinatura e o rascunho ligado (o rascunho continua no Planejamento). O próximo envio gera a versão seguinte do relatório; as anteriores continuam disponíveis.
+- **Com OS em execução não se cancela a solicitação:** cancele a OS no Planejamento. A solicitação volta a "Autorizada", sem OS, e então pode ser cancelada.
+
+## Anexos
+
+- PDF, JPG ou PNG de até 4 MB, guardados no banco. O tipo é conferido pelo conteúdo do arquivo, não pelo nome.
+- Lugares: a proposta de cada cotação, o relatório assinado da solicitação e outros documentos com descrição.
+- Nada é apagado: outro arquivo no mesmo lugar marca o anterior como **substituído**.
+- Download só com acesso Financeiro ou da Gestão, no escopo de organizações.
+
+## Painel, OS e exportação
+
+- **Painel de recobráveis › Atividades:** solicitações em cotação, enviadas e autorizadas (com as em execução), valor a faturar das autorizadas e das concluídas, pela data prevista de início no período.
+- **Lista de OS e cabeçalho da OS:** selo "Recobrável REC-000001". O fornecedor e o valor aparecem só para quem tem acesso Financeiro.
+- **Exportação › Recobráveis: atividades:** REC, situação, solicitante, atividade, data prevista, fornecedor escolhido, valor cotado, margem, subtotal, impostos, valor a faturar, OS e data da autorização.
+
+## Banco
+
+A migração `0021_financeiro_solicitacoes.sql` cria `finance_clients`, `finance_client_rates`, `suppliers`, `recovery_requests`, `recovery_quotes`, `recovery_reports` e `finance_attachments`, com travas no banco:
+
+- **Solicitação:** não é apagada, só muda de situação pelos caminhos da tabela acima e os dados só mudam em "Em cotação".
+- **Autorização:** exige a cotação escolhida desta solicitação e o relatório assinado anexado.
+- **Cotações:** só mudam em "Em cotação".
+- **Relatórios enviados e vigências de margem e impostos:** não mudam.
+- **Anexos:** não são apagados.
+
+**Ordem de publicação:** aplicar a `0021` no banco de produção **antes** do merge.

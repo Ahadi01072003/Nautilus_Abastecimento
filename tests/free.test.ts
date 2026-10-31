@@ -127,9 +127,11 @@ test('OS sem fluxo: período de uso por equipamento reserva só o trecho informa
  const avail=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(20,13))}&end=${encodeURIComponent(at(20,16))}&planId=${b}`)) as Row;
  assert.equal(avail.equipment.find((e:Row)=>e.id==='eq1').status,'livre');
  await planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,13),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner);
- // Sobrepor o trecho reservado é recusado com o período na mensagem.
+ // Rascunho não segura o equipamento: sobrepor o trecho de outro rascunho é aceito (volta para a tarde).
  q=(await planDetail(planner,b)).plan;
- await rejects(planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,10),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner),409,/indisponível/);
+ await planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,10),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner);
+ q=(await planDetail(planner,b)).plan;
+ await planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,13),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner);
  // Período fora da OS é recusado; sem período, a reserva volta a cobrir a OS inteira.
  p=(await planDetail(planner,a)).plan;
  await rejects(planningMutate('planning/save',body(p,{},{equipmentIds:['eq1'],equipmentWindows:{eq1:{start:at(20,7),end:at(20,9)}}}),planner),400,/entre o início e o fim da OS/);
@@ -140,6 +142,9 @@ test('OS sem fluxo: período de uso por equipamento reserva só o trecho informa
  await planningMutate('planning/launch',{id:a,version:p.version,launchKey:key()},planner);
  const c=(await db.first("SELECT start_at,end_at,status FROM reservations WHERE plan_id=? AND status<>'liberada'",a))!;
  assert.deepEqual([c.status,c.start_at,c.end_at],['confirmada',at(20,9),at(20,10)]);
+ // Lançada A, sobrepor o trecho dela é recusado com o motivo; fora dele, aceito.
+ q=(await planDetail(planner,b)).plan;
+ await rejects(planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,9),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner),409,/indisponível/);
  // A entra em execução: as horas de uso (09–10) continuam valendo como planejadas. O rascunho B
  // (13–16) não tem pendência; a OS inteira só segura o equipamento quando não há horas de uso.
  const ops=(path:string,x:Row)=>operationMutate('ops/'+path,{operationKey:key(),...x},operator) as Promise<Row>;
@@ -155,11 +160,11 @@ test('OS sem fluxo: período de uso por equipamento reserva só o trecho informa
  const during=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(20,9))}&end=${encodeURIComponent(new Date(Date.parse(at(20,9))+30*60000).toISOString())}`)) as Row;
  assert.equal(during.equipment.find((e:Row)=>e.id==='eq1').status,'reservado','dentro das horas de uso segue reservado');
  // Revisão de B na mesma faixa da OS inteira de outro equipamento não muda nada aqui; OS inteira:
- // sem horas de uso, a reserva acompanha a OS toda (13–16) e, em andamento, até ser finalizada.
+ // sem horas de uso, a reserva acompanha a OS toda (13–16) e termina no fim previsto, mesmo em andamento.
  q=(await planDetail(planner,b)).plan;
  await planningMutate('planning/launch',{id:b,version:q.version,launchKey:key()},planner);
  const bWo=(await db.first('SELECT work_order_id FROM plans WHERE id=?',b))!.work_order_id;
  await ops('start',{stepId:(await orderDetail(operator,bWo)).steps[0].id});
  const busy=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(20,14))}&end=${encodeURIComponent(at(20,15))}`)) as Row;
- assert.match(busy.equipment.find((e:Row)=>e.id==='eq1').detail,/ainda não finalizada: ocupado até/);
+ assert.match(busy.equipment.find((e:Row)=>e.id==='eq1').detail,/reservado para a etapa .* das 13h00 às 16h00/);
 });

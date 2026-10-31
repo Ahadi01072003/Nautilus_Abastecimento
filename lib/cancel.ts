@@ -9,6 +9,7 @@ import {audit} from './registry';
 import {osNumber} from './planning';
 import {event} from './operation';
 import {closeOpenUses} from './finance';
+import {onOrderCancelled} from './recovery-link';
 
 const now=()=>new Date().toISOString();
 const idOf=(value:unknown,label:string)=>required(value,label,100);
@@ -49,6 +50,8 @@ export async function cancelOrder(b:Row,member:Member){
   await tx.run("UPDATE work_orders SET status='cancelada',cancelled_at=?,cancelled_by=?,cancel_reason=?,actual_end=CASE WHEN ?::boolean THEN ? ELSE actual_end END,version=version+1 WHERE id=?",t,a.id,reason,running,t,w.id);
   // Uso de equipamento recobrável ainda em aberto termina no cancelamento (fica a conferir).
   await closeOpenUses(tx,a,w.id,t,'cancelamento');
+  // Solicitação de recobrável em execução volta a "Autorizada", sem OS.
+  await onOrderCancelled(tx,a,w.id);
   await audit(tx,a,'Planejamento: OS cancelada',w.id,{number:w.number,reason,inProgress:running,openSteps:steps.length});
   return {ok:true,message:running?`${osNumber(w.number)} cancelada. As etapas abertas foram encerradas e os equipamentos liberados.`:`${osNumber(w.number)} cancelada. As reservas foram liberadas.`};
  });

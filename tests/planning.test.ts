@@ -15,6 +15,7 @@ let manager:Member,planner:Member,planner2:Member,client:Member,tech:Member;
 let orgA:string,orgB:string,loc:string,typeEmp:string,fnOp:string,flow:string,opIds:string[]=[];
 const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects(p,(e:{status?:number;message:string})=>{if(status)assert.equal(e.status,status,e.message);if(pattern)assert.match(e.message,pattern);return true;});
 const pgRejects=(p:Promise<unknown>,pattern:RegExp)=>assert.rejects(p,(e:{message:string})=>{assert.match(e.message,pattern);return true;});
+const key=()=>crypto.randomUUID();
 const at=(day:number,h:number,m=0)=>new Date(Date.UTC(2031,0,day,h+3,m)).toISOString(); // horário de Brasília em janeiro de 2031
 const set=async(who:Member,caps:string[],profile='fueler',orgScope:string[]=[])=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps,orgScope},manager);return {...who,profile,capabilities:caps.includes('manutencao')?[...new Set([...caps,'cadastros'])]:caps} as Member;};
 
@@ -82,29 +83,35 @@ test('rascunho carrega o fluxo, salva incompleto e só reserva com intervalo com
  await rejects(planDetail(planner2,id),404);
 });
 
-test('intertravamento: sobreposição recusada com motivo; horário adjacente aceito; mesma OS também conflita',async()=>{
+test('intertravamento: rascunho não segura equipamento; OS lançada bloqueia; horário adjacente aceito; mesma OS também conflita',async()=>{
  const a=await draft(),b=await draft(planner2);
  await save(a,{},{'insp-0001':{plannedStart:at(14,8),plannedEnd:at(14,10),equipmentIds:['eq1']}});
- await rejects(save(b,{},{'insp-0001':{plannedStart:at(14,9),plannedEnd:at(14,11),equipmentIds:['eq1']}},planner2),409,/indisponível: reserva provisória de planejamento em 14\/01\/2031 das 08h00 às 10h00\. O período solicitado, 14\/01\/2031 das 09h00 às 11h00/);
- await save(b,{},{'insp-0001':{plannedStart:at(14,10),plannedEnd:at(14,12),equipmentIds:['eq1']}},planner2);
- // Etapa paralela da mesma OS com o mesmo equipamento.
+ // Outro rascunho no mesmo horário: aceito (rascunho não segura o equipamento).
+ await save(b,{},{'insp-0001':{plannedStart:at(14,9),plannedEnd:at(14,11),equipmentIds:['eq1']}},planner2);
+ const av=await availability(planner2,new URL(`http://x/?start=${encodeURIComponent(at(14,9))}&end=${encodeURIComponent(at(14,11))}`));
+ assert.equal(av.equipment.find(e=>e.id==='eq1')!.status,'livre');
+ // Etapa paralela do mesmo rascunho com o mesmo equipamento: conflita.
  await rejects(save(a,{},{'prep-0001':{plannedStart:at(14,9),plannedEnd:at(14,11),equipmentIds:['eq1']}}),409,/neste rascunho/);
- const av=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(14,9))}&end=${encodeURIComponent(at(14,11))}`));
- assert.equal(av.equipment.find(e=>e.id==='eq1')!.status,'reservado');assert.equal(av.equipment.find(e=>e.id==='eq2')!.status,'livre');
- // Retirar o equipamento libera só a reserva daquele rascunho.
- await save(a,{},{'insp-0001':{equipmentIds:[]}});
- assert.equal((await db.all("SELECT * FROM reservations WHERE plan_id=? AND status='provisoria'",a)).length,0);
- assert.equal((await db.all("SELECT * FROM reservations WHERE plan_id=? AND status='provisoria'",b)).length,1);
- // O banco recusa sobreposição mesmo sem passar pelo serviço.
+ // Lançada a primeira, ela bloqueia: o outro rascunho fica com pendência e não lança.
+ await save(a,complete(14).patch,{...complete(14).steps,'insp-0001':{plannedStart:at(14,8),plannedEnd:at(14,10),equipmentIds:['eq1']}});
+ await planningMutate('planning/launch',{id:a,version:(await plan(a)).version,launchKey:key()},planner);
+ const v=await validateDraft(planner2,b) as Row;
+ assert.ok((v.errors as Row[]).some(e=>/EMP-01 indisponível em 14\/01\/2031 das 09h00 às 11h00: reservado para a etapa/.test(e.message)),JSON.stringify(v.errors));
+ await rejects(save(b,{},{'insp-0001':{plannedStart:at(14,9),plannedEnd:at(14,12),equipmentIds:['eq1']}},planner2),409,/reservado para a etapa/);
+ // Horário adjacente ao da OS lançada: aceito.
+ await save(b,{},{'insp-0001':{plannedStart:at(14,10),plannedEnd:at(14,12),equipmentIds:['eq1']}},planner2);
+ // O banco recusa sobreposição com OS lançada mesmo sem passar pelo serviço.
  const pb=await plan(b,planner2);
- await pgRejects(db.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,status,created_at) VALUES('x',?,?,'eq1',?,?,'provisoria',?)",b,pb.steps[0].id,at(14,11),at(14,13),new Date().toISOString()),/reservado no período/);
+ await pgRejects(db.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,status,created_at) VALUES('x',?,?,'eq1',?,?,'provisoria',?)",b,pb.steps[1].id,at(14,9),at(14,9,30),new Date().toISOString()),/reservado no período/);
 });
 
-test('corrida: duas gravações simultâneas do mesmo equipamento e horário aprovam só uma',async()=>{
+test('corrida: dois rascunhos com o mesmo equipamento e horário; só um lança',async()=>{
  const a=await draft(),b=await draft(planner2);
- const r=await Promise.allSettled([save(a,{},{'insp-0001':{plannedStart:at(16,8),plannedEnd:at(16,10),equipmentIds:['eq2']}}),save(b,{},{'insp-0001':{plannedStart:at(16,9),plannedEnd:at(16,11),equipmentIds:['eq2']}},planner2)]);
- assert.equal(r.filter(x=>x.status==='fulfilled').length,1);
- assert.equal((await db.all("SELECT * FROM reservations WHERE equipment_id='eq2' AND status<>'liberada' AND start_at LIKE '2031-01-16%'")).length,1);
+ await save(a,complete(16,'eq2').patch,complete(16,'eq2').steps);
+ await save(b,complete(16,'eq2').patch,complete(16,'eq2').steps,planner2);
+ const r=await Promise.allSettled([planningMutate('planning/launch',{id:a,version:(await plan(a)).version,launchKey:key()},planner),planningMutate('planning/launch',{id:b,version:(await plan(b,planner2)).version,launchKey:key()},planner2)]);
+ assert.equal(r.filter(x=>x.status==='fulfilled').length,1,JSON.stringify(r.map(x=>x.status==='rejected'?String(x.reason):'ok')));
+ assert.equal((await db.all("SELECT * FROM reservations WHERE equipment_id='eq2' AND status='confirmada' AND start_at LIKE '2031-01-16%'")).length,1);
 });
 
 test('lançamento: pendências impedem; lançamento idempotente congela o planejamento e confirma reservas',async()=>{

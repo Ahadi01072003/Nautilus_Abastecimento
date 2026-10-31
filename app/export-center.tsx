@@ -19,6 +19,7 @@ const SETS:Set[]=[
  {id:'recobraveis_previsto',label:'Recobráveis: previsto',desc:'De onde vem o previsto: cada OS com reserva do equipamento no período, horas, diárias, valor e se entra ou não (com o motivo).',group:'financeiro'},
  {id:'recobraveis_diarias',label:'Recobráveis: diárias',desc:'Cada diária com equipamento, cliente, OS que abriu, OS atendidas, valor e situação.',group:'financeiro'},
  {id:'recobraveis_usos',label:'Recobráveis: usos',desc:'Início e fim de cada uso de equipamento cobrado, origem do fim e conferência.',group:'financeiro'},
+ {id:'recobraveis_atividades',label:'Recobráveis: atividades',desc:'Cada solicitação de recobrável pela data prevista: situação, fornecedor escolhido, valor cotado, margem, impostos, valor a faturar, OS e data da autorização.',group:'financeiro'},
  {id:'supplies',label:'Abastecimentos',desc:'Quantidade, equipamento, operador e autoria.',group:'abastecimento'},
  {id:'movements',label:'Movimentações de estoque',desc:'Entradas, saídas e ajustes de inventário.',group:'abastecimento'},
  {id:'requests',label:'Solicitações de reposição',desc:'Abertura, prazo e recebimentos.',group:'abastecimento'},

@@ -1,8 +1,8 @@
 # Financeiro · Solicitação de recobráveis por atividade (Frente B): especificação
 
-Data: 30/10/2026. Situação: aguardando revisão.
+Data: 30/10/2026. Situação: aprovada em 30/10/2026.
 
-Os valores em reais deste documento vêm da planilha de exemplo do usuário ou são fictícios. Nomes de clientes e percentuais reais são cadastrados na tela e não ficam no código (o repositório é público).
+Os valores em reais deste documento são fictícios. Nomes de clientes e percentuais reais são cadastrados na tela e não ficam no código (o repositório é público).
 
 ## 1. Objetivo
 
@@ -47,7 +47,7 @@ Controlar as atividades recobráveis que o cliente pede e que são executadas po
 - **Cliente habilitado para recobráveis:** sim ou não. Só clientes habilitados aparecem como solicitantes.
 - **Margem OCP (%) e impostos (%)**, com data de vigência:
   - uma mudança cria uma nova vigência;
-  - para um cliente novo, o sistema sugere o padrão definido pelo Financeiro em Configurações (os percentuais reais ficam só no banco, nunca no repositório);
+  - para um cliente novo, o sistema sugere a margem e os impostos da vigência cadastrada mais recentemente (os percentuais reais ficam só no banco, nunca no repositório);
   - cada solicitação guarda os percentuais vigentes na data em que foi criada, para que mudanças futuras não alterem solicitações existentes.
 - **Tarifas de equipamentos:** são as da Frente A, já por cliente.
 - **Cliente novo:** basta habilitar e cadastrar margem, impostos e, se houver, tarifas.
@@ -111,7 +111,7 @@ Controlar as atividades recobráveis que o cliente pede e que são executadas po
 | Autorizada | marcar a cotação escolhida + nome e cargo de quem assinou pelo cliente + data da assinatura + **anexo do relatório assinado (obrigatório)** | valores travados; planejar ou vincular OS |
 | Em execução | OS vinculada | acompanhar a OS |
 | Concluída | a OS foi concluída | só consulta |
-| Cancelada | a qualquer momento antes de concluir, com motivo | só consulta |
+| Cancelada | antes de concluir, com motivo; com OS em execução, cancele a OS antes (a solicitação volta a Autorizada) | só consulta |
 
 - **Reabrir uma solicitação autorizada** é exclusivo do Financeiro ou da Gestão e exige justificativa. A solicitação volta a "Em cotação".
 - **Auditoria:** cada mudança de situação, cada cotação e cada correção ficam registradas.

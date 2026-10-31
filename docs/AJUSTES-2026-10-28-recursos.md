@@ -132,7 +132,7 @@ O equipamento já bloqueava a criação da OS, e continua bloqueando. Função, 
 | Como o equipamento foi alocado | Fica reservado |
 | --- | --- |
 | Com horas de uso definidas (OS sem fluxo) | Só nesse período, mesmo com a OS em andamento. Depois, livre para outras OS. |
-| OS inteira / etapa inteira (o padrão) | A etapa toda. Se a etapa passar do previsto, segue ocupado até ser finalizada. |
+| OS inteira / etapa inteira (o padrão) | A etapa toda, até o fim previsto. Desde a migração `0023`, passado o fim previsto o equipamento fica livre, mesmo com a etapa em andamento. |
 
 - **Onde vale:**
   - na disponibilidade;
@@ -175,3 +175,20 @@ O equipamento já bloqueava a criação da OS, e continua bloqueando. Função, 
   - relançar sem alterações, com o motivo;
   - histórico com "Sem alterações";
   - menus e telas principais sem regressão.
+
+## Atualização de 31/10/2026: regras de intertravamento (migrações `0022` e `0023`)
+
+- **Só equipamento bloqueia.** Colaborador ocupado em outra OS é só aviso.
+- **Reserva:**
+  - **OS sem fluxo com horas de uso:** só nas horas informadas;
+  - **OS sem fluxo, padrão:** a OS inteira;
+  - **OS com fluxo:** o horário da etapa.
+- **Passou do fim previsto:** o equipamento fica livre, mesmo com a etapa ainda em andamento.
+- **Rascunho não segura equipamento:**
+  - a reserva só disputa o equipamento depois que a OS é lançada;
+  - dois rascunhos podem usar o mesmo equipamento no mesmo horário;
+  - o primeiro a lançar fica com ele, e o outro passa a ter pendência (o banco recusa o lançamento);
+  - dentro do mesmo rascunho, duas etapas não usam o mesmo equipamento ao mesmo tempo.
+- **Impedimento técnico** (NC crítica, manutenção) continua bloqueando o planejamento.
+- **Atividade realizada** fica fora do intertravamento: sem aviso nem bloqueio de equipamento ou pessoas, e sem bloquear o planejamento de outras OS. Continuam as conferências do próprio registro e a do Financeiro para horas recobráveis (não cobrar duas vezes o mesmo equipamento no mesmo horário).
+- **Iniciar etapa** é barrado se, naquele momento, o equipamento está dentro do período reservado de outra OS ou com impedimento técnico.

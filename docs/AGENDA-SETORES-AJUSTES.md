@@ -96,6 +96,7 @@ Registro do pedido de 23/10/2026, das decisões validadas com o gestor e do que 
 - **Apontamentos no formulário**: ocorrência, impacto e bloqueio, dentro do período real.
 - **Bloqueio**: precisa de início e fim e divide o período (trabalho → parado → trabalho), descontando do tempo efetivo.
 - **Registro posterior**: tudo fica marcado como tal.
+- **Sem intertravamento** (migração `0022`): equipamentos e colaboradores do registro não têm aviso nem bloqueio, e as reservas do registro não bloqueiam o planejamento de outras OS. Continuam valendo as conferências do próprio registro (período real, horas de uso dentro dele e sem sobreposição no mesmo equipamento) e as do Financeiro para horas recobráveis.
 
 ## 4. Correções da varredura
 

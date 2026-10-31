@@ -77,6 +77,13 @@ export function RecoverablePanel({refreshKey,onOpenOrder}:{refreshKey?:number,on
    <div><span>Realizado conferido</span><b>{brl(sum('confirmedCents'))}</b><small>{sum('dailies')} diária(s) pelos usos</small></div>
    <div className={sum('pendingCents')?'warn':''}><span>A conferir</span><b>{brl(sum('pendingCents'))}</b><small>uso com fim automático, aberto ou fora do reservado</small></div>
   </div>
+  {data.activities&&<section className="n-panel fin-activities"><div className="panel-heading"><div><h2>Atividades</h2><p>Solicitações de recobrável com data prevista de início no período{query.org?' e do cliente escolhido':''}. Autorizadas inclui as em execução.</p></div></div>
+   <div className="fin-cards">
+    <div><span>Em cotação</span><b>{data.activities.emCotacao}</b><small>aguardando cotações ou envio</small></div>
+    <div><span>Enviadas ao cliente</span><b>{data.activities.enviadas}</b><small>aguardando a escolha e a assinatura</small></div>
+    <div><span>Autorizadas</span><b>{brl(data.activities.authorizedCents)}</b><small>{data.activities.autorizadas} solicitação(ões) a faturar</small></div>
+    <div><span>Concluídas</span><b>{brl(data.activities.concludedCents)}</b><small>{data.activities.concluidas} solicitação(ões) com a OS concluída</small></div>
+   </div></section>}
   <section className="n-panel"><div className="panel-heading"><div><h2>Por equipamento</h2><p>Período {data.period.from.split('-').reverse().join('/')} a {data.period.to.split('-').reverse().join('/')}. Só entram OS do cliente da tarifa; a diária entra no período em que começa e fica com a OS que a abriu. Clique numa linha para ver de onde vem o previsto, as diárias e os usos a conferir.</p></div></div>
    {rows.length?<div className="table-scroll"><table className="eu-table fin-table"><thead><tr><th>Equipamento</th><th>Cliente</th><th>Solicitações</th><th>Programadas</th><th>Horas planejadas</th><th>Diárias previstas</th><th>Receita prevista</th><th>Média por OS</th><th>Diárias realizadas</th><th>Conferido</th><th>A conferir</th></tr></thead><tbody>
     {rows.map(r=>{const k=r.equipmentId+'|'+r.orgId,det=data.detail[k];return <Fragment key={k}>
