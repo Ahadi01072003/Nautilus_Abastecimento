@@ -9,11 +9,16 @@ import {registryMutate} from '../lib/registry';
 import {modules,type Member} from '../lib/permissions';
 import {financeConfig,financeRequestsMutate,requestDetail,requestList,requestReport} from '../lib/finance-requests';
 import {uploadAttachment,downloadAttachment} from '../lib/finance-files';
+import {planningMutate,planDetail,ordersList} from '../lib/planning';
+import {operationMutate,orderDetail} from '../lib/operation';
+import {cancelOrder} from '../lib/cancel';
+import {flowsMutate} from '../lib/flows';
+import {onOrderCancelled} from '../lib/recovery-link';
 import type {Database,Row} from '../lib/db';
 
 let ctx:Awaited<ReturnType<typeof freshDatabase>>,db:Database;
-let manager:Member,operator:Member,fin:Member,scoped:Member;
-let org:string,person:string,other:string,otherPerson:string;
+let manager:Member,operator:Member,fin:Member,scoped:Member,planner:Member;
+let org:string,person:string,other:string,otherPerson:string,loc:string,fn:string,mat:string,flowA:string,flowB:string;
 const key=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
 const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects(p,(e:{status?:number;message:string})=>{assert.equal(e.status,status,e.message);if(pattern)assert.match(e.message,pattern);return true;});
@@ -32,6 +37,12 @@ before(async()=>{
  otherPerson=(await reg('people',{orgId:other,name:'Pessoa Outra',role:'Fiscal'})).id;
  fin=await set(await addMember(db,'planner'),['financeiro'],'planner');
  scoped=await set(await addMember(db,'fueler'),['financeiro'],'fueler',[other]);
+ planner=await set(await addMember(db,'planner'),[],'planner');
+ loc=(await reg('locations',{kind:'unidade',name:'Base de testes'})).id;
+ fn=(await reg('functions',{name:'Sinaleiro'})).id;
+ mat=(await reg('materials',{name:'Cabo de aço',unit:'m'})).id;
+ flowA=(await flowsMutate('flows/save',{code:'ICA',name:'Içamento',steps:[{key:'a-0001',name:'Preparação'},{key:'a-0002',name:'Içamento'}]},manager) as {id:string}).id;
+ flowB=(await flowsMutate('flows/save',{code:'ICB',name:'Içamento pesado',steps:[{key:'b-0001',name:'Única'}]},manager) as {id:string}).id;
  // Cliente Teste habilitado com margem 10% e impostos 10%; Outro Cliente não habilitado.
  await financeRequestsMutate('finance/config/client',{orgId:org,enabled:true},manager);
  await financeRequestsMutate('finance/config/rate',{orgId:org,margin:'10',tax:'10',validFrom:'2026-01-01'},manager);
@@ -202,4 +213,127 @@ test('anexos: tipo errado e acima de 4 MB recusados; substituição sem apagar; 
  const res=await downloadAttachment(fin,a2.id);
  assert.equal(res.headers.get('content-type'),'application/pdf');assert.match(res.headers.get('content-disposition')||'',/attachment; filename\*=UTF-8''v2\.pdf/);
  assert.equal((await res.arrayBuffer()).byteLength,64);
+});
+
+// ---- Ligação com o Planejamento ----
+const day=(d:number,h:number)=>new Date(Date.UTC(2031,2,d,h+3)).toISOString();
+/** Solicitação autorizada (3 cotações, relatório assinado, Fornecedor Alfa escolhido). */
+async function authorized(b:Row={}){
+ const r=await newRequest({resources:[{functionId:fn,quantity:2},{materialId:mat,amount:12.5,unit:'m'}],...b});
+ for(const [s,v] of [['Fornecedor Alfa','10.000,00'],['Fornecedor Beta','25.000,50'],['Fornecedor Gama','8333,33']])await fr('quotes',{requestId:r.id,supplierName:s,value:v});
+ await fr('requests/send',{id:r.id,version:await ver(r.id)});
+ await upload(r.id,'relatorio_assinado','assinado.pdf',PDF());
+ const alfa=(await requestDetail(fin,r.id)).quotes.find((q:Row)=>q.supplierName==='Fornecedor Alfa')!;
+ await fr('requests/authorize',{id:r.id,version:await ver(r.id),quoteId:alfa.id,signerName:'Pessoa do Cliente',signerRole:'Fiscal',signedAt:'2026-10-29'});
+ return r.id as string;
+}
+/** Completa o rascunho (local e equipamento) e lança a OS. */
+async function launchPlan(planId:string,eq='eq1'){
+ const p=(await planDetail(fin,planId)).plan;
+ await planningMutate('planning/save',{id:p.id,version:p.version,title:p.title,orgId:p.org_id,requesterPersonId:p.requester_person_id,locationId:loc,plannedStart:p.planned_start,plannedEnd:p.planned_end,description:p.description,
+  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:s.needs.map((n:Row)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:[eq],operatorIds:[]}))},fin);
+ const v=(await planDetail(fin,planId)).plan.version;
+ return (await planningMutate('planning/launch',{id:planId,version:v,launchKey:key()},fin) as Row).workOrderId as string;
+}
+const plan=async(id:string,who:Member=fin)=>(await fr('requests/plan',{id},who)).planId as string;
+const finishAll=async(wo:string)=>{for(const s of (await orderDetail(operator,wo)).steps as Row[]){await operationMutate('ops/start',{operationKey:key(),stepId:s.id},operator);await operationMutate('ops/finish',{operationKey:key(),stepId:s.id},operator);}};
+/** OS sem fluxo lançada sem solicitação. */
+async function freeOrder(orgId:string,personId:string,d:number,eq='eq1'){
+ const draft=await planningMutate('planning/create-free',{},fin) as Row;
+ const p=(await planDetail(fin,draft.id)).plan;
+ await planningMutate('planning/save',{id:p.id,version:p.version,title:'Içamento avulso',orgId,requesterPersonId:personId,locationId:loc,plannedStart:day(d,8),plannedEnd:day(d,17),description:'',
+  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:[eq],operatorIds:[]}))},fin);
+ return (await planningMutate('planning/launch',{id:p.id,version:(await planDetail(fin,p.id)).plan.version,launchKey:key()},fin) as Row).workOrderId as string;
+}
+
+test('planejar OS preenche os dados da solicitação (sem fluxo: título e recursos)',async()=>{
+ const id=await authorized({title:'Içamento planejado',plannedStart:day(10,8),plannedEnd:day(10,17)});
+ await rejects(fr('requests/plan',{id},operator),403);
+ const planId=await plan(id);
+ const p=(await planDetail(fin,planId)).plan;
+ assert.equal(p.status,'draft');assert.equal(p.org_id,org);assert.equal(p.requester_person_id,person);
+ assert.equal(p.planned_start,day(10,8));assert.equal(p.planned_end,day(10,17));assert.equal(p.title,'Içamento planejado');
+ assert.deepEqual(p.steps[0].needs.map((n:Row)=>[n.function_id,n.material_id,n.quantity,n.amount,n.unit]).sort(),[[fn,null,2,null,null],[null,mat,null,12.5,'m']].sort());
+ assert.equal((await requestDetail(fin,id)).request.plan_id,planId);
+ // Planejar de novo abre o mesmo rascunho.
+ assert.equal(await plan(id),planId);
+ // Em cotação não planeja.
+ const open=await newRequest({title:'Ainda em cotação'});
+ await rejects(fr('requests/plan',{id:open.id}),409,/autorizada/);
+});
+
+test('planejar OS com fluxo: etapas do fluxo e recursos na descrição; trocar o tipo leva o vínculo',async()=>{
+ const id=await authorized({activityTypeId:flowA,title:'',description:'Içar o módulo',plannedStart:day(11,8),plannedEnd:day(11,17)});
+ const planId=await plan(id);
+ const p=(await planDetail(fin,planId)).plan;
+ assert.deepEqual(p.steps.map((s:Row)=>s.name),['Preparação','Içamento']);
+ const rec=(await requestDetail(fin,id)).request.rec as string;
+ assert.match(p.description,/^Içar o módulo/);
+ assert.match(p.description,new RegExp(`Recursos da ${rec}: 2× Sinaleiro; 12,5 m · Cabo de aço`));
+ assert.ok(p.steps.every((s:Row)=>!s.needs.length),'com fluxo, os recursos não viram necessidades');
+ const changed=await planningMutate('planning/change-type',{id:planId,version:p.version,activityTypeId:flowB},fin) as Row;
+ assert.equal((await requestDetail(fin,id)).request.plan_id,changed.id);
+});
+
+let launchedOrder='';
+test('lançar → Em execução; concluir → Concluída',async()=>{
+ const id=await authorized({title:'Içamento lançado',plannedStart:day(12,8),plannedEnd:day(12,17)});
+ const wo=await launchPlan(await plan(id));launchedOrder=wo;
+ let r=(await requestDetail(fin,id)).request;
+ assert.equal(r.status,'em_execucao');assert.equal(r.work_order_id,wo);
+ assert.equal((await requestDetail(fin,id)).can.cancel,false);
+ await finishAll(wo);
+ assert.equal((await db.first('SELECT status FROM work_orders WHERE id=?',wo))!.status,'concluida');
+ r=(await requestDetail(fin,id)).request;
+ assert.equal(r.status,'concluida');assert.equal(r.work_order_id,wo);
+});
+
+test('cancelar a OS → volta a Autorizada, sem OS',async()=>{
+ const id=await authorized({title:'Içamento cancelado',plannedStart:day(13,8),plannedEnd:day(13,17)});
+ const wo=await launchPlan(await plan(id));
+ await rejects(fr('requests/cancel',{id,version:await ver(id),reason:'Cliente desistiu'}),409,/cancele a OS no Planejamento/);
+ await cancelOrder({workOrderId:wo,reason:'Cliente adiou'},fin);
+ const r=(await requestDetail(fin,id)).request;
+ assert.equal(r.status,'autorizada');assert.equal(r.work_order_id,null);assert.equal(r.plan_id,null);
+ assert.equal(Number(r.chosen_total_cents),1222222,'a autorização continua valendo');
+ await fr('requests/cancel',{id,version:await ver(id),reason:'Cliente desistiu'});
+ assert.equal((await requestDetail(fin,id)).request.status,'cancelada');
+});
+
+test('vincular OS existente: mesmo cliente, sem solicitação; OS já concluída conclui a solicitação; concluída não reage ao cancelamento',async()=>{
+ // OS do cliente lançada e concluída sem solicitação.
+ const wo=await freeOrder(org,person,14);
+ await finishAll(wo);
+ const id=await authorized({title:'Içamento vinculado'});
+ await rejects(fr('requests/link',{id,workOrderId:wo},operator),403);
+ await rejects(fr('requests/link',{id,workOrderId:launchedOrder}),409,/já tem solicitação/);
+ await fr('requests/link',{id,workOrderId:wo},planner);
+ let r=(await requestDetail(fin,id)).request;
+ assert.equal(r.status,'concluida');assert.equal(r.work_order_id,wo);
+ // Gancho do cancelamento só mexe em "Em execução" (Review Focus 4).
+ await db.tx(tx=>onOrderCancelled(tx,manager,wo));
+ r=(await requestDetail(fin,id)).request;
+ assert.equal(r.status,'concluida');assert.equal(r.work_order_id,wo);
+ // OS de outro cliente não serve.
+ const otherReq=await authorized({title:'Outro vínculo'});
+ await rejects(fr('requests/link',{id:otherReq,workOrderId:await freeOrder(other,otherPerson,16,'eq2')}),409,/mesmo cliente/);
+});
+
+test('reabrir autorizada com rascunho desliga o rascunho e limpa escolha e assinatura',async()=>{
+ const id=await authorized({title:'Reabrir com rascunho',plannedStart:day(15,8),plannedEnd:day(15,17)});
+ const planId=await plan(id);
+ await fr('requests/reopen',{id,version:await ver(id),reason:'Cliente mudou o escopo'});
+ const r=(await requestDetail(fin,id)).request;
+ assert.equal(r.status,'em_cotacao');assert.equal(r.plan_id,null);assert.equal(r.chosen_quote_id,null);assert.equal(r.chosen_total_cents,null);assert.equal(r.signer_name,null);
+ assert.equal((await planDetail(fin,planId)).plan.status,'draft','o rascunho continua no Planejamento');
+ // O rascunho desligado, se lançado, não mexe na solicitação.
+ await launchPlan(planId);
+ assert.equal((await requestDetail(fin,id)).request.status,'em_cotacao');
+});
+
+test('lista de OS mostra o selo da solicitação; valor só para quem tem Financeiro',async()=>{
+ const list=async(who:Member)=>((await ordersList(who,new URL('http://x/?status=todas'))).orders as Row[]).find(o=>o.id===launchedOrder)!;
+ const asPlanner=await list(planner),asFin=await list(fin);
+ assert.ok(asPlanner.recovery_number>0);assert.equal(asPlanner.recovery_total_cents,undefined);assert.equal(asPlanner.recovery_supplier,undefined);
+ assert.equal(asFin.recovery_number,asPlanner.recovery_number);assert.equal(Number(asFin.recovery_total_cents),1222222);assert.equal(asFin.recovery_supplier,'Fornecedor Alfa');
 });

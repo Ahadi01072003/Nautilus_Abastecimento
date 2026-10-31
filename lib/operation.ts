@@ -7,6 +7,7 @@ import {type Member,isManager,has,requireAny,canCancelOrders} from './permission
 import {audit} from './registry';
 import {loadPlan,instant,osNumber,period} from './planning';
 import {closeOpenUses} from './finance';
+import {onOrderClosed} from './recovery-link';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -119,7 +120,10 @@ export async function checkClosure(tx:Executor,a:Member,wo:Row){
  await tx.run("UPDATE work_orders SET status='concluida',actual_end=coalesce(?,actual_end),closed_at=?,version=version+1 WHERE id=?",physicalEnd,now(),wo.id);
  await event(tx,a,wo,null,'encerramento','close:'+wo.id,{physicalEnd});
  // Encerramento por dispensa ou revisão vem do Planejamento: a auditoria segue o acesso de quem age.
- await audit(tx,a,`${has(a,'operacao')?'Operação':'Planejamento'}: OS encerrada`,wo.id,{number:wo.number,physicalEnd});
+ const origin=has(a,'operacao')?'Operação':'Planejamento';
+ await audit(tx,a,`${origin}: OS encerrada`,wo.id,{number:wo.number,physicalEnd});
+ // Solicitação de recobrável em execução ligada à OS passa a "Concluída".
+ await onOrderClosed(tx,a,wo.id,origin);
  return 'concluida';
 }
 

@@ -4,9 +4,9 @@
 // Financeiro e Gestão, no escopo de organizações de quem consulta.
 import {db,type Executor,type Row} from './db';
 import {AppError,required,text,isoDay} from './domain';
-import {type Member,isManager,requireAny} from './permissions';
+import {type Member,isManager,has,requireAny} from './permissions';
 import {audit} from './registry';
-import {instant} from './planning';
+import {instant,createDraftFrom,freeType} from './planning';
 import {quoteTotals,recNumber,type RequestStatus} from './recovery-quote';
 
 type Actor=Member&{capabilities:string[],org_scope:string[]};
@@ -137,14 +137,17 @@ export async function requestDetail(member:Member,requestId:string){
 
 /** Retrato da solicitação para o relatório enviado ao cliente: dados, recursos com nome, cotações com
  * os valores da regra A e a justificativa. Guardado por versão (recovery_reports), não muda depois. */
-async function snapshotOf(ex:Executor,r:Row){
- const quotes=await ex.all('SELECT q.*,s.name supplier_name FROM recovery_quotes q JOIN suppliers s ON s.id=q.supplier_id WHERE q.request_id=? ORDER BY coalesce(q.received_at,q.created_at),q.created_at',r.id);
- const res=(r.resources||[]) as Row[];
+/** Recursos da solicitação com nome ("2× Sinaleiro", "12,5 m · Cabo de aço"). */
+async function resourceLabels(ex:Executor,res:Row[]){
  const names=async(table:string,ids:string[])=>new Map((ids.length?await ex.all(`SELECT id,name FROM ${table} WHERE id = ANY(?::text[])`,ids):[]).map(x=>[x.id as string,x.name as string]));
  const [et,fn,mt]=await Promise.all([names('equipment_types',res.map(x=>x.equipmentTypeId).filter(Boolean)),names('job_functions',res.map(x=>x.functionId).filter(Boolean)),names('materials',res.map(x=>x.materialId).filter(Boolean))]);
+ return res.map(x=>x.materialId?`${Number(x.amount).toLocaleString('pt-BR')} ${x.unit} · ${mt.get(x.materialId)||'material'}`:`${x.quantity}× ${x.equipmentTypeId?et.get(x.equipmentTypeId)||'equipamento':fn.get(x.functionId)||'função'}`);
+}
+
+async function snapshotOf(ex:Executor,r:Row){
+ const quotes=await ex.all('SELECT q.*,s.name supplier_name FROM recovery_quotes q JOIN suppliers s ON s.id=q.supplier_id WHERE q.request_id=? ORDER BY coalesce(q.received_at,q.created_at),q.created_at',r.id);
  return {request:{rec:recNumber(r.number),org:r.org_name,orgAcronym:r.org_acronym,person:r.person_name,activity:activityOf(r),description:r.description,plannedStart:r.planned_start,plannedEnd:r.planned_end,
-   notes:r.notes,marginBp:Number(r.margin_bp),taxBp:Number(r.tax_bp),justification:r.justification||null,
-   resources:res.map(x=>x.materialId?`${x.amount} ${x.unit} · ${mt.get(x.materialId)||'material'}`:`${x.quantity}× ${x.equipmentTypeId?et.get(x.equipmentTypeId)||'equipamento':fn.get(x.functionId)||'função'}`)},
+   notes:r.notes,marginBp:Number(r.margin_bp),taxBp:Number(r.tax_bp),justification:r.justification||null,resources:await resourceLabels(ex,(r.resources||[]) as Row[])},
   quotes:quotes.map(q=>({id:q.id,supplierName:q.supplier_name,proposalNumber:q.proposal_number,validUntil:q.valid_until,leadTime:q.lead_time,receivedAt:q.received_at,
    totals:quoteTotals(Number(q.value_cents),Number(r.margin_bp),Number(r.tax_bp))}))};
 }
@@ -203,7 +206,60 @@ async function supplierFor(ex:Executor,a:Actor,b:Row){
  return {id:sid,name,active:1};
 }
 
+/** Planejar OS (acesso Planejamento): rascunho com cliente, pessoa, datas e descrição da solicitação.
+ * Sem fluxo: título da solicitação e os recursos viram necessidades da etapa única. Com fluxo: etapas
+ * do fluxo e os recursos listados na descrição (decisão do usuário em 30/10/2026). Já existindo
+ * rascunho ligado, devolve o mesmo. */
+async function planFromRequest(b:Row,member:Member){
+ const a=await requireAny(member,['planejamento']) as Actor;
+ return await db().tx(async tx=>{
+  const r=await loadRequest(tx,a,b.id,true),rec=recNumber(r.number);
+  if(r.work_order_id)throw new AppError(`${rec} já tem OS.`,409);
+  if(r.status!=='autorizada')throw new AppError('Só dá para planejar a OS de uma solicitação autorizada pelo cliente.',409);
+  if(r.plan_id&&await tx.first("SELECT 1 FROM plans WHERE id=? AND status='draft'",r.plan_id))return {planId:r.plan_id as string,repeated:true,message:`${rec} já tem rascunho de OS: abrindo o rascunho.`};
+  const res=(r.resources||[]) as Row[];
+  const header={org_id:r.org_id,requester_person_id:r.requester_person_id,planned_start:r.planned_start,planned_end:r.planned_end,description:r.description||''};
+  let pid:string;
+  if(r.activity_type_id){
+   const labels=await resourceLabels(tx,res);
+   const description=[r.description,labels.length?`Recursos da ${rec}: ${labels.join('; ')}`:''].filter(Boolean).join('\n\n').slice(0,2000);
+   pid=(await createDraftFrom(tx,a,r.activity_type_id,{...header,description})).pid;
+  }else{
+   pid=(await createDraftFrom(tx,a,(await freeType(tx,a)).id,header)).pid;
+   await tx.run("UPDATE plans SET title=?,mode='planejada' WHERE id=?",r.title,pid);
+   const step=(await tx.first('SELECT id FROM plan_steps WHERE plan_id=? ORDER BY position LIMIT 1',pid))!;
+   for(const n of res)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit) VALUES(?,?,?,?,?,?,?,?,?)',id(),pid,step.id,n.equipmentTypeId,n.functionId,n.materialId,n.quantity,n.amount,n.unit);
+  }
+  await tx.run('UPDATE recovery_requests SET plan_id=?,version=version+1,updated_at=? WHERE id=?',pid,now(),r.id);
+  await audit(tx,a,'Planejamento: rascunho criado',pid,{fromRequest:rec,free:!r.activity_type_id});
+  await audit(tx,a,'Planejamento: OS planejada a partir de recobrável',r.id,{number:r.number,planId:pid});
+  return {planId:pid,message:`Rascunho criado a partir de ${rec}. Complete local, equipamentos e equipe e lance a OS.`};
+ });
+}
+
+/** Vincular OS existente (Financeiro, Gestão ou Planejamento): OS do mesmo cliente, não cancelada e
+ * sem outra solicitação. A solicitação passa a "Em execução" e, se a OS já terminou, a "Concluída". */
+async function linkOrder(b:Row,member:Member){
+ const a=await requireAny(member,['financeiro','planejamento']) as Actor;
+ return await db().tx(async tx=>{
+  const r=await loadRequest(tx,a,b.id,true),rec=recNumber(r.number);
+  if(r.status!=='autorizada'||r.work_order_id)throw new AppError('Só dá para vincular OS a uma solicitação autorizada e ainda sem OS.',409);
+  const w=await tx.first('SELECT id,number,org_id,status FROM work_orders WHERE id=? FOR UPDATE',required(b.workOrderId,'OS',100));
+  if(!w||!inScope(a,w.org_id))throw new AppError('OS não encontrada ou fora do seu acesso.',404);
+  if(w.org_id!==r.org_id)throw new AppError('Escolha uma OS do mesmo cliente da solicitação.',409);
+  if(w.status==='cancelada')throw new AppError('Esta OS foi cancelada: escolha outra.',409);
+  const taken=await tx.first('SELECT number FROM recovery_requests WHERE work_order_id=?',w.id);
+  if(taken)throw new AppError(`Esta OS já tem solicitação de recobrável (${recNumber(taken.number)}).`,409);
+  await tx.run("UPDATE recovery_requests SET status='em_execucao',work_order_id=?,plan_id=NULL,version=version+1,updated_at=? WHERE id=?",w.id,now(),r.id);
+  if(w.status==='concluida')await tx.run("UPDATE recovery_requests SET status='concluida',version=version+1,updated_at=? WHERE id=?",now(),r.id);
+  await audit(tx,a,`${has(a,'financeiro')?'Financeiro':'Planejamento'}: OS vinculada à solicitação de recobrável`,r.id,{number:r.number,workOrderId:w.id,order:w.number,orderStatus:w.status});
+  return {ok:true,message:w.status==='concluida'?`${rec} vinculada a uma OS já concluída: solicitação concluída.`:`${rec} vinculada à OS: em execução.`};
+ });
+}
+
 export async function financeRequestsMutate(path:string,b:Row,member:Member){
+ if(path==='finance/requests/plan')return planFromRequest(b,member);
+ if(path==='finance/requests/link')return linkOrder(b,member);
  const a=await finance(member);
 
  if(path==='finance/config/client'){
