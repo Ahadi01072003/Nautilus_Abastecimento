@@ -155,7 +155,7 @@ async function startBlockers(tx:Executor,wo:Row,s:Row,lock=true){
   // Início fora do horário reservado (antecipado ou atrasado): outra OS com o equipamento reservado
   // agora impede o início; a reserva desta etapa não cobre o momento atual.
   const held=await tx.first(`SELECT w.number,p.name,r.start_at,r.end_at FROM reservations r JOIN plans pl ON pl.id=r.plan_id JOIN work_orders w ON w.id=pl.work_order_id JOIN plan_steps p ON p.id=r.plan_step_id
-   WHERE r.equipment_id=? AND r.status='confirmada' AND w.id<>? AND w.status IN ('programada','em_andamento','encerramento_pendente')
+   WHERE r.equipment_id=? AND r.status='confirmada' AND w.id<>? AND pl.mode<>'realizada' AND w.status IN ('programada','em_andamento','encerramento_pendente')
     AND r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now() LIMIT 1`,e.equipment_id,wo.id);
   if(held)out.push(`Equipamento ${e.tag} está reservado agora para a etapa “${held.name}” da ${osNumber(held.number)} (${period(held.start_at,held.end_at)}). Inicie no horário da sua reserva (${period(e.start_at,e.end_at)}) ou peça ao Planejamento para ajustar.`);
  }

@@ -75,24 +75,34 @@ test('atividade realizada: Operação registra com o formulário da OS sem fluxo
  assert.ok((await planningState(operator,'realizada')).codes.includes('MNT-URG.01'),'código sugerido nos próximos registros');
 });
 
-test('atividade realizada respeita conflito de equipamento, mas não bloqueio aberto depois do período',async()=>{
- const make=async(start:string,end:string)=>{
+test('atividade realizada não tem aviso nem bloqueio de equipamento ou pessoas, e não bloqueia o planejamento',async()=>{
+ const make=async(start:string,end:string,title='Socorro',extra:Row={})=>{
   const {id}=await planningMutate('planning/create-free',{mode:'realizada'},operator) as {id:string};
   const p=(await planDetail(operator,id)).plan;
-  await planningMutate('planning/save',body(p,{title:'Socorro',orgId:org,locationId:loc,plannedStart:start,plannedEnd:end},{equipmentIds:['eq2']}),operator);
+  await planningMutate('planning/save',body(p,{title,orgId:org,locationId:loc,plannedStart:start,plannedEnd:end},{equipmentIds:['eq2'],operatorIds:['op1'],...extra}),operator);
   return (await planDetail(operator,id)).plan;
  };
  const a=await make(ago(30),ago(28));
  await realizeActivity({id:a.id,version:a.version,launchKey:key()},operator);
- // Mesmo equipamento no mesmo horário: recusado.
- const {id:b}=await planningMutate('planning/create-free',{mode:'realizada'},operator) as {id:string};
- const pb=(await planDetail(operator,b)).plan;
- await rejects(planningMutate('planning/save',body(pb,{title:'Duplicado',orgId:org,locationId:loc,plannedStart:ago(29),plannedEnd:ago(27)},{equipmentIds:['eq2']}),operator),409,/indisponível/);
- // Bloqueio aberto agora não impede registrar o que foi feito antes dele.
+ // Mesmo equipamento e mesma pessoa no mesmo horário: registra sem aviso nem pendência.
+ const b=await make(ago(29),ago(27),'Duplicado');
+ const v=await validateDraft(operator,b.id) as Row;
+ assert.deepEqual(v.errors,[],JSON.stringify(v.errors));
+ assert.deepEqual((v.warnings as Row[]).filter(w=>/equipamento|colaborador|Operador Um|preventiva|EMP-02/i.test(w.message)),[],JSON.stringify(v.warnings));
+ assert.ok(((await realizeActivity({id:b.id,version:b.version,launchKey:key()},operator)) as Row).workOrderId);
+ // Disponibilidade do rascunho de atividade realizada: tudo livre (não há agenda a respeitar).
+ // O planejamento também não enxerga a atividade realizada como reserva: outra OS no mesmo horário passa.
+ const {id:f0}=await planningMutate('planning/create-free',{},planner) as {id:string};
+ const p0=(await planDetail(planner,f0)).plan;
+ await planningMutate('planning/save',body(p0,{title:'Planejada no mesmo horário',orgId:org,locationId:loc,plannedStart:ago(29.5),plannedEnd:ago(28.5)},{equipmentIds:['eq2'],operatorIds:['op1']}),planner);
+ assert.deepEqual((await planDetail(planner,f0)).plan.steps[0].equipment_ids,['eq2']);
+ // Reserva confirmada de OS planejada no período também não impede o registro.
+ const c=await make(ago(29.4),ago(28.6),'Sobre a planejada');
+ assert.ok(((await realizeActivity({id:c.id,version:c.version,launchKey:key()},operator)) as Row).workOrderId);
+ // Bloqueio técnico aberto antes do fim do período também não impede registrar o que foi feito.
  await conditionMutate('condition/open',{equipmentId:'eq2',reason:'Pneu furado'},manager);
- const c=await make(ago(10),ago(9));
- const r=await realizeActivity({id:c.id,version:c.version,launchKey:key()},operator) as Row;
- assert.ok(r.workOrderId);
+ const d=await make(ago(0.5),new Date(Date.now()+60000).toISOString(),'Com bloqueio aberto');
+ assert.ok(((await realizeActivity({id:d.id,version:d.version,launchKey:key()},operator)) as Row).workOrderId);
  // Para o futuro, o bloqueio continua valendo (planejamento normal).
  const {id:f}=await planningMutate('planning/create-free',{},planner) as {id:string};
  const pf=(await planDetail(planner,f)).plan;

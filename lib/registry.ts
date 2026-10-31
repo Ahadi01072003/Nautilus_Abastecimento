@@ -173,7 +173,7 @@ export async function registryMutate(path:string,b:Row,member:Member){
   // de uso: a pessoa precisa substituí-lo (Editar OS) ou cancelar antes.
   if(old?.active&&!active){
    const held=await all(`SELECT w.number,p.author_name,r.start_at FROM reservations r JOIN plans p ON p.id=r.plan_id LEFT JOIN work_orders w ON w.id=p.work_order_id
-    WHERE r.equipment_id=? AND r.status<>'liberada' AND r.end_at::timestamptz > now() AND (p.status='draft' OR (p.status='launched' AND w.status IN ('programada','em_andamento','encerramento_pendente')))
+    WHERE r.equipment_id=? AND r.status<>'liberada' AND p.mode<>'realizada' AND r.end_at::timestamptz > now() AND (p.status='draft' OR (p.status='launched' AND w.status IN ('programada','em_andamento','encerramento_pendente')))
     ORDER BY r.start_at::timestamptz LIMIT 6`,eid);
    if(held.length){const names=[...new Set(held.map(h=>h.number?`OS ${String(h.number).padStart(6,'0')}`:`rascunho de ${h.author_name}`))];
     throw new AppError(`O equipamento ${old.tag} tem reservas a partir de agora (${names.join(', ')}${held.length>5?' e outras':''}). Substitua-o nessas OS (Editar OS) ou cancele-as antes de inativar.`,409);}

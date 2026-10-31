@@ -91,7 +91,7 @@ async function conflictsMany(a:Actor,equipmentIds:string[],start:string,end:stri
   ,(o.id IS NOT NULL AND r.end_at::timestamptz >= s.planned_end::timestamptz) running,s.planned_end step_end,greatest(r.end_at::timestamptz,now()) busy_until
   FROM reservations r JOIN plans p ON p.id=r.plan_id JOIN plan_steps s ON s.id=r.plan_step_id LEFT JOIN work_orders w ON w.id=p.work_order_id
   LEFT JOIN os_steps o ON o.plan_step_id=r.plan_step_id AND o.status IN ('em_execucao','bloqueada','pausada')
-  WHERE r.equipment_id = ANY(?::text[]) AND r.status<>'liberada' AND r.start_at::timestamptz < ?::timestamptz
+  WHERE r.equipment_id = ANY(?::text[]) AND r.status<>'liberada' AND p.mode<>'realizada' AND r.start_at::timestamptz < ?::timestamptz
    AND (CASE WHEN o.id IS NOT NULL AND r.end_at::timestamptz >= s.planned_end::timestamptz THEN greatest(r.end_at::timestamptz,now()) ELSE r.end_at::timestamptz END) > ?::timestamptz ORDER BY r.start_at`,equipmentIds,end,start);
  // Mesma regra do banco (reservation_guard): horas de uso definidas valem como planejadas, mesmo com a
  // etapa em andamento; o equipamento da etapa inteira segue ocupado até a etapa ser finalizada.
@@ -152,7 +152,9 @@ export async function availability(member:Member,url:URL){
  if(!start||!end||ms(end)<=ms(start))throw new AppError('Informe um intervalo válido.');
  const stepId=url.searchParams.get('stepId')||undefined,planId=url.searchParams.get('planId')||undefined;
  const [equipment,impediments,operators]=await Promise.all([all('SELECT id,tag FROM equipment WHERE active=1 ORDER BY tag'),all('SELECT equipment_id,reason FROM equipment_impediments WHERE released_at IS NULL AND opened_at::timestamptz < ?::timestamptz',end),all('SELECT id FROM operators WHERE active=1')]);
- const plan=planId?await first('SELECT p.work_order_id,p.base_plan_id,s.step_key FROM plans p LEFT JOIN plan_steps s ON s.id=? AND s.plan_id=p.id WHERE p.id=?',stepId||'',planId):null;
+ const plan=planId?await first('SELECT p.work_order_id,p.base_plan_id,p.mode,s.step_key FROM plans p LEFT JOIN plan_steps s ON s.id=? AND s.plan_id=p.id WHERE p.id=?',stepId||'',planId):null;
+ // Atividade realizada: registro do que já foi feito, sem agenda a respeitar (tudo livre, sem aviso).
+ if(plan?.mode==='realizada')return {equipment:equipment.map(e=>({id:e.id,status:'livre',detail:''})),operators:operators.map(o=>({id:o.id,status:'livre',detail:''}))};
  const workOrderId=plan?.work_order_id||null,stepKey=plan?.step_key;
  // Revisão: equipamento já reservado na versão vigente para a mesma etapa continua aceito (é a mesma reserva).
  const carried=plan?.base_plan_id&&stepKey?await baseReservations(plan.base_plan_id):null;
@@ -169,7 +171,7 @@ export async function availability(member:Member,url:URL){
  const busy=await all(`SELECT pp.operator_id,pp.plan_step_id,st.name step_name,st.planned_start,st.planned_end,p.id plan_id,p.status plan_status,p.author_id,p.author_name,p.org_id,w.number
   FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id AND st.included=1 JOIN plans p ON p.id=pp.plan_id
   LEFT JOIN work_orders w ON w.id=p.work_order_id LEFT JOIN os_steps o ON o.plan_step_id=st.id
-  WHERE p.status IN ('draft','launched') AND st.planned_start IS NOT NULL AND st.planned_end IS NOT NULL
+  WHERE p.status IN ('draft','launched') AND p.mode<>'realizada' AND st.planned_start IS NOT NULL AND st.planned_end IS NOT NULL
    AND st.planned_start::timestamptz < ?::timestamptz AND st.planned_end::timestamptz > ?::timestamptz
    AND (w.id IS NULL OR w.status NOT IN ('cancelada','concluida'))
    AND (o.id IS NULL OR o.status NOT IN ('concluida','dispensada','cancelada'))
@@ -185,6 +187,8 @@ export async function availability(member:Member,url:URL){
 
 /** Pendências (impedem o lançamento) e avisos. Só depende dos dados carregados. */
 export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impediments:Row[],orgs:Row[],locations:Row[],functions?:Row[],frozen?:Set<string>,carried?:(stepKey:string,equipmentId:string)=>boolean,keepLocations?:Set<string>}){
+ // Atividade realizada: os recursos são o registro do que foi usado; não há aviso nem pendência deles.
+ const resources=plan.mode!=='realizada';
  const errors:{step?:string,message:string}[]=[],warnings:{step?:string,kind?:string,message:string}[]=[];
  if(plan.free&&!String(plan.title||'').trim())errors.push({message:'Informe o título da atividade.'});
  if(!plan.org_id)errors.push({message:'Informe a organização solicitante.'});
@@ -212,6 +216,7 @@ export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impe
    if(!p.included){warnings.push({step:s.step_key,message:`${name} dependia de “${p.name}”, que não foi incluída: a dependência foi ignorada.`});continue;}
    if(p.planned_end&&ms(s.planned_start)<ms(p.planned_end))errors.push({step:s.step_key,message:`${name}: começa antes do fim de “${p.name}” (dependência término → início).`});
   }
+  if(!resources)continue;
   for(const n of s.needs as Row[]){
    if(n.material_id)continue;
    if(n.equipment_type_id){
@@ -260,6 +265,8 @@ export async function validation(plan:Plan,a:Actor){
  ]);
  const keepLocations=new Set((plan.base_plan_id?await all('SELECT location_id FROM plans WHERE id=? UNION SELECT location_id FROM plan_steps WHERE plan_id=?',plan.base_plan_id,plan.base_plan_id):[]).map(r=>r.location_id as string).filter(Boolean));
  const result=validatePlan(plan,{equipment,operators,impediments,orgs,locations,functions,frozen:revision?.frozen,carried:revision?.carried,keepLocations});
+ // Atividade realizada: sem conferência de agenda, preventiva ou equipe (só os dados do registro).
+ if(plan.mode==='realizada')return result;
  // Manutenção: equipamento com preventiva vencida é aviso (o bloqueio, quando existe, já é pendência).
  const used=new Set(plan.steps.filter(s=>s.included&&!revision?.frozen.has(s.step_key)).flatMap(s=>s.equipment_ids as string[]));
  if(used.size)for(const r of (await preventiveRows()).filter(x=>used.has(x.equipmentId)&&(x.status==='atrasada'||x.status==='pendente')))
@@ -289,7 +296,7 @@ export async function validation(plan:Plan,a:Actor){
   const clash=await all(`SELECT DISTINCT o.name,st.name step_name,st.planned_start,st.planned_end,w.number FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id JOIN plans p ON p.id=pp.plan_id JOIN operators o ON o.id=pp.operator_id LEFT JOIN work_orders w ON w.id=p.work_order_id
    WHERE pp.operator_id = ANY(?::text[]) AND pp.plan_step_id<>? AND p.status IN ('draft','launched') AND st.included=1 AND st.planned_start IS NOT NULL
    AND st.planned_start::timestamptz < ?::timestamptz AND st.planned_end::timestamptz > ?::timestamptz
-   AND (p.status='launched' OR p.id=?) AND (p.id=? OR p.work_order_id IS DISTINCT FROM ?::text)
+   AND (p.status='launched' OR p.id=?) AND (p.id=? OR p.work_order_id IS DISTINCT FROM ?::text) AND p.mode<>'realizada'
    AND NOT EXISTS (SELECT 1 FROM work_orders cw WHERE cw.id=p.work_order_id AND cw.status='cancelada')`,s.operator_ids,s.id,s.planned_end,s.planned_start,plan.id,plan.id,plan.work_order_id||null);
   // Paralelismo de pessoas: só sinaliza (não bloqueia), dizendo quem, onde e quando.
   for(const c of clash)result.warnings.push({step:s.step_key,kind:'paralelismo',message:`Etapa “${s.name}”: ${c.name} também está na etapa “${c.step_name}”${c.number?` da ${osNumber(c.number)}`:' de um rascunho'}, em ${period(c.planned_start,c.planned_end)}.`});
@@ -769,8 +776,10 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
   if(x.frozen||(current&&current.start_at===ws&&current.end_at===we))continue;
   // Revisão: manter o equipamento da versão vigente dentro do mesmo intervalo não é reserva nova.
   if(revision?.base.some(r=>r.step_key===x.s.step_key&&r.equipment_id===e&&ms(r.start_at)<=ms(ws)&&ms(r.end_at)>=ms(we)))continue;
+  // Atividade realizada: registro do que já foi feito, sem intertravamento.
+  if(plan.mode==='realizada')continue;
   const tag=equipment.find(y=>y.id===e)!.tag;
-  // Impedimento aberto depois do fim do período não afeta o período (ex.: atividade já realizada).
+  // Impedimento aberto depois do fim do período não afeta o período.
   const block=await first('SELECT reason FROM equipment_impediments WHERE equipment_id=? AND released_at IS NULL AND opened_at::timestamptz < ?::timestamptz LIMIT 1',e,we);
   if(block)throw new AppError(`Equipamento ${tag} bloqueado por impedimento técnico: ${block.reason}. Escolha outro equipamento.`,409);
   const busy=(await conflicts(a,e,ws!,we!,{planId:plan.id,stepId:x.s.id,workOrderId:plan.work_order_id}));
