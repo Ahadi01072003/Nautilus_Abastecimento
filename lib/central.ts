@@ -79,8 +79,8 @@ export async function centralState(member:Member){
  if(planning){
   const drafts=await all(`SELECT p.id,p.updated_at,p.author_name,p.work_order_id,(SELECT count(*)::int FROM reservations r WHERE r.plan_id=p.id AND r.status='provisoria') reservations
    FROM plans p WHERE p.status='draft'${manager?'':' AND p.author_id=?'}`,...(manager?[]:[a.id]));
-  const stale=drafts.filter(d=>d.reservations>0&&t-Date.parse(d.updated_at)>3*DAY);
-  if(stale.length)alerts.push({id:'drafts:stale',module:'planejamento',severity:'info',title:`${stale.length} rascunho(s) parado(s) há mais de 3 dias segurando equipamentos`,detail:manager?'Libere as reservas dos esquecidos ou peça para lançar.':'Lance ou descarte para liberar os equipamentos.',at:null,link:{view:'plan-atividade'}});
+  // Rascunho não segura equipamento: rascunho parado não prende recurso de ninguém.
+  const stale:Row[]=[];
   out.sections.planejamento={drafts:drafts.length,revisions:drafts.filter(d=>d.work_order_id).length,stale:stale.length};
  }
 

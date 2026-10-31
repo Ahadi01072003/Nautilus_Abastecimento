@@ -146,11 +146,11 @@ async function startBlockers(tx:Executor,wo:Row,s:Row,lock=true){
   // Horas de uso que começam depois (OS sem fluxo): o equipamento não é usado agora, então não
   // impede o início; a reserva dele já garante o período planejado.
   if(!e.used_now)continue;
-  // Em uso em outra etapa aberta: equipamento da etapa inteira (até finalizar) ou dentro das horas
-  // de uso definidas agora. Horas de uso já encerradas deixam o equipamento livre (regra da reserva).
+  // Em uso em outra etapa aberta dentro do período reservado dela. Passado o fim previsto (ou as horas
+  // de uso), o equipamento fica livre, mesmo com aquela etapa ainda em andamento (regra da reserva).
   const busy=await tx.first(`SELECT w.number,p.name FROM reservations r JOIN os_steps o ON o.plan_step_id=r.plan_step_id JOIN plan_steps p ON p.id=o.plan_step_id JOIN work_orders w ON w.id=o.work_order_id
    WHERE r.equipment_id=? AND r.status<>'liberada' AND o.status = ANY(?::text[]) AND o.id<>?
-    AND (r.end_at::timestamptz >= p.planned_end::timestamptz OR (r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now())) LIMIT 1`,e.equipment_id,ACTIVE,s.id);
+    AND r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now() LIMIT 1`,e.equipment_id,ACTIVE,s.id);
   if(busy){out.push(`Equipamento ${e.tag} ainda em uso na etapa “${busy.name}” da ${osNumber(busy.number)}.`);continue;}
   // Início fora do horário reservado (antecipado ou atrasado): outra OS com o equipamento reservado
   // agora impede o início; a reserva desta etapa não cobre o momento atual.

@@ -67,27 +67,23 @@ test('horas de uso valem mesmo com a OS em andamento: o restante da OS fica livr
  await rejects(freeOs(at(24*3),at(24*5),'eq1'),409,/indisponível/);
 });
 
-test('OS inteira em andamento depois do previsto: ocupa até ser finalizada; o futuro é aceito com aviso',async()=>{
+test('OS inteira em andamento depois do previsto: o equipamento libera no fim previsto, mesmo sem finalizar',async()=>{
  const c=await freeOs(at(1),at(3),'eq2');
  await ops('start',{stepId:c.step});
  await shift(c.plan,at(-5),at(-1));
- const now=await avail(at(-0.5),at(0.5),'eq2');
- assert.equal(now.status,'reservado');assert.match(now.detail,/passou do fim previsto .* segue em uso até ser finalizada/);
- assert.equal((await avail(at(2),at(3),'eq2')).status,'livre','o atraso não segura o futuro');
- // Rascunho no futuro: aceito, com aviso de que a etapa só começa quando a outra terminar.
+ assert.equal((await avail(at(-0.5),at(0.5),'eq2')).status,'livre','passou do fim previsto: livre');
+ // Outra OS agora, com a anterior ainda em andamento: lança sem pendência nem aviso e pode começar.
  const {id}=await planningMutate('planning/create-free',{},planner) as {id:string};
  const p=(await planDetail(planner,id)).plan;
- await planningMutate('planning/save',{id,version:p.version,title:'Depois',orgId:org,locationId:loc,plannedStart:at(2),plannedEnd:at(3),steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:['eq2'],operatorIds:[]}))},planner);
+ await planningMutate('planning/save',{id,version:p.version,title:'Depois',orgId:org,locationId:loc,plannedStart:at(-0.5),plannedEnd:at(2),steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:['eq2'],operatorIds:[]}))},planner);
  const review=await validateDraft(planner,id) as Row;
  assert.equal(review.errors.length,0,JSON.stringify(review.errors));
- assert.ok(review.warnings.some((w:Row)=>/EMP-02 segue em uso .* passou do fim previsto/.test(w.message)),JSON.stringify(review.warnings));
+ assert.ok(!review.warnings.some((w:Row)=>/EMP-02/.test(w.message)),JSON.stringify(review.warnings));
  const v=(await planDetail(planner,id)).plan.version;
  const d=await planningMutate('planning/launch',{id,version:v,launchKey:key()},planner) as Row;
  const dStep=(await orderDetail(operator,d.workOrderId)).steps[0] as Row;
- // Iniciar a OS seguinte enquanto a anterior não foi finalizada: barrado pela execução.
- assert.ok(((await startCheck(operator,dStep.id)).blockers as string[]).some(b=>/EMP-02 ainda em uso/.test(b)));
+ assert.ok(!((await startCheck(operator,dStep.id)).blockers as string[]).some(b=>/EMP-02/.test(b)),'a anterior passou do previsto: não barra o início');
  await ops('finish',{stepId:c.step});
- assert.ok(!((await startCheck(operator,dStep.id)).blockers as string[]).some(b=>/EMP-02/.test(b)),'finalizada a anterior, o equipamento libera');
 });
 
 test('início de etapa: equipamento reservado agora por outra OS barra o início antecipado; horas de uso futuras não barram',async()=>{
