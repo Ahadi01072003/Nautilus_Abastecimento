@@ -38,7 +38,7 @@ export function ExitDialog({visit,onClose,onDone}:{visit:R|null,onClose:()=>void
    intent.renew();toast.success(r.message||'Saída registrada.');onDone(r);
   }catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
- return <Dialog open={!!visit} onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>Registrar saída</DialogTitle>
+ return <Dialog open={!!visit} onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog por-dialog"><DialogHeader><DialogTitle>Registrar saída</DialogTitle>
   <DialogDescription>{visit?`${visit.personName} · ${visit.companyName} · entrou às ${hm(visit.entryAt)}`:''}</DialogDescription></DialogHeader>
   {visit&&<form onSubmit={submit}><div className="form-grid">
    {visit.accessMode==='veiculo'&&<Field label="Placa na saída" hint={`Placa da entrada: ${visit.plateIn}`}><Input maxLength={8} value={plate} onChange={e=>setPlate(e.target.value.toUpperCase())}/></Field>}
@@ -85,7 +85,7 @@ export function VisitDialog({visitId,manager,onClose,onChanged}:{visitId:string|
   void send('visit/correct',{changes,justification:why},'Visita corrigida.');
  }
  const status=v?VISIT_STATUS[v.status]:null;
- return <Dialog open={!!visitId} onOpenChange={x=>{if(!busy&&!x)onClose()}}><DialogContent className="n-dialog por-visit"><DialogHeader><DialogTitle>{v?v.personName:'Visita'}</DialogTitle>
+ return <Dialog open={!!visitId} onOpenChange={x=>{if(!busy&&!x)onClose()}}><DialogContent className="n-dialog por-dialog por-visit"><DialogHeader><DialogTitle>{v?v.personName:'Visita'}</DialogTitle>
   <DialogDescription>{v?`${v.companyName} · ${v.documentType} ${v.document}`:'Carregando…'}</DialogDescription></DialogHeader>
   {error&&<div className="error-panel"><AlertTriangle/><p>{error}</p></div>}
   {!data&&!error&&<Skeleton className="h-40 rounded-xl"/>}
