@@ -9,18 +9,19 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Badge,Empty,Field,Toggle,Choice,type R} from './kit';
-import {pget,ppost,query,useIntent,dmyhm,DOC_TYPES,CompanyPicker,LoadError} from './portaria-kit';
+import {pget,ppost,psearch,useIntent,dmyhm,DOC_TYPES,CompanyPicker,LoadError} from './portaria-kit';
 
 export default function PortariaVisitors({refreshKey}:{refreshKey?:number}){
  const [q,setQ]=useState(''),[data,setData]=useState<R|null>(null),[pending,setPending]=useState<R[]>([]),[error,setError]=useState('');
  const [person,setPerson]=useState<R|null>(null),[company,setCompany]=useState<R|null>(null);
  const refresh=useCallback(async()=>{
-  try{const [d,p]=await Promise.all([pget<R>('registry?'+query({q,limit:50})),pget<R>('pending-review')]);setData(d);setPending(p.rows);setError('')}catch(e){setError((e as Error).message)}
+  try{const [d,p]=await Promise.all([psearch<R>('registry/search',{q,limit:50}),pget<R>('pending-review')]);setData(d);setPending(p.rows);setError('')}catch(e){setError((e as Error).message)}
  },[q]);
  useEffect(()=>{const t=setTimeout(()=>void refresh(),q?250:0);return()=>clearTimeout(t)},[refresh,refreshKey,q]);
  const intent=useIntent();
- async function mark(id:string){try{await ppost('review/mark',{id},intent.key());intent.renew();toast.success('Cadastro marcado como revisado.');await refresh()}catch(e){toast.error((e as Error).message)}}
+ async function mark(id:string){try{await ppost('review/mark',{id},intent);intent.renew();toast.success('Cadastro marcado como revisado.');await refresh()}catch(e){toast.error((e as Error).message)}}
  async function edit(p:R){
+  setCompany(null);
   try{const d=await pget<R>('person?id='+p.id);setPerson({id:d.id,name:d.name,documentType:d.documentType,documentNumber:d.documentNumber,active:d.active,companyId:d.companyId,companyName:d.companyName})}
   catch(e){toast.error((e as Error).message)}
  }
@@ -43,7 +44,7 @@ export default function PortariaVisitors({refreshKey}:{refreshKey?:number}){
    {data.hasMore&&<p className="muted-text">Mostrando os primeiros 50. Refine a busca para ver os demais.</p>}
   </section>
   <CompaniesBlock companies={companies} onChanged={()=>void refresh()}/>
-  {person&&<PersonDialog person={person} company={company} setCompany={setCompany} onClose={()=>setPerson(null)} onDone={()=>{setPerson(null);void refresh()}}/>}
+  {person&&<PersonDialog person={person} company={company} setCompany={setCompany} onClose={()=>{setPerson(null);setCompany(null)}} onDone={()=>{setPerson(null);setCompany(null);void refresh()}}/>}
  </div>;
 }
 
@@ -54,7 +55,7 @@ function PersonDialog({person,company,setCompany,onClose,onDone}:{person:R,compa
   e.preventDefault();setBusy(true);setError('');
   try{
    if(!current)throw new Error('Escolha a empresa do visitante.');
-   const r=await ppost('person/save',{id:person.id,name:form.name,documentType:form.documentType,documentNumber:form.documentNumber,companyId:current.id,active:form.active},intent.key());
+   const r=await ppost('person/save',{id:person.id,name:form.name,documentType:form.documentType,documentNumber:form.documentNumber,companyId:current.id,active:form.active},intent);
    intent.renew();toast.success(r.message);onDone();
   }catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
@@ -76,7 +77,7 @@ function CompaniesBlock({companies,onChanged}:{companies:R[],onChanged:()=>void}
  const [edit,setEdit]=useState<R|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),intent=useIntent();
  async function submit(e:FormEvent){
   e.preventDefault();setBusy(true);setError('');
-  try{const r=await ppost('company/save',{id:edit!.id,name:edit!.name,active:edit!.active},intent.key());intent.renew();toast.success(r.message);setEdit(null);onChanged()}
+  try{const r=await ppost('company/save',{id:edit!.id,name:edit!.name,active:edit!.active},intent);intent.renew();toast.success(r.message);setEdit(null);onChanged()}
   catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
  return <section className="n-panel"><div className="panel-heading"><div><h2>Empresas dos visitantes</h2><p>Criadas na Portaria ou aqui. As empresas de Solicitantes e clientes são usadas só para leitura e se editam em Cadastros › Solicitantes e clientes.</p></div>

@@ -4,7 +4,7 @@
 import {db,type Executor,type Row} from './db';
 import {audit} from './registry';
 import {type Member} from './permissions';
-import {type Actor,id,fail,invalid,portaria,onlyManager,baseOf,iso,localDate,instantOf,idempotent,textField,longText,justificationOf,plateOf,ACCESS_MODES,checkEventTime,pageOf,likeOf,maskDocument} from './portaria-core';
+import {type Actor,id,fail,invalid,portaria,onlyManager,baseOf,iso,localDate,instantOf,idempotent,textField,longText,justificationOf,plateOf,ACCESS_MODES,checkEventTime,pageOf,likeOf,maskDocument,strictDay} from './portaria-core';
 import {lockReport,bump,VISIT_SELECT,visitRow} from './portaria-data';
 import {resolveCompany} from './portaria-people';
 
@@ -132,7 +132,8 @@ async function undoExit(a:Actor,b:Row){
  return await db().tx(tx=>idempotent(tx,a,b,'portaria/visit/undo-exit',async()=>{
   const base=await baseOf(tx);
   const seen=await loadVisit(tx,base,b.visitId);
-  const reports=await lockScope(tx,base,[seen.person_id],[seen.exit_date]);
+  // Desfazer a saída muda o conteúdo vivo do relatório da ENTRADA também: os dois entram no escopo (e exigem estar abertos).
+  const reports=await lockScope(tx,base,[seen.person_id],[seen.entry_date,seen.exit_date]);
   const v=await loadVisit(tx,base,b.visitId,true);
   checkVersion(v,b.version);
   if(v.status!=='finalizada')throw fail(409,'VISIT_NOT_FINISHED','Só uma visita finalizada tem saída para desfazer.','visitId');
@@ -142,7 +143,7 @@ async function undoExit(a:Actor,b:Row){
   try{
    await tx.run(`UPDATE portaria_visits SET status='em_andamento',exit_at=NULL,plate_out=NULL,exit_report_id=NULL,exit_by=NULL,exit_by_name=NULL,exit_registered_at=NULL,version=version+1,updated_at=now() WHERE id=?`,v.id);
   }catch(e){throw overlapError(e,v.person_name);}
-  const after=await finish(tx,a,v,'desfazer_saida','Portaria: saída desfeita',before,justification,exitReport,null);
+  const after=await finish(tx,a,v,'desfazer_saida','Portaria: saída desfeita',before,justification,reports.get(v.entry_date)!,exitReport);
   return {id:v.id,visit:visitRow(after),message:`Saída de ${v.person_name} desfeita: a visita voltou a estar em andamento.`};
  }));
 }
@@ -184,7 +185,7 @@ export async function listVisits(member:Member,url:URL){
  await portaria(member);
  const base=await baseOf(db()),{limit,page,offset}=pageOf(url,100);
  const where=['v.base_id=?'],values:unknown[]=[base.id];
- const day=(param:string)=>{const s=url.searchParams.get(param);if(!s)return null;if(!/^\d{4}-\d{2}-\d{2}$/.test(s)||Number.isNaN(Date.parse(s+'T00:00:00Z')))throw invalid('Data inválida.',param);return s;};
+ const day=(param:string)=>{const s=url.searchParams.get(param);return s?strictDay(s,param):null;};
  const from=day('from'),to=day('to');
  if(from){where.push("v.entry_at>=(?::date::timestamp AT TIME ZONE ?)");values.push(from,base.timezone);}
  if(to){where.push("v.entry_at<((?::date+1)::timestamp AT TIME ZONE ?)");values.push(to,base.timezone);}

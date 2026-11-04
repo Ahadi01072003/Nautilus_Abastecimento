@@ -25,7 +25,7 @@ function EntryForm({onDone}:{onDone:()=>void}){
   try{
    const occurredAt=custom?fromLocalInput(when):null;
    if(custom&&!occurredAt)throw new Error('Informe o horário da entrada.');
-   const r=await ppost('entry',{personId:person.id,purpose,accessMode:mode,plateIn:mode==='veiculo'?plate:undefined,notes:notes||undefined,occurredAt:occurredAt||undefined,justification:why||undefined},intent.key());
+   const r=await ppost('entry',{personId:person.id,purpose,accessMode:mode,plateIn:mode==='veiculo'?plate:undefined,notes:notes||undefined,occurredAt:occurredAt||undefined,justification:why||undefined},intent);
    intent.renew();toast.success(r.message||'Entrada registrada.');
    setPerson(null);setPurpose('');setMode('a_pe');setPlate('');setNotes('');setCustom(false);setWhen('');setWhy('');onDone();
   }catch(err){setError((err as Error).message)}finally{setBusy(false)}
@@ -52,7 +52,7 @@ function CloseDialog({date,report,onClose,onDone}:{date:string,report:R|null,onC
   setError('');
   try{
    let id=report?.id as string|undefined;
-   if(!id){id=(await ppost('report/open',{date},open.key())).report.id}
+   if(!id){id=(await ppost('report/open',{date},open)).report.id}
    setCheck(await pget<R>('report/check?reportId='+id));
   }catch(e){setError((e as Error).message)}
  // eslint-disable-next-line react-hooks/exhaustive-deps -- open.key é estável por abertura.
@@ -62,7 +62,7 @@ function CloseDialog({date,report,onClose,onDone}:{date:string,report:R|null,onC
  async function submit(e:FormEvent){
   e.preventDefault();if(!check)return;setBusy(true);setError('');
   try{
-   const r=await ppost('report/close',{reportId:check.report.id,expectedVersion:check.expectedVersion,expectedPresent:check.expectedPresent,confirmPresent:confirm,justification:why||undefined},intent.key());
+   const r=await ppost('report/close',{reportId:check.report.id,expectedVersion:check.expectedVersion,expectedPresent:check.expectedPresent,confirmPresent:confirm,justification:why||undefined},intent);
    intent.renew();toast.success(r.message);onDone();
   }catch(err){
    setError((err as Error).message);
@@ -128,7 +128,7 @@ export default function PortariaRegistro({refreshKey,manager}:{refreshKey?:numbe
   <section className="n-panel"><div className="panel-heading"><div><h2>Movimentos do dia</h2><p>Entradas e saídas de {day(data.date)}, em ordem de horário. Clique numa linha para ver o histórico ou corrigir.</p></div></div>
    {moves.length?<div className="table-scroll"><table className="eu-table"><thead><tr><th>Hora</th><th>Movimento</th><th>Visitante</th><th>Empresa</th><th>Objetivo</th><th>Acesso</th><th>Registrado por</th></tr></thead><tbody>
     {moves.map(({v,kind,at})=><tr key={kind+v.id} className="clickable" onClick={()=>setVisitId(v.id)}><td>{hm(at,tz)}{v.retroactive&&kind==='entrada'&&<small className="muted-text"> posterior</small>}</td>
-     <td>{kind==='entrada'?<Badge tone="info">Entrada</Badge>:<Badge tone="muted">Saída{v.fromPreviousDay?' · de dia anterior':''}</Badge>}</td><td><b>{v.personName}</b><small className="muted-text"> {v.document}</small></td><td>{v.companyName}</td><td>{v.purpose}</td>
+     <td>{kind==='entrada'?<Badge tone="info">Entrada</Badge>:<Badge tone="muted">Saída{v.fromPreviousDay?' · de dia anterior':''}</Badge>}</td><td><button type="button" className="por-link" aria-label={`Abrir detalhes de ${v.personName}`} onClick={e=>{e.stopPropagation();setVisitId(v.id)}}><b>{v.personName}</b></button><small className="muted-text"> {v.document}</small></td><td>{v.companyName}</td><td>{v.purpose}</td>
      <td>{MODES[v.accessMode]}{(kind==='entrada'?v.plateIn:v.plateOut)?` · ${kind==='entrada'?v.plateIn:v.plateOut}`:''}</td><td>{kind==='entrada'?v.entryByName:v.exitByName}</td></tr>)}
    </tbody></table></div>:<Empty icon={Users} title="Sem movimentos" description="Nenhuma entrada ou saída neste dia."/>}
   </section>

@@ -34,7 +34,7 @@ export function ExitDialog({visit,onClose,onDone}:{visit:R|null,onClose:()=>void
   try{
    const occurredAt=custom?fromLocalInput(when):null;
    if(custom&&!occurredAt)throw new Error('Informe o horário da saída.');
-   const r=await ppost('exit',{visitId:visit.id,version:visit.version,plateOut:plate||undefined,occurredAt:occurredAt||undefined,justification:why||undefined},intent.key());
+   const r=await ppost('exit',{visitId:visit.id,version:visit.version,plateOut:plate||undefined,occurredAt:occurredAt||undefined,justification:why||undefined},intent);
    intent.renew();toast.success(r.message||'Saída registrada.');onDone(r);
   }catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
@@ -64,7 +64,7 @@ export function VisitDialog({visitId,manager,onClose,onChanged}:{visitId:string|
  }
  async function send(path:string,body:R,done:string){
   setBusy(true);setFormError('');setClosedReports([]);
-  try{await ppost(path,{visitId:v!.id,version:v!.version,...body},intent.key());intent.renew();toast.success(done);setMode('view');setWhy('');await refresh();onChanged()}
+  try{await ppost(path,{visitId:v!.id,version:v!.version,...body},intent);intent.renew();toast.success(done);setMode('view');setWhy('');await refresh();onChanged()}
   catch(e){
    if(e instanceof ApiError&&e.code==='REPORT_CLOSED')setClosedReports((e.data?.reports as R[])||[]);
    setFormError((e as Error).message);

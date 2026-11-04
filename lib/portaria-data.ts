@@ -33,11 +33,11 @@ export const reportRow=(r:Row)=>({id:r.id,date:r.date,status:r.status,version:Nu
 
 /** Conteúdo do dia: entradas e saídas da data, quem está na base agora e os totais. As saídas incluem
  * as de visitas iniciadas em dias anteriores. Anuladas ficam fora de tudo (só a contagem). */
-export async function reportContent(ex:Executor,base:Base,report:Row,full=false){
+export async function reportContent(ex:Executor,base:Base,report:Row,full=false,asOfDay=false){
  const [entries,exits,present,annulled]=await Promise.all([
   ex.all(`${VISIT_SELECT} WHERE v.entry_report_id=? AND v.status<>'anulada' ORDER BY v.entry_at,v.id`,report.id),
   ex.all(`${VISIT_SELECT} WHERE v.exit_report_id=? AND v.status='finalizada' ORDER BY v.exit_at,v.id`,report.id),
-  ex.all(`${VISIT_SELECT} WHERE v.base_id=? AND v.status='em_andamento' ORDER BY v.entry_at,v.id`,base.id),
+  asOfDay&&report.date?presentAtEndOfDay(ex,base,String(report.date)):ex.all(`${VISIT_SELECT} WHERE v.base_id=? AND v.status='em_andamento' ORDER BY v.entry_at,v.id`,base.id),
   ex.first("SELECT count(*)::int n FROM portaria_visits WHERE (entry_report_id=? OR exit_report_id=?) AND status='anulada'",report.id,report.id),
  ]);
  const companies=new Map<string,{companyId:string,companyName:string,entradas:number,people:Set<string>}>();
@@ -54,8 +54,13 @@ export async function reportContent(ex:Executor,base:Base,report:Row,full=false)
  };
 }
 
-/** Quem está na base agora: identificação do conjunto (para o fechamento detectar mudança). */
-export async function presentToken(ex:Executor,base:Base){
- const rows=await ex.all("SELECT id,version FROM portaria_visits WHERE base_id=? AND status='em_andamento' ORDER BY id",base.id);
- return rows.map(r=>`${r.id}:${r.version}`).join('|');
+/** Quem estava na base no FIM do dia do relatório (meia-noite local seguinte, ou agora se o dia é hoje): entrou antes e
+ * ainda não tinha saído. Um relatório antigo não herda quem entrou depois dele, e visita que atravessa a noite conta. */
+export async function presentAtEndOfDay(ex:Executor,base:Base,date:string){
+ const end="least(clock_timestamp(),((?::date+1)::timestamp AT TIME ZONE ?::text))";
+ return ex.all(`${VISIT_SELECT} WHERE v.base_id=? AND v.status<>'anulada' AND v.entry_at<${end} AND (v.exit_at IS NULL OR v.exit_at>=${end}) ORDER BY v.entry_at,v.id`,
+  base.id,date,base.timezone,date,base.timezone);
 }
+
+/** Identificação do conjunto de presentes (para o fechamento detectar mudança entre a conferência e o fechamento). */
+export const presentToken=(present:Row[])=>present.map(v=>`${v.id}:${v.version}`).join('|');

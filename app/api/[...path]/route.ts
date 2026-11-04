@@ -18,7 +18,7 @@ import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
 import {tvData} from '@/lib/tv';
-import {portariaGet,portariaPost} from '@/lib/portaria-api';
+import {portariaGet,portariaPost,isSearchPath} from '@/lib/portaria-api';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -139,7 +139,7 @@ export async function POST(req:Request){try{
   return json(await changeOwnPassword(member,body.currentPassword,body.newPassword,token));
  }
  const {member}=await session();
- await rateLimit(member.id,'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
+ await rateLimit(member.id,isSearchPath(path)?'read':'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
  // Anexo do Financeiro: corpo binário (até 4 MB), lido antes e no lugar do JSON.
  if(path==='finance/attachments')return json(await uploadAttachment(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
  // Fluxos e checklists levam várias etapas/perguntas por envio.

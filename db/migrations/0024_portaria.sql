@@ -4,6 +4,10 @@
 -- auditoria. Datas e horas em timestamptz/date; a data operacional é derivada no fuso da base.
 -- Aditiva.
 
+-- A troca das constraints de members pede trava exclusiva: se não conseguir em 15 s, a migração falha limpa (sem
+-- travar o login de ninguém) e pode ser repetida.
+SET LOCAL lock_timeout='15s';
+
 -- Perfil Porteiro e acesso "portaria".
 ALTER TABLE members DROP CONSTRAINT IF EXISTS member_capabilities;
 ALTER TABLE members DROP CONSTRAINT IF EXISTS members_profile_check;

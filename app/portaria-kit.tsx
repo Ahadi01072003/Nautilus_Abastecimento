@@ -24,14 +24,25 @@ async function call(path:string,init?:RequestInit){
  return j;
 }
 export const pget=<T=R,>(path:string):Promise<T>=>call('portaria/'+path) as Promise<T>;
-/** Comando com chave de idempotência: o mesmo envio repetido (duplo clique, rede) devolve o mesmo resultado. */
-export const ppost=(path:string,body:R,key:string):Promise<R>=>call('portaria/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,idempotencyKey:key})});
-/** Uma chave por intenção do usuário: renova depois de um envio concluído. */
+/** Uma chave por intenção do usuário. A chave vale para um conteúdo: reenviar o MESMO conteúdo (duplo clique, resposta
+ * perdida) reaproveita a chave e o servidor devolve o mesmo resultado; conteúdo diferente ganha chave nova. */
 export function useIntent(){
- const ref=useRef<string|null>(null);
- if(ref.current==null)ref.current=crypto.randomUUID();
- return {key:()=>ref.current as string,renew:()=>{ref.current=crypto.randomUUID();}};
+ const ref=useRef<{id:string,body:string}|null>(null);
+ if(ref.current==null)ref.current={id:crypto.randomUUID(),body:''};
+ return {
+  key:(body?:unknown)=>{
+   const cur=ref.current as {id:string,body:string},text=body===undefined?cur.body:JSON.stringify(body);
+   if(text!==cur.body){if(cur.body)cur.id=crypto.randomUUID();cur.body=text;}
+   return cur.id;
+  },
+  renew:()=>{ref.current={id:crypto.randomUUID(),body:''};},
+ };
 }
+export type Intent=ReturnType<typeof useIntent>;
+/** Comando com chave de idempotência. */
+export const ppost=(path:string,body:R,intent:Intent):Promise<R>=>call('portaria/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,idempotencyKey:intent.key(body)})});
+/** Busca que aceita o documento completo: vai no corpo do POST (nunca em URL, que fica nos logs de acesso). */
+export const psearch=<T=R,>(path:string,body:R):Promise<T>=>call('portaria/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}) as Promise<T>;
 export const query=(o:Record<string,string|number|boolean|undefined|null>)=>new URLSearchParams(Object.entries(o).filter(([,v])=>v!==undefined&&v!==null&&v!==''&&v!==false).map(([k,v])=>[k,String(v===true?1:v)])).toString();
 
 export const hm=(iso:string|null|undefined,tz=TZ)=>iso?new Intl.DateTimeFormat('pt-BR',{timeZone:tz,hour:'2-digit',minute:'2-digit'}).format(new Date(iso)):'—';
@@ -56,8 +67,9 @@ export function PersonPicker({value,onChange,onNew,refreshKey}:{value:R|null,onC
  const [q,setQ]=useState(''),[rows,setRows]=useState<R[]>([]),[open,setOpen]=useState(false),[busy,setBusy]=useState(false);
  useEffect(()=>{
   if(!open)return;
-  const t=setTimeout(async()=>{setBusy(true);try{setRows((await pget<R>('people?'+query({q,active:1,limit:8}))).rows)}catch{setRows([])}finally{setBusy(false)}},q?220:0);
-  return()=>clearTimeout(t);
+  let stale=false;
+  const t=setTimeout(async()=>{setBusy(true);try{const r=await psearch<R>('people/search',{q,active:1,limit:8});if(!stale)setRows(r.rows)}catch{if(!stale)setRows([])}finally{if(!stale)setBusy(false)}},q?220:0);
+  return()=>{stale=true;clearTimeout(t)};
  },[q,open,refreshKey]);
  if(value)return <div className="por-picked"><div><b>{value.name}</b><small>{value.companyName} · {value.documentType} {value.documentMasked}</small></div>
   {value.present&&<Badge tone="warning">Já está na base</Badge>}<Button type="button" variant="ghost" size="sm" onClick={()=>{onChange(null);setQ('')}}>Trocar</Button></div>;
@@ -75,10 +87,10 @@ export function PersonPicker({value,onChange,onNew,refreshKey}:{value:R|null,onC
 /** Seletor de empresa (clientes e solicitantes entram só leitura; empresas novas nascem na hora). */
 export function CompanyPicker({value,onChange}:{value:R|null,onChange:(c:R|null)=>void}){
  const [q,setQ]=useState(''),[rows,setRows]=useState<R[]>([]),[open,setOpen]=useState(false),[err,setErr]=useState(''),intent=useIntent();
- useEffect(()=>{if(!open)return;const t=setTimeout(async()=>{try{setRows((await pget<R>('companies?'+query({q}))).rows)}catch{setRows([])}},q?220:0);return()=>clearTimeout(t)},[q,open]);
+ useEffect(()=>{if(!open)return;let stale=false;const t=setTimeout(async()=>{try{const r=await pget<R>('companies?'+query({q}));if(!stale)setRows(r.rows)}catch{if(!stale)setRows([])}},q?220:0);return()=>{stale=true;clearTimeout(t)}},[q,open]);
  async function create(){
   setErr('');
-  try{const r=await ppost('company/quick',{name:q.trim()},intent.key());intent.renew();onChange({id:r.id,name:r.name});setOpen(false);toast.success(r.message)}
+  try{const r=await ppost('company/quick',{name:q.trim()},intent);intent.renew();onChange({id:r.id,name:r.name});setOpen(false);toast.success(r.message)}
   catch(e){setErr((e as Error).message)}
  }
  if(value)return <div className="por-picked"><div><b>{value.name}</b></div><Button type="button" variant="ghost" size="sm" onClick={()=>onChange(null)}>Trocar</Button></div>;
@@ -102,7 +114,7 @@ export function QuickPerson({open,onClose,onCreated}:{open:boolean,onClose:()=>v
   if(!company){setError('Escolha a empresa do visitante.');return;}
   setBusy(true);
   try{
-   const r=await ppost('person/quick',{name:form.name,documentType:form.documentType,documentNumber:form.documentNumber,companyId:company.id},intent.key());
+   const r=await ppost('person/quick',{name:form.name,documentType:form.documentType,documentNumber:form.documentNumber,companyId:company.id},intent);
    intent.renew();toast.success(r.message);setForm({name:'',documentType:'CPF',documentNumber:''});setCompany(null);onCreated(r.person);
   }catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
@@ -122,7 +134,7 @@ export function ReopenDialog({report,onClose,onDone}:{report:{id:string,date:str
  const [kind,setKind]=useState('movimento_posterior'),[why,setWhy]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),intent=useIntent();
  async function submit(e:FormEvent){
   e.preventDefault();if(!report)return;setBusy(true);setError('');
-  try{const r=await ppost('report/reopen',{reportId:report.id,reasonKind:kind,justification:why},intent.key());intent.renew();toast.success(r.message);setWhy('');onDone()}
+  try{const r=await ppost('report/reopen',{reportId:report.id,reasonKind:kind,justification:why},intent);intent.renew();toast.success(r.message);setWhy('');onDone()}
   catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
  return <Dialog open={!!report} onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>Reabrir relatório {report?day(report.date):''}</DialogTitle>

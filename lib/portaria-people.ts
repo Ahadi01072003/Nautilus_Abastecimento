@@ -61,10 +61,11 @@ const SELECT_PERSON=`SELECT p.*,coalesce(o.name,c.name) company_name,c.org_id,
 export const personRow=(p:Row)=>({id:p.id,name:p.name,companyId:p.company_id,companyName:p.company_name,documentType:p.document_type,documentMasked:maskDocument(p.document_number),active:!!p.active,present:!!p.present,pending:!!p.pending});
 
 /** Busca paginada para a lista suspensa. O documento só é encontrado pelo número completo. */
-export async function searchPeople(member:Member,url:URL){
+/** `byDocument`: o número completo do documento só vale na busca por corpo de POST (nunca em URL, que vai para logs). */
+export async function searchPeople(member:Member,url:URL,byDocument=true){
  await portaria(member);
  const q=(url.searchParams.get('q')||'').trim().slice(0,80),{limit,page,offset}=pageOf(url);
- const norm=normDocument(q),onlyActive=url.searchParams.get('active')==='1';
+ const norm=byDocument?normDocument(q):'',onlyActive=url.searchParams.get('active')==='1';
  const where:string[]=[],values:unknown[]=[];
  if(q){where.push('(p.name ILIKE ? OR coalesce(o.name,c.name) ILIKE ?'+(norm.length>=3?' OR p.document_norm=?':'')+')');values.push(likeOf(q),likeOf(q));if(norm.length>=3)values.push(norm);}
  if(onlyActive)where.push('p.active=1');
@@ -73,9 +74,10 @@ export async function searchPeople(member:Member,url:URL){
  return {rows:rows.slice(0,limit).map(personRow),page,limit,hasMore:rows.length>limit};
 }
 
-/** Detalhe da pessoa com o documento completo (porteiro e gestão). Cada consulta vai para a auditoria. */
+/** Detalhe da pessoa com o documento completo (gestão). Cada consulta vai para a auditoria. O porteiro vê o documento
+ * completo só no detalhe da visita e na impressão. */
 export async function personDetail(member:Member,personId:string){
- const a=await portaria(member);
+ const a=await portaria(member);onlyManager(a);
  const p=await db().first(`${SELECT_PERSON} WHERE p.id=?`,personId);
  if(!p)throw fail(404,'PERSON_NOT_FOUND','Pessoa não encontrada.');
  await db().tx(tx=>audit(tx,a,'Portaria: documento consultado',p.id,{person:p.id,documentMasked:maskDocument(p.document_number)}));
@@ -98,9 +100,9 @@ export async function pendingReview(member:Member,url:URL){
 }
 
 /** Lista de visitantes e empresas da Portaria para o bloco de cadastro da gestão. */
-export async function registryList(member:Member,url:URL){
+export async function registryList(member:Member,url:URL,byDocument=true){
  const a=await portaria(member);onlyManager(a);
- const people=await searchPeople(member,url);
+ const people=await searchPeople(member,url,byDocument);
  const companies=await db().all(`SELECT c.id,c.name,c.active,EXISTS (SELECT 1 FROM portaria_pending_review r WHERE r.kind='empresa' AND r.entity_id=c.id AND r.reviewed_at IS NULL) pending,
    (SELECT count(*)::int FROM portaria_people p WHERE p.company_id=c.id) people FROM portaria_companies c WHERE c.origin='portaria' ORDER BY lower(c.name)`);
  return {...people,companies:companies.map(c=>({id:c.id,name:c.name,active:!!c.active,pending:!!c.pending,people:c.people}))};
@@ -120,7 +122,13 @@ export async function portariaPeopleMutate(path:string,b:Row,member:Member){
     return {id:own.id as string,name:own.name as string,created:false,message:`${own.name} já estava cadastrada e foi selecionada.`};
    }
    const cid=id();
-   await tx.run("INSERT INTO portaria_companies(id,name,origin,created_by) VALUES(?,?,'portaria',?)",cid,name,a.id);
+   // Dois porteiros cadastrando a mesma empresa ao mesmo tempo: o segundo reaproveita a que acabou de nascer.
+   const ins=await tx.run("INSERT INTO portaria_companies(id,name,origin,created_by) VALUES(?,?,'portaria',?) ON CONFLICT DO NOTHING",cid,name,a.id);
+   if(!ins){
+    const twin=await tx.first("SELECT id,name FROM portaria_companies WHERE origin='portaria' AND lower(trim(name))=lower(?)",name);
+    if(twin)return {id:twin.id as string,name:twin.name as string,created:false,message:`${twin.name} já estava cadastrada e foi selecionada.`};
+    throw fail(409,'COMPANY_DUPLICATE','Já existe empresa com este nome.','name');
+   }
    await tx.run('INSERT INTO portaria_pending_review(id,kind,entity_id,created_by) VALUES(?,?,?,?)',id(),'empresa',cid,a.id);
    await audit(tx,a,'Portaria: empresa cadastrada na hora',cid,{name});
    return {id:cid,name,created:true,message:`Empresa ${name} cadastrada. A gestão revisa o cadastro depois.`};

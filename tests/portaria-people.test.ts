@@ -111,14 +111,14 @@ test('busca: homônimos se distinguem por empresa e final do documento; lista s�
  await assert.rejects(searchPeople(operator,url()),(e:{status:number})=>e.status===403);
 });
 
-test('detalhe: documento completo para porteiro e gestão, e a consulta é auditada',async()=>{
+test('detalhe da pessoa: documento completo só para a gestão e a consulta é auditada (o porteiro vê o documento no detalhe da visita e na impressão)',async()=>{
  const p=await quick({name:'Consulta Documento'});
- const d=await personDetail(porteiro,p.id as string);
+ await rejects(Promise.resolve().then(()=>personDetail(porteiro,p.id as string)),403,'FORBIDDEN');
+ const d=await personDetail(manager,p.id as string);
  assert.match(d.documentNumber as string,/^900\.000\.\d{3}-00$/);
  assert.ok(await db.first("SELECT 1 FROM audits WHERE action='Portaria: documento consultado' AND entity_id=?",p.id));
  await assert.rejects(personDetail(operator,p.id as string),(e:{status:number})=>e.status===403);
- await assert.rejects(personDetail(porteiro,'nao-existe'),(e:{code:string})=>e.code==='PERSON_NOT_FOUND');
- assert.equal((await personDetail(manager,p.id as string)).documentNumber,d.documentNumber);
+ await assert.rejects(personDetail(manager,'nao-existe'),(e:{code:string})=>e.code==='PERSON_NOT_FOUND');
 });
 
 test('gestão: cadastra, edita, inativa e revisa; porteiro não',async()=>{

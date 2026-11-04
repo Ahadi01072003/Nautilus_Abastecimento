@@ -128,3 +128,9 @@ export function justificationOf(value:unknown,field='justification'){
  if(!s)throw fail(400,'JUSTIFICATION_REQUIRED','Informe a justificativa.',field);
  return s;
 }
+
+/** Data AAAA-MM-DD existente no calendário (30/02 é recusado aqui, em vez de virar erro do banco). */
+export function strictDay(s:string,field:string){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(s)||Number.isNaN(Date.parse(s+'T00:00:00Z'))||new Date(s+'T00:00:00Z').toISOString().slice(0,10)!==s)throw invalid('Data inválida.',field);
+ return s;
+}

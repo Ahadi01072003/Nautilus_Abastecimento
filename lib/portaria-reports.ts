@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {db,type Executor,type Row} from './db';
 import {audit} from './registry';
 import {type Member} from './permissions';
-import {type Actor,id,fail,invalid,portaria,baseOf,iso,idempotent,longText,justificationOf,pageOf,localDate} from './portaria-core';
+import {type Actor,id,fail,invalid,portaria,baseOf,iso,idempotent,longText,justificationOf,pageOf,localDate,strictDay} from './portaria-core';
 import {reportContent,presentToken,reportRow} from './portaria-data';
 import {postCloseCount} from './portaria';
 
@@ -24,9 +24,9 @@ async function loadReport(ex:Executor,reportId:unknown,lock=false){
 export async function reportCheck(member:Member,url:URL){
  await portaria(member);
  const base=await baseOf(db()),r=await loadReport(db(),url.searchParams.get('reportId'));
- const content=await reportContent(db(),base,r);
+ const content=await reportContent(db(),base,r,false,true);
  return {report:reportRow(r),totals:content.totals,present:content.present,entries:content.entries.length,exits:content.exits.length,
-  expectedVersion:Number(r.version),expectedPresent:hash(await presentToken(db(),base)),
+  expectedVersion:Number(r.version),expectedPresent:hash(presentToken(content.present as Row[])),
   requiresConfirmation:content.present.length>0,canClose:r.status==='aberto',pendingAfterClose:await postCloseCount(db(),r),generatedAt:new Date().toISOString()};
 }
 
@@ -45,9 +45,10 @@ async function closeReport(a:Actor,b:Row){
    throw fail(409,'REPORT_ALREADY_CLOSED','Este relatório já foi fechado. Para incluir movimentos novos, reabra o relatório.','reportId',{versionNumber:last?Number(last.number):null});
   }
   if(Number(r.version)!==expectedVersion)throw fail(409,'VERSION_CONFLICT','O relatório mudou desde a conferência (houve novo registro). Confira de novo antes de fechar.','expectedVersion',{currentVersion:Number(r.version)});
-  const token=hash(await presentToken(tx,base));
+  // O conteúdo e o token saem do mesmo conjunto de visitas: o que foi conferido é exatamente o que fica gravado.
+  const content=await reportContent(tx,base,r,true,true);
+  const token=hash(presentToken(content.present as Row[]));
   if(token!==b.expectedPresent)throw fail(409,'VERSION_CONFLICT','Quem está na base mudou desde a conferência. Confira de novo antes de fechar.','expectedPresent');
-  const content=await reportContent(tx,base,r,true);
   const present=content.present;
   if(present.length){
    if(b.confirmPresent!==true)throw fail(409,'PRESENT_CONFIRMATION_REQUIRED',`Há ${present.length} pessoa(s) ainda na base. Confirme o fechamento e informe a justificativa para fechar com visitas em andamento.`,'confirmPresent',
@@ -94,7 +95,7 @@ export async function listReports(member:Member,url:URL){
  const base=await baseOf(db()),today=localDate(new Date(),base.timezone),{limit,page,offset}=pageOf(url,100);
  const where=['r.base_id=?'],values:unknown[]=[base.id];
  const status=url.searchParams.get('status');if(status){if(!['aberto','fechado'].includes(status))throw invalid('Situação inválida.','status');where.push('r.status=?');values.push(status);}
- for(const [param,op] of [['from','>='],['to','<=']] as const){const v=url.searchParams.get(param);if(v){if(!/^\d{4}-\d{2}-\d{2}$/.test(v))throw invalid('Data inválida.',param);where.push(`r.op_date ${op} ?::date`);values.push(v);}}
+ for(const [param,op] of [['from','>='],['to','<=']] as const){const v=url.searchParams.get(param);if(v){strictDay(v,param);where.push(`r.op_date ${op} ?::date`);values.push(v);}}
  const cond=where.join(' AND ');
  const pendingExpr=`(SELECT count(*)::int FROM portaria_events e WHERE r.status='fechado' AND (e.report_id=r.id OR e.exit_report_id=r.id)
    AND e.registered_at>(SELECT max(issued_at) FROM portaria_report_versions x WHERE x.report_id=r.id))`;
@@ -130,7 +131,7 @@ export async function reportVersion(member:Member,url:URL){
  }
  // Relatório aberto: só como PARCIAL (nunca como revisão emitida).
  const r=await loadReport(db(),reportId);
- const content=await reportContent(db(),base,r,true);
+ const content=await reportContent(db(),base,r,true,true);
  await db().tx(tx=>audit(tx,a,'Exportação: relatório da Portaria',r.id,{report:r.id,date:r.date,partial:true}));
  return {partial:true,report:reportRow(r),version:null,latestNumber:null,generatedAt:new Date().toISOString(),printedBy:a.name,
   snapshot:{base:{id:base.id,name:base.name},date:r.date,timezone:base.timezone,reportId:r.id,number:null,kind:'parcial',reason:null,closedWithPresent:content.present.length,closeJustification:null,
