@@ -144,7 +144,8 @@ export async function portariaPeopleMutate(path:string,b:Row,member:Member){
   }));
  }
 
- // Daqui para baixo: só a gestão.
+ // Daqui para baixo: só a gestão. Outras rotas seguem para os demais módulos da Portaria.
+ if(!['portaria/person/save','portaria/company/save','portaria/review/mark'].includes(path))return null;
  onlyManager(a);
 
  if(path==='portaria/person/save'){
@@ -193,5 +194,5 @@ export async function portariaPeopleMutate(path:string,b:Row,member:Member){
   });
  }
 
- throw fail(404,'NOT_FOUND','Ação não encontrada.');
+ return null;
 }
