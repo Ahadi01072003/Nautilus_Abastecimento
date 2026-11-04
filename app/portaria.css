@@ -75,3 +75,6 @@
 .por-filters .form-grid{padding:0}
 .por-link{background:none;border:0;padding:0;color:inherit;text-align:left;cursor:pointer;font:inherit}
 .por-link:focus-visible{outline:2px solid #087f77;outline-offset:2px;border-radius:3px}
+/* Caixa de seleção com rótulo dentro de um campo (ex.: filtro de pendências): alinhada ao texto, sem esticar. */
+.n-field .inline-check{display:flex;align-items:flex-start;gap:10px;min-height:44px;line-height:1.4;font-size:14px}
+.n-field .inline-check input[type=checkbox]{flex:none;width:18px;height:18px;min-height:0;padding:0;margin:2px 0 0}
