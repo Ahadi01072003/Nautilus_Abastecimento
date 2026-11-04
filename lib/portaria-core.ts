@@ -8,7 +8,7 @@ import {type Member,isManager,requireAny} from './permissions';
 
 export type Actor=Member&{capabilities:string[],org_scope:string[]};
 export const id=()=>crypto.randomUUID();
-export const fail=(status:number,code:string,message:string,field?:string)=>new AppError(message,status,code,field);
+export const fail=(status:number,code:string,message:string,field?:string,data?:Row)=>new AppError(message,status,code,field,data);
 export const invalid=(message:string,field?:string)=>fail(400,'VALIDATION',message,field);
 
 /** Acesso à Portaria: perfil Porteiro, acesso "portaria" ou gestão. Confere o cadastro a cada chamada. */
@@ -104,3 +104,20 @@ export function pageOf(url:URL,max=50){
 export const likeOf=(q:string)=>'%'+q.replace(/[\\%_]/g,'\\$&')+'%';
 
 export {db};
+
+/** Placa normalizada: maiúsculas, só letras e números, de 3 a 10 caracteres. Não valida o padrão de país. */
+export function plateOf(value:unknown,needed:boolean,field:string){
+ const s=String(value??'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+ if(!s){if(needed)throw fail(400,'PLATE_REQUIRED','Informe a placa do veículo.',field);return null;}
+ if(s.length<3||s.length>10)throw fail(400,'PLATE_INVALID','Placa inválida: use de 3 a 10 letras e números.',field);
+ return s;
+}
+export const ACCESS_MODES=['a_pe','veiculo','outro'];
+
+/** Horário de um evento: futuro é recusado; retroativo acima do limite exige justificativa. */
+export function checkEventTime(occurred:Date,now:Date,justification:string,label:string){
+ if(occurred.getTime()>now.getTime()+LIMITS.futureSkewMinutes*60000)throw fail(400,'FUTURE_TIME',`${label}: o horário não pode estar no futuro.`,'occurredAt');
+ const retro=now.getTime()-occurred.getTime()>LIMITS.retroactiveMinutes*60000;
+ if(retro&&!justification)throw fail(400,'JUSTIFICATION_REQUIRED',`${label}: lançamento com mais de ${LIMITS.retroactiveMinutes} minutos de atraso exige justificativa.`,'justification');
+ return retro;
+}
