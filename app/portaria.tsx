@@ -70,7 +70,7 @@ function CloseDialog({date,report,onClose,onDone}:{date:string,report:R|null,onC
   }finally{setBusy(false)}
  }
  const present=(check?.present||[]) as R[],t=check?.totals as R|undefined;
- return <Dialog open onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>Fechar relatório de {day(date)}</DialogTitle>
+ return <Dialog open onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog por-dialog"><DialogHeader><DialogTitle>Fechar relatório de {day(date)}</DialogTitle>
   <DialogDescription>Fechar gera uma revisão que não muda mais. Se alguém entrar ou sair depois, o movimento é registrado e o relatório pode ser reaberto para uma nova revisão.</DialogDescription></DialogHeader>
   {!check&&!error&&<Skeleton className="h-32 rounded-xl"/>}
   {check&&<form onSubmit={submit}>

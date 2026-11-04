@@ -78,3 +78,13 @@
 /* Caixa de seleção com rótulo dentro de um campo (ex.: filtro de pendências): alinhada ao texto, sem esticar. */
 .n-field .inline-check{display:flex;align-items:flex-start;gap:10px;min-height:44px;line-height:1.4;font-size:14px}
 .n-field .inline-check input[type=checkbox]{flex:none;width:18px;height:18px;min-height:0;padding:0;margin:2px 0 0}
+/* Janelas da Portaria: números numa linha só, respiro antes dos botões e botões à direita. */
+.por-dialog .por-kpis{grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:4px 0 0}
+.por-dialog .por-kpis>div{padding:10px 12px}
+.por-dialog .por-kpis span{font-size:10px}
+.por-dialog .por-kpis b{font-size:22px}
+.por-dialog .step-actions{margin-top:20px;justify-content:flex-end}
+.por-dialog .step-actions.por-actions{justify-content:flex-start;margin-top:12px}
+.por-dialog .por-h{margin-top:18px}
+.por-dialog .inline-check{margin:6px 0 10px}
+@media (max-width:560px){.por-dialog .por-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.por-dialog .step-actions{justify-content:stretch}.por-dialog .step-actions>button{flex:1}}

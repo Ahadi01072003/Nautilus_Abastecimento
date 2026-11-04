@@ -59,7 +59,7 @@ function PersonDialog({person,company,setCompany,onClose,onDone}:{person:R,compa
    intent.renew();toast.success(r.message);onDone();
   }catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
- return <Dialog open onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>{person.id?'Editar visitante':'Novo visitante'}</DialogTitle>
+ return <Dialog open onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog por-dialog"><DialogHeader><DialogTitle>{person.id?'Editar visitante':'Novo visitante'}</DialogTitle>
   <DialogDescription>Mudanças no cadastro não alteram as visitas já registradas: cada visita guarda os dados da época.</DialogDescription></DialogHeader>
   <form onSubmit={submit}><div className="form-grid">
    <Field label="Nome completo *" wide><Input required maxLength={180} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></Field>
@@ -86,7 +86,7 @@ function CompaniesBlock({companies,onChanged}:{companies:R[],onChanged:()=>void}
    {companies.map(c=><tr key={c.id}><td><b>{c.name}</b></td><td>{c.people}</td><td>{c.active?<Badge tone="success">Ativa</Badge>:<Badge>Inativa</Badge>}{c.pending&&<Badge tone="warning">Aguarda revisão</Badge>}</td>
     <td><button className="icon-action" aria-label={`Editar ${c.name}`} onClick={()=>{setError('');setEdit({...c})}}><Pencil size={16}/></button></td></tr>)}</tbody></table></div>
    :<Empty icon={Building2} title="Nenhuma empresa criada na Portaria" description="As empresas novas cadastradas na hora aparecem aqui para revisão."/>}
-  <Dialog open={!!edit} onOpenChange={v=>{if(!busy&&!v)setEdit(null)}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>{edit?.id?'Editar empresa':'Nova empresa'}</DialogTitle><DialogDescription>Visitas antigas mantêm o nome da época.</DialogDescription></DialogHeader>
+  <Dialog open={!!edit} onOpenChange={v=>{if(!busy&&!v)setEdit(null)}}><DialogContent className="n-dialog por-dialog"><DialogHeader><DialogTitle>{edit?.id?'Editar empresa':'Nova empresa'}</DialogTitle><DialogDescription>Visitas antigas mantêm o nome da época.</DialogDescription></DialogHeader>
    {edit&&<form onSubmit={submit}><div className="form-grid"><Field label="Nome *" wide><Input required maxLength={120} value={edit.name} onChange={e=>setEdit(x=>({...x!,name:e.target.value}))}/></Field>
     <Toggle title="Empresa ativa" checked={!!edit.active} onChange={v=>setEdit(x=>({...x!,active:v}))}/></div>
     {error&&<p className="form-error" role="alert">{error}</p>}

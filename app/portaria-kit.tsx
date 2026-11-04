@@ -132,7 +132,7 @@ export function QuickPerson({open,onClose,onCreated}:{open:boolean,onClose:()=>v
    intent.renew();toast.success(r.message);setForm({name:'',documentType:'CPF',documentNumber:''});setCompany(null);onCreated(r.person);
   }catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
- return <Dialog open={open} onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>Cadastrar visitante</DialogTitle><DialogDescription>O cadastro vale na hora e a gestão revisa depois. Visitantes ficam separados dos colaboradores do Planejamento.</DialogDescription></DialogHeader>
+ return <Dialog open={open} onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog por-dialog"><DialogHeader><DialogTitle>Cadastrar visitante</DialogTitle><DialogDescription>O cadastro vale na hora e a gestão revisa depois. Visitantes ficam separados dos colaboradores do Planejamento.</DialogDescription></DialogHeader>
   <form onSubmit={submit}><div className="form-grid">
    <Field label="Nome completo *" wide><Input required maxLength={180} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/></Field>
    <Field label="Tipo de documento *"><Choice value={form.documentType} onChange={v=>setForm(f=>({...f,documentType:v}))} options={DOC_TYPES.map(t=>({value:t,label:t}))}/></Field>
@@ -151,7 +151,7 @@ export function ReopenDialog({report,onClose,onDone}:{report:{id:string,date:str
   try{const r=await ppost('report/reopen',{reportId:report.id,reasonKind:kind,justification:why},intent);intent.renew();toast.success(r.message);setWhy('');onDone()}
   catch(err){setError((err as Error).message)}finally{setBusy(false)}
  }
- return <Dialog open={!!report} onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>Reabrir relatório {report?day(report.date):''}</DialogTitle>
+ return <Dialog open={!!report} onOpenChange={v=>{if(!busy&&!v)onClose()}}><DialogContent className="n-dialog por-dialog"><DialogHeader><DialogTitle>Reabrir relatório {report?day(report.date):''}</DialogTitle>
   <DialogDescription>O relatório e as revisões já emitidas continuam como estão. Depois de ajustar, feche de novo para gerar a próxima revisão.</DialogDescription></DialogHeader>
   <form onSubmit={submit}><div className="form-grid">
    <Field label="Motivo *" wide><Choice value={kind} onChange={setKind} options={[{value:'movimento_posterior',label:'Movimento posterior (entrou ou saiu alguém depois do fechamento)'},{value:'correcao',label:'Correção de dados já fechados'}]}/></Field>
