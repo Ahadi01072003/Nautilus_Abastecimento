@@ -99,7 +99,7 @@ export default function PortariaRegistro({refreshKey,manager}:{refreshKey?:numbe
  const versions=(data.versions||[]) as R[],last=versions[versions.length-1];
  const present=data.present as R[],entries=data.entries as R[],exits=data.exits as R[];
  const moves=[...entries.map(v=>({v,kind:'entrada',at:v.entryAt})),...exits.map(v=>({v,kind:'saida',at:v.exitAt}))].sort((a,b)=>a.at<b.at?-1:1);
- return <>
+ return <div className="por-screen">
   <section className="n-panel por-head"><div className="por-head-main">
    <Field label="Data do relatório"><Input type="date" max={data.today} value={data.date} onChange={e=>setDate(e.target.value&&e.target.value<=data.today?e.target.value:'')}/></Field>
    <div className="por-state">
@@ -136,5 +136,5 @@ export default function PortariaRegistro({refreshKey,manager}:{refreshKey?:numbe
   <VisitDialog visitId={visitId} manager={manager} onClose={()=>setVisitId(null)} onChanged={()=>void refresh()}/>
   {closing&&<CloseDialog date={data.date} report={report} onClose={()=>setClosing(false)} onDone={()=>{setClosing(false);void refresh()}}/>}
   <ReopenDialog report={reopen as {id:string,date:string}|null} onClose={()=>setReopen(null)} onDone={()=>{setReopen(null);void refresh()}}/>
- </>;
+ </div>;
 }

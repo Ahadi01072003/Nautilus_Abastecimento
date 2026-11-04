@@ -27,7 +27,7 @@ export default function PortariaVisitors({refreshKey}:{refreshKey?:number}){
  if(error&&!data)return <LoadError title="Visitantes indisponíveis" message={error}/>;
  if(!data)return <Skeleton className="h-64 rounded-xl"/>;
  const rows=data.rows as R[],companies=data.companies as R[];
- return <>
+ return <div className="por-screen">
   {pending.length>0&&<section className="n-panel"><div className="panel-heading"><div><h2>Aguardam revisão da gestão</h2><p>Cadastrados na hora pela Portaria. Confira nome, documento e empresa; ajuste se preciso e marque como revisado.</p></div></div>
    <div className="table-scroll"><table className="eu-table"><thead><tr><th>Tipo</th><th>Cadastro</th><th>Empresa</th><th>Criado por</th><th/></tr></thead><tbody>
     {pending.map(r=><tr key={r.id}><td><Badge tone={r.kind==='pessoa'?'info':'warning'}>{r.kind==='pessoa'?'Visitante':'Empresa'}</Badge></td><td><b>{r.name}</b>{r.documentType&&<small className="muted-text"> {r.documentType}</small>}</td><td>{r.companyName||'—'}</td><td>{r.createdByName}<small className="muted-text"> {dmyhm(r.createdAt)}</small></td>
@@ -44,7 +44,7 @@ export default function PortariaVisitors({refreshKey}:{refreshKey?:number}){
   </section>
   <CompaniesBlock companies={companies} onChanged={()=>void refresh()}/>
   {person&&<PersonDialog person={person} company={company} setCompany={setCompany} onClose={()=>setPerson(null)} onDone={()=>{setPerson(null);void refresh()}}/>}
- </>;
+ </div>;
 }
 
 function PersonDialog({person,company,setCompany,onClose,onDone}:{person:R,company:R|null,setCompany:(c:R|null)=>void,onClose:()=>void,onDone:()=>void}){

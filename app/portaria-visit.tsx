@@ -76,9 +76,10 @@ export function VisitDialog({visitId,manager,onClose,onChanged}:{visitId:string|
   for(const k of ['purpose','notes','accessMode'])if(form[k]!==(v[k]??''))changes[k]=form[k];
   if(form.plateIn!==(v.plateIn||''))changes.plateIn=form.plateIn||null;
   if(v.status==='finalizada'&&form.plateOut!==(v.plateOut||''))changes.plateOut=form.plateOut||null;
+  // O campo só tem precisão de minuto: compara no formato do campo, senão os segundos gravados contam como mudança.
   const entry=fromLocalInput(form.entryAt);if(!entry){setFormError('Informe o horário da entrada.');return;}
-  if(entry!==v.entryAt)changes.entryAt=entry;
-  if(v.status==='finalizada'){const exit=fromLocalInput(form.exitAt);if(!exit){setFormError('Informe o horário da saída.');return;}if(exit!==v.exitAt)changes.exitAt=exit;}
+  if(form.entryAt!==toLocalInput(v.entryAt))changes.entryAt=entry;
+  if(v.status==='finalizada'){const exit=fromLocalInput(form.exitAt);if(!exit){setFormError('Informe o horário da saída.');return;}if(form.exitAt!==toLocalInput(v.exitAt))changes.exitAt=exit;}
   if(person)changes.personId=person.id;
   if(!Object.keys(changes).length){setFormError('Nada foi alterado.');return;}
   void send('visit/correct',{changes,justification:why},'Visita corrigida.');

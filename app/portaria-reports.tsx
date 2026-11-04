@@ -33,7 +33,7 @@ export function PortariaRelatorios({refreshKey,manager,onOpenDay}:{refreshKey?:n
  if(!data)return <Skeleton className="h-64 rounded-xl"/>;
  const rows=data.rows as R[];
  const goto=(d:string)=>{try{sessionStorage.setItem(DAY_KEY,d)}catch{/* segue sem lembrar a data */}onOpenDay()};
- return <>
+ return <div className="por-screen">
   <section className="n-panel por-filters"><div className="form-grid">
    <Field label="De"><Input type="date" value={filters.from} onChange={e=>setFilters(f=>({...f,from:e.target.value}))}/></Field>
    <Field label="Até"><Input type="date" value={filters.to} onChange={e=>setFilters(f=>({...f,to:e.target.value}))}/></Field>
@@ -53,7 +53,7 @@ export function PortariaRelatorios({refreshKey,manager,onOpenDay}:{refreshKey?:n
    {data.hasMore&&<p className="muted-text">Mostrando os 60 mais recentes. Use o período para ver os mais antigos.</p>}
   </section>
   <ReopenDialog report={reopen as {id:string,date:string}|null} onClose={()=>setReopen(null)} onDone={()=>{setReopen(null);void refresh()}}/>
- </>;
+ </div>;
 }
 
 const GRANULARITY=[{value:'day',label:'Por dia'},{value:'month',label:'Por mês'},{value:'year',label:'Por ano'}];
@@ -72,7 +72,7 @@ export function PortariaPainel({refreshKey}:{refreshKey?:number}){
  if(!data)return <Skeleton className="h-64 rounded-xl"/>;
  const t=data.totals as R,series=data.series as R[],max=Math.max(1,...series.flatMap(s=>[s.entries,s.exits])),g=data.granularity as string;
  const by=data.byCompany as R[],maxBy=Math.max(1,...by.map(c=>c.entries));
- return <>
+ return <div className="por-screen">
   <section className="n-panel por-filters"><div className="form-grid">
    <Field label="De"><Input type="date" max={todayLocal()} value={f.from||data.period.from} onChange={e=>setF(x=>({...x,from:e.target.value}))}/></Field>
    <Field label="Até"><Input type="date" max={todayLocal()} value={f.to||data.period.to} onChange={e=>setF(x=>({...x,to:e.target.value}))}/></Field>
@@ -96,5 +96,5 @@ export function PortariaPainel({refreshKey}:{refreshKey?:number}){
    <div className="form-grid"><Field label="Data e hora"><Input type="datetime-local" value={f.at} onChange={e=>setF(x=>({...x,at:e.target.value}))}/></Field>
     <Field label="Resultado">{data.presentAt?<b className="por-big">{data.presentAt.count} pessoa(s) na base</b>:<span className="muted-text">Escolha um horário.</span>}</Field></div></section>
   <p className="muted-text">Atualizado {dmyhm(data.generatedAt)}. {data.notes.source}</p>
- </>;
+ </div>;
 }
