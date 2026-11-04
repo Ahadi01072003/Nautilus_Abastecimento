@@ -121,3 +121,10 @@ export function checkEventTime(occurred:Date,now:Date,justification:string,label
  if(retro&&!justification)throw fail(400,'JUSTIFICATION_REQUIRED',`${label}: lançamento com mais de ${LIMITS.retroactiveMinutes} minutos de atraso exige justificativa.`,'justification');
  return retro;
 }
+
+/** Justificativa de uma ação sensível (reabrir, corrigir, anular...): obrigatória, com o código de domínio próprio. */
+export function justificationOf(value:unknown,field='justification'){
+ const s=longText(value,'Justificativa',field,1000);
+ if(!s)throw fail(400,'JUSTIFICATION_REQUIRED','Informe a justificativa.',field);
+ return s;
+}
