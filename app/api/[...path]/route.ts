@@ -18,6 +18,7 @@ import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
 import {tvData} from '@/lib/tv';
+import {portariaGet,portariaPost,isSearchPath} from '@/lib/portaria-api';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -30,7 +31,7 @@ export const maxDuration=30;
 function json(value:unknown,status=200){return Response.json(value,{status,headers:{'Cache-Control':'no-store'}});}
 const known=['Etapa da OS fora do planejamento da OS','Responsável sem autorização','Agendamento sem autorização','Agendamento indisponível','Acesso sem autorização','Equipamento incompatível ou inativo','Estoque insuficiente','Quantidade excede','Recebimento excede','Quantidade deve ser inteira','Operador inativo','Estoque alterado durante conferência','Mantenha ao menos um gestor ativo','Cancelamento sem autorização','Estoque sem autorização','Combustível indisponível','Registro sem agendamento exige gestor e justificativa','Solicitante sem acesso ativo','Auditoria sem autorização','Hierarquia de local inválida','Nível do local não pode ser alterado','Dependência circular entre etapas','Versão publicada é imutável','Planejamento lançado não pode ser alterado','Liberação técnica sem autorização','Impedimento técnico não pode ser alterado','Equipamento bloqueado por impedimento técnico','Equipamento reservado no período','Checklist concluído não pode ser alterado','Apontamento não pode ser alterado','Evento de execução não pode ser alterado','Intervalo de execução não pode ser alterado'];
 function error(e:unknown){
- if(e instanceof AppError)return json({error:e.message},e.status);
+ if(e instanceof AppError)return json({error:e.message,...(e.code?{code:e.code}:{}),...(e.field?{field:e.field}:{}),...(e.data?{data:e.data}:{})},e.status);
  const pg=e as {code?:string;message?:string;constraint_name?:string};
  const msg=pg?.message||'';
  if(pg?.code==='P0001'){const found=known.find(x=>msg.includes(x));if(found)return json({error:found==='Quantidade excede'?'Quantidade excede a capacidade máxima.':found+'.'},409);}
@@ -52,7 +53,7 @@ function error(e:unknown){
 async function session(allowPendingPassword=false){
  const token=(await cookies()).get(SESSION_COOKIE)?.value;
  const member=await sessionMember(token);
- if(!member||!token)throw new AppError('Sua sessão expirou. Entre novamente.',401);
+ if(!member||!token)throw new AppError('Sua sessão expirou. Entre novamente.',401,'AUTH_REQUIRED');
  if(member.must_change_password&&!allowPendingPassword)throw new AppError('Defina sua senha definitiva para continuar.',403);
  return {member,token};
 }
@@ -114,6 +115,7 @@ export async function GET(req:Request){try{
  if(path==='finance/request'){await rateLimit(member.id,'read');return json(await requestDetail(member,url.searchParams.get('id')||''));}
  if(path==='finance/attachment'){await rateLimit(member.id,'read');return await downloadAttachment(member,url.searchParams.get('id')||'');}
  if(path==='finance/order-uses'){await rateLimit(member.id,'read');return json(await orderUses(member,url.searchParams.get('os')||''));}
+ if(path.startsWith('portaria/')){await rateLimit(member.id,'read');return json(await portariaGet(path,url,member));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
 
@@ -137,7 +139,7 @@ export async function POST(req:Request){try{
   return json(await changeOwnPassword(member,body.currentPassword,body.newPassword,token));
  }
  const {member}=await session();
- await rateLimit(member.id,'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
+ await rateLimit(member.id,isSearchPath(path)?'read':'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
  // Anexo do Financeiro: corpo binário (até 4 MB), lido antes e no lugar do JSON.
  if(path==='finance/attachments')return json(await uploadAttachment(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
  // Fluxos e checklists levam várias etapas/perguntas por envio.
@@ -153,6 +155,7 @@ export async function POST(req:Request){try{
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));
  if(path.startsWith('finance/config/')||path==='finance/suppliers'||path.startsWith('finance/requests/')||path==='finance/quotes')return json(await financeRequestsMutate(path,body,member));
  if(path.startsWith('finance/'))return json(await financeMutate(path,body,member));
+ if(path.startsWith('portaria/'))return json(await portariaPost(path,body,member));
  const result=await mutate(path,body,member);
  flushLater(req);
  return json(result);

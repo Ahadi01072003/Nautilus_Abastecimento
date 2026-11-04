@@ -1,4 +1,5 @@
-export class AppError extends Error { constructor(message:string,public status=400){super(message)} }
+/** `code` e `field` são opcionais: a Portaria devolve códigos de domínio estáveis; os demais módulos seguem só com a mensagem. */
+export class AppError extends Error { constructor(message:string,public status=400,public code?:string,public field?:string,public data?:Record<string,unknown>){super(message)} }
 export function text(value:unknown,max=250){const s=String(value??'').trim();if(s.length>max)throw new AppError(`Texto deve ter até ${max} caracteres.`);return s;}
 export function required(value:unknown,label:string,max=250){const s=text(value,max);if(!s)throw new AppError(`${label} é obrigatório.`);return s;}
 export function email(value:unknown,optional=false){const s=text(value,254).toLowerCase();if(optional&&!s)return '';if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s))throw new AppError('Informe um e-mail válido.');return s;}
