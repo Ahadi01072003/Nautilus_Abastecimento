@@ -62,6 +62,20 @@ export const DAY_KEY='nautilus.por.date';
 /** Texto do relatório fechado (REPORT_CLOSED) ou da conferência, para mostrar a causa e o caminho. */
 export const isCode=(e:unknown,code:string)=>e instanceof ApiError&&e.code===code;
 
+/** Caixa da lista suspensa: fecha ao clicar fora, apertar Esc ou sair do campo pelo teclado (Tab). */
+function Dropdown({open,close,children}:{open:boolean,close:()=>void,children:React.ReactNode}){
+ const box=useRef<HTMLDivElement>(null),closeRef=useRef(close);
+ useEffect(()=>{closeRef.current=close});
+ useEffect(()=>{
+  if(!open)return;
+  const outside=(e:Event)=>{if(box.current&&!box.current.contains(e.target as Node))closeRef.current()};
+  const key=(e:KeyboardEvent)=>{if(e.key==='Escape')closeRef.current()};
+  document.addEventListener('pointerdown',outside,true);document.addEventListener('keydown',key);
+  return()=>{document.removeEventListener('pointerdown',outside,true);document.removeEventListener('keydown',key)};
+ },[open]);
+ return <div className="por-picker" ref={box} onBlur={e=>{if(!box.current?.contains(e.relatedTarget as Node|null))close()}}>{children}</div>;
+}
+
 /** Seletor de pessoa: busca por nome, empresa ou documento completo; o documento aparece mascarado. */
 export function PersonPicker({value,onChange,onNew,refreshKey}:{value:R|null,onChange:(p:R|null)=>void,onNew:()=>void,refreshKey?:number}){
  const [q,setQ]=useState(''),[rows,setRows]=useState<R[]>([]),[open,setOpen]=useState(false),[busy,setBusy]=useState(false);
@@ -73,7 +87,7 @@ export function PersonPicker({value,onChange,onNew,refreshKey}:{value:R|null,onC
  },[q,open,refreshKey]);
  if(value)return <div className="por-picked"><div><b>{value.name}</b><small>{value.companyName} · {value.documentType} {value.documentMasked}</small></div>
   {value.present&&<Badge tone="warning">Já está na base</Badge>}<Button type="button" variant="ghost" size="sm" onClick={()=>{onChange(null);setQ('')}}>Trocar</Button></div>;
- return <div className="por-picker">
+ return <Dropdown open={open} close={()=>setOpen(false)}>
   <div className="por-search"><Search size={16} aria-hidden/><Input value={q} placeholder="Nome, empresa ou documento completo" aria-label="Buscar visitante" autoComplete="off" onFocus={()=>setOpen(true)} onChange={e=>{setQ(e.target.value);setOpen(true)}}/>{busy&&<LoaderCircle className="spin" size={16}/>}</div>
   {open&&<ul className="por-suggest" role="listbox">
    {rows.map(p=><li key={p.id}><button type="button" role="option" aria-selected={false} onClick={()=>{onChange(p);setOpen(false)}}>
@@ -81,7 +95,7 @@ export function PersonPicker({value,onChange,onNew,refreshKey}:{value:R|null,onC
    {!rows.length&&!busy&&<li className="por-none">Nenhum visitante encontrado{q?` para “${q}”`:''}.</li>}
    <li><button type="button" className="por-new" onClick={()=>{setOpen(false);onNew()}}><UserPlus size={15}/> Cadastrar visitante novo</button></li>
   </ul>}
- </div>;
+ </Dropdown>;
 }
 
 /** Seletor de empresa (clientes e solicitantes entram só leitura; empresas novas nascem na hora). */
@@ -95,7 +109,7 @@ export function CompanyPicker({value,onChange}:{value:R|null,onChange:(c:R|null)
  }
  if(value)return <div className="por-picked"><div><b>{value.name}</b></div><Button type="button" variant="ghost" size="sm" onClick={()=>onChange(null)}>Trocar</Button></div>;
  const exact=rows.some(r=>r.name.toLowerCase()===q.trim().toLowerCase());
- return <div className="por-picker">
+ return <Dropdown open={open} close={()=>setOpen(false)}>
   <div className="por-search"><Building2 size={16} aria-hidden/><Input value={q} placeholder="Empresa do visitante" aria-label="Buscar empresa" autoComplete="off" onFocus={()=>setOpen(true)} onChange={e=>{setQ(e.target.value);setOpen(true)}}/></div>
   {open&&<ul className="por-suggest" role="listbox">
    {rows.map(c=><li key={c.id}><button type="button" role="option" aria-selected={false} onClick={()=>{onChange(c);setOpen(false)}}><b>{c.name}</b>{c.pending&&<Badge tone="warning">Aguarda revisão</Badge>}</button></li>)}
@@ -103,7 +117,7 @@ export function CompanyPicker({value,onChange}:{value:R|null,onChange:(c:R|null)
    {!rows.length&&q.trim().length<2&&<li className="por-none">Digite o nome da empresa.</li>}
   </ul>}
   {err&&<p className="form-error" role="alert">{err}</p>}
- </div>;
+ </Dropdown>;
 }
 
 /** Cadastro do visitante na hora (porteiro ou gestão): fica em Cadastros › Colaboradores › Visitantes para revisão. */
