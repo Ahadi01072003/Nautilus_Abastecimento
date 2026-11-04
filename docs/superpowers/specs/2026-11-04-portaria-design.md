@@ -1,12 +1,12 @@
 # Portaria: especificação (somente backend)
 
-Data: 04/11/2026. Situação: **para revisão do usuário** (nada implementado ainda).
+Data: 04/11/2026. Situação: **aprovada em 04/11/2026**, com as decisões da seção 21. Entrega completa: backend e telas.
 
 Nomes, documentos e placas deste documento são fictícios. Dados reais ficam só no banco: o repositório é público.
 
 ## 1. Objetivo e decisões já tomadas
 
-Controlar as entradas e saídas de pessoas na base, com preenchimento contínuo do relatório do dia, histórico preservado, impressão e indicadores de acesso. **Só o backend**: as telas ficam para o frontend, que consome os contratos da seção 17.
+Controlar as entradas e saídas de pessoas na base, com preenchimento contínuo do relatório do dia, histórico preservado, impressão e indicadores de acesso. **Backend e telas** na mesma entrega. Os contratos da seção 17 são a fronteira entre os dois.
 
 Decisões do usuário em 04/11/2026:
 
@@ -14,22 +14,21 @@ Decisões do usuário em 04/11/2026:
 |---|---|
 | Base | Uma só: **Base Açu** |
 | Integração | **Nenhuma** com OS, Planejamento, Operação ou Financeiro. O módulo compartilha só empresas, usuários e auditoria |
-| Empresa | Empresa = solicitante = organização dos Cadastros gerais. O porteiro pode **criar empresa na hora** |
-| Pessoa | O porteiro pode **cadastrar pessoa na hora** (nome, empresa, documento). A gestão revisa depois |
-| Documento | Texto livre, só para registro. Quanto à proteção, ela é desejada |
-| Fechamento | O porteiro pode **reabrir** o dia e **confirmar o fechamento** de novo |
+| Empresa | O porteiro escolhe entre as empresas já cadastradas (Solicitantes e clientes) e pode **criar empresa na hora**. A empresa criada na hora fica **só na Portaria** (bloco Visitantes), sem entrar no cadastro dos demais módulos |
+| Visitantes | Bloco novo em Cadastros › Colaboradores, **separado** dos colaboradores do Planejamento. Todo cadastro feito na hora, pelo porteiro ou pela gestão, fica ali, aguardando revisão |
+| Documento | Texto livre, só para registro. Na **impressão** do relatório, porteiro e gestão veem o documento completo |
+| Fechamento | O porteiro pode **reabrir** o dia e fechar de novo: isso gera uma **nova revisão do mesmo relatório diário** |
 | Saída | **Impressão**. Não há PDF gerado no servidor. Consultas e dashboards usam os próprios registros |
 | Acesso | Só **gestão** e **porteiro**. Cliente não vê |
 | Vínculos | Uma empresa por pessoa |
 
 ## 2. Fora desta entrega
 
-- Telas, inclusive a página de impressão (a API entrega os dados prontos).
 - PDF no servidor, links temporários e nova tentativa de geração.
 - Várias bases, fuso por base e escopo por base (a coluna `base_id` existe, mas a API não recebe base).
 - Várias empresas por pessoa.
 - Modo offline.
-- Criptografia do documento no nível do campo (opção na seção 21).
+- Criptografia do documento no nível do campo (explicada na seção 21; fora por padrão).
 - Prazo de retenção e descarte: decisão do responsável do sistema, sem prazo inventado.
 
 ## 3. Conceitos
@@ -40,7 +39,7 @@ Decisões do usuário em 04/11/2026:
 - **Visita:** permanência de uma pessoa, da entrada à saída.
 - **Evento:** entrada, saída, correção, anulação ou desfazer saída. Fica gravado e não muda.
 - **Relatório do dia:** um por base e data operacional. Fica aberto até o fechamento.
-- **Versão do relatório:** fotografia imutável tirada a cada fechamento.
+- **Versão do relatório:** fotografia imutável tirada a cada fechamento. Nas telas chama-se **revisão** (Rev. 1, Rev. 2…).
 
 ## 4. Acesso e permissões
 
@@ -58,21 +57,17 @@ Decisões do usuário em 04/11/2026:
 | Corrigir, anular, desfazer saída | sim, com justificativa | sim, com justificativa |
 | Fechar e reabrir relatório | sim | sim |
 | Dashboard | sim | sim |
-| Ver documento completo | **não** | sim |
+| Ver documento completo (impressão e detalhe) | sim | sim |
 | Restaurar visita anulada | não | sim |
 | Editar e inativar pessoa ou empresa; revisar pendências | não | sim |
 | Conceder acesso | não | sim (função já existente) |
 
 ## 5. Pessoas e empresas
 
-**Empresa** é a organização de Cadastros gerais (`requester_orgs`).
-
-**Cadastro na hora de empresa:** o porteiro informa só o nome. O sistema:
-- reaproveita a empresa se o nome já existir (sem diferenciar maiúsculas); se ela estiver inativa, devolve erro orientando a pedir à gestão que reative;
-- gera a sigla (até 12 caracteres, única), usa categoria "cliente" e uma cor neutra;
-- marca o cadastro como **pendente de revisão**.
-
-A empresa nova passa a existir no sistema inteiro, inclusive em Planejamento e Financeiro. É consequência de "empresa = solicitante".
+**Empresa** (`portaria_companies`, tabela da Portaria):
+- as empresas já cadastradas em Solicitantes e clientes aparecem na busca e são **espelhadas** na tabela da Portaria na primeira vez que alguém as escolhe (só leitura; quem as altera continua sendo a gestão, em Solicitantes e clientes);
+- **Cadastro na hora:** o porteiro (ou a gestão) informa só o nome. Se o nome já existir (nas empresas da Portaria ou nas do cadastro, sem diferenciar maiúsculas), reaproveita; se estiver inativa, devolve erro orientando a pedir à gestão que reative. Se não existir, cria a empresa **só na Portaria**, marcada como pendente de revisão;
+- nada disso aparece em Planejamento, Financeiro ou nos demais módulos.
 
 **Pessoa** (tabela própria da Portaria, `portaria_people`):
 - nome (obrigatório);
@@ -83,7 +78,7 @@ A empresa nova passa a existir no sistema inteiro, inclusive em Planejamento e F
 
 **Documento duplicado:** o par (tipo, número normalizado: maiúsculas, só letras e números) é único. Tentar cadastrar igual devolve `DOCUMENT_DUPLICATE` com a pessoa já existente (nome mascarado e empresa).
 
-**Cadastro na hora de pessoa:** nasce **pendente de revisão**. A gestão a vê em uma lista (Cadastros gerais › Colaboradores) e marca como revisada. Os colaboradores atuais **não** entram na lista da Portaria sozinhos, e a pessoa cadastrada na hora **não** aparece como colaborador do Planejamento. Os motivos estão na seção 21.
+**Visitantes:** pessoas e empresas da Portaria ficam num bloco **Visitantes**, dentro de Cadastros › Colaboradores. Todo cadastro feito na hora nasce **pendente de revisão**, e a gestão o marca como revisado (ou corrige, ou inativa). Os colaboradores do Planejamento **não** entram na lista da Portaria, e o visitante **não** aparece como colaborador do Planejamento.
 
 **Busca:** paginada, por nome, empresa ou documento. O documento só é encontrado por número completo. O resultado mostra nome, empresa, tipo de documento e documento **mascarado**. Homônimos se distinguem por empresa e final do documento. A seleção usa sempre o identificador.
 
@@ -161,7 +156,7 @@ Campos da visita:
 **Versão do relatório:**
 - número sequencial por relatório, tipo (`original`, `atualizada`, `retificada`), motivo, quem emitiu, quando (`issued_at`);
 - conteúdo (JSON imutável): base, data operacional, fuso, totais, lista das entradas da data, lista das saídas da data (inclusive de visitas iniciadas antes), quem estava presente no instante do fechamento e totais por empresa;
-- documentos **mascarados** dentro da fotografia;
+- documentos **completos** dentro da fotografia (só porteiro e gestão acessam a revisão);
 - o banco recusa alterar ou apagar uma versão.
 
 ## 10. Visita que atravessa dias e movimento depois do fechamento
@@ -186,7 +181,7 @@ Consultas paginadas e filtráveis por:
 - presença atual;
 - relatórios com movimentos posteriores pendentes.
 
-A impressão usa os dados de uma **versão identificada**. A API devolve a versão pronta, com identificação da base, data operacional, fuso, identificador e número da versão, tipo, quem fechou e quando, quando foi consultada (diferente de quando fechou), totais, entradas, saídas e presentes. Documentos **sempre mascarados**. Relatório aberto só é devolvido marcado como **PARCIAL**. A resposta usa `Cache-Control: private, no-store`. Cada consulta para impressão entra na auditoria. A página de impressão em si é do frontend.
+A impressão usa os dados de uma **versão identificada**. A API devolve a versão pronta, com identificação da base, data operacional, fuso, identificador e número da versão, tipo, quem fechou e quando, quando foi consultada (diferente de quando fechou), totais, entradas, saídas e presentes. Documentos **completos** (só porteiro e gestão acessam). Relatório aberto só é devolvido marcado como **PARCIAL**. A resposta usa `Cache-Control: private, no-store`. Cada consulta para impressão entra na auditoria. A página de impressão faz parte desta entrega.
 
 ## 13. Indicadores
 
@@ -218,12 +213,12 @@ Endpoint com granularidade dia, mês ou ano, filtros de período e empresa. Devo
 ## 15. Auditoria e privacidade
 
 - **Auditoria:** reaproveita a tabela imutável atual. Registra entrada, saída, correção, anulação, fechamento, reabertura, cadastro na hora, revisão, consulta de documento completo, impressão e mudança de acesso. Cada registro leva ator, ação, entidade, momento, justificativa e identificador de correlação, no campo de detalhe estruturado. **Documento nunca entra** na auditoria nem em log, só identificador e máscara.
-- **Documento, proteção:**
-  - mascarado em listas, busca, relatório, impressão e auditoria (regra: só os 3 últimos caracteres, o resto vira ponto);
-  - completo **só para a gestão**, em endpoint próprio que audita cada consulta;
-  - o porteiro **digita** o documento no cadastro, mas as respostas dele devolvem só a versão mascarada;
-  - nunca em URL, nome de arquivo ou log;
-  - toda resposta com dados de pessoa usa `Cache-Control: private, no-store`.
+- **Documento:**
+  - **mascarado** em listas, busca, painel e auditoria (só os 3 últimos caracteres aparecem);
+  - **completo** na **impressão do relatório** e no detalhe da visita e do cadastro, para porteiro e gestão (decisão do usuário);
+  - nunca em URL, nome de arquivo, log técnico ou auditoria;
+  - toda resposta com dados de pessoa usa `Cache-Control: private, no-store`;
+  - cada impressão e cada consulta de detalhe com documento completo vai para a auditoria.
 - **Retenção e descarte:** sem prazo definido por enquanto. É decisão do responsável do sistema, sem inventar prazo legal.
 - **Backup:** o do Supabase já existente. Falhas de gravação, conflitos de versão e relatórios abertos antigos saem como contadores e logs técnicos sem dado pessoal.
 
@@ -336,12 +331,12 @@ Cada fase termina com testes e revisão. A aplicação da migração em produç�
 - Tolerância de futuro de 2 minutos; retroativo livre até 30 minutos.
 - Porteiro enxerga o histórico completo, de todos os dias.
 
-## 21. Pontos a confirmar
+## 21. Decisões do usuário (04/11/2026) e ponto em aberto
 
-1. **Pessoas da portaria em tabela própria.** Elas não vão para a tabela de colaboradores do Planejamento, para não aparecerem como equipe de OS. A gestão as revisa dentro de Cadastros › Colaboradores. Os colaboradores atuais não entram sozinhos na lista da portaria. Confirma?
-2. **Empresa criada na hora vira organização real do sistema** (aparece também em Planejamento e Financeiro), com pendência de revisão. Aceita esse efeito?
-3. **"Reabrir ou confirmar o fechamento"**: entendi como reabrir o dia (com justificativa) e fechar de novo, gerando uma nova versão, sem alterar a antiga. Era isso?
-4. **Documento no relatório impresso:** sempre mascarado (só os 3 últimos caracteres) para todos, inclusive para a gestão. Quer assim, ou a gestão pode imprimir completo?
-5. **Retroativo livre até 30 minutos.** Esse tempo serve?
-6. **Criptografia do documento no banco** (opção B): protege mesmo contra acesso ao banco, mas exige uma chave no servidor e elimina a busca simples. Para a v1 proponho **só máscara e restrição de acesso**. Quer a opção B agora?
-7. **Página de impressão:** entra nesta entrega (reaproveitando o padrão do relatório da OS) ou só o contrato da API?
+1. **Visitantes:** bloco novo em Cadastros › Colaboradores, separado dos colaboradores do Planejamento. Todo cadastro feito na hora por porteiro ou gestão fica ali.
+2. **Empresas:** as criadas na hora ficam separadas, só na Portaria. Não entram no cadastro dos demais módulos.
+3. **Reabrir:** gera uma **revisão nova do mesmo relatório diário**.
+4. **Impressão:** porteiro e gestão veem tudo, inclusive o documento completo.
+5. **Retroativo:** livre até 30 minutos.
+6. **Criptografia do documento:** em aberto (explicação enviada ao usuário). Padrão adotado até decisão: **sem** criptografia.
+7. **Telas:** entram nesta entrega, junto com o backend.

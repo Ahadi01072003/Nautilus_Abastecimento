@@ -2,14 +2,14 @@ import {AppError} from './domain';
 import {db} from './db';
 
 /** Perfil do usuário: define o módulo principal. O gestor tem todos os módulos. */
-export type Profile='fueler'|'planner'|'operator'|'maintainer'|'manager';
+export type Profile='fueler'|'planner'|'operator'|'maintainer'|'porteiro'|'manager';
 /** Acessos adicionais (outros módulos), acumuláveis com o módulo principal do perfil. */
-export type Capability='abastecimento'|'planejamento'|'operacao'|'manutencao'|'cadastros'|'acompanhamento'|'financeiro';
-export const capabilities:Capability[]=['abastecimento','planejamento','operacao','manutencao','cadastros','acompanhamento','financeiro'];
+export type Capability='abastecimento'|'planejamento'|'operacao'|'manutencao'|'cadastros'|'acompanhamento'|'financeiro'|'portaria';
+export const capabilities:Capability[]=['abastecimento','planejamento','operacao','manutencao','cadastros','acompanhamento','financeiro','portaria'];
 export type Member={id:string;profile:Profile;active?:number|boolean;name:string;capabilities?:string[];[key:string]:unknown};
-export const profiles:Profile[]=['fueler','planner','operator','maintainer','manager'];
+export const profiles:Profile[]=['fueler','planner','operator','maintainer','porteiro','manager'];
 /** Módulo principal concedido por cada perfil (não precisa ser marcado nos acessos adicionais). */
-export const PROFILE_MODULE:Record<Exclude<Profile,'manager'>,Capability>={fueler:'abastecimento',planner:'planejamento',operator:'operacao',maintainer:'manutencao'};
+export const PROFILE_MODULE:Record<Exclude<Profile,'manager'>,Capability>={fueler:'abastecimento',planner:'planejamento',operator:'operacao',maintainer:'manutencao',porteiro:'portaria'};
 /** Acessos efetivos: módulo principal do perfil + acessos adicionais gravados. */
 export function effectiveCaps(profile:string,stored:string[]|null|undefined):string[]{
  const main=PROFILE_MODULE[profile as keyof typeof PROFILE_MODULE];
@@ -31,7 +31,7 @@ export async function requireCapability(a:Member,c:Capability){
 /** Basta um dos acessos. Devolve o cadastro atual, com o escopo de organizações. */
 export async function requireAny(a:Member,list:Capability[]){
  const current=await loadAccess(a);
- if(!isManager(current)&&!list.some(c=>current.capabilities.includes(c)))throw new AppError('Seu acesso não permite esta ação.',403);
+ if(!isManager(current)&&!list.some(c=>current.capabilities.includes(c)))throw new AppError('Seu acesso não permite esta ação.',403,'FORBIDDEN');
  return current;
 }
 /** Cadastro atual (perfil, acessos e escopo), sem exigir um acesso específico. */
@@ -47,6 +47,7 @@ export const planningModules=['plan-fluxos','plan-atividade','plan-os'];
 export const operationModules=['op-painel','op-os','op-registro'];
 export const maintenanceModules=['man-painel','man-criterios','man-corretivas','man-leituras'];
 export const financeModules=['fin-painel','fin-solicitacoes','fin-tarifas','fin-config'];
+export const portariaModules=['por-registro','por-relatorios','por-painel'];
 /** Telas liberadas: o módulo principal do perfil e os módulos dos acessos adicionais (o gestor vê
  * todos). O servidor revalida cada consulta e comando. */
 export function modules(a:Member){
@@ -59,6 +60,7 @@ export function modules(a:Member){
  else if(has(a,'acompanhamento'))list.push('op-painel','op-os');
  if(has(a,'manutencao'))list.push(...maintenanceModules);
  if(has(a,'financeiro'))list.push(...financeModules);
+ if(has(a,'portaria'))list.push(...portariaModules);
  if(has(a,'cadastros'))list.push(...registryModules);
  // Exportação: o gestor exporta tudo; quem consulta OS exporta os dados de Operação do seu escopo.
  if(isManager(a)||canSeeOrders(a)||has(a,'financeiro'))list.push('exportacao');
