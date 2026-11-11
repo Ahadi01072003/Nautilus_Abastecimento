@@ -20,7 +20,6 @@ Sistema web da Base Açu. Módulos (menu lateral expansível):
   - **Leituras**: horímetro e odômetro. As leituras de horímetro dos abastecimentos entram sozinhas. Uma leitura nunca volta, e o horímetro não avança mais do que o tempo corrido.
 - **Financeiro** (acesso adicional "Financeiro"; a Gestão sempre tem): **recobráveis por equipamento**. Tarifas por equipamento e cliente, com vigência (valor por hora e horas por diária). A Operação registra o início e o fim de uso do equipamento na OS, inclusive de forma retroativa. A diária é por equipamento e cliente, numa janela de horas corridas que vale para todas as OS do cliente. Há fim automático ao finalizar a última etapa ou cancelar a OS, usos "a conferir", **Painel de recobráveis** (previsto pelas reservas × realizado pelos usos) e exportação de diárias e usos. Detalhes em `docs/FINANCEIRO-RECOBRAVEIS.md`.
 - **Financeiro › Solicitação de recobráveis** (por atividade): cotações dos fornecedores com o valor a faturar (margem e impostos por cliente, com vigência), relatório versionado para o cliente assinar, autorização com o relatório assinado anexado e ligação com a OS (planejar ou vincular). **Configurações** do Financeiro: clientes habilitados, margem e impostos, fornecedores. Detalhes em `docs/FINANCEIRO-RECOBRAVEIS.md`.
-- **Portaria** (perfil Porteiro ou acesso "Portaria"; a Gestão sempre tem): controle de entradas e saídas de pessoas na Base Açu, módulo isolado (sem ligação com OS, Planejamento, Operação ou Financeiro). Relatório diário contínuo, fechado em **revisões imutáveis** (original, atualizada, retificada), reabertura com justificativa, indicadores e impressão. Visitantes e empresas cadastrados na hora ficam em Cadastros › Colaboradores › **Visitantes**. Detalhes em `docs/PORTARIA.md`.
 - **Cadastros gerais**: solicitantes e clientes, locais, tipos e equipamentos, colaboradores e funções (com usuários e senhas), checklists versionados e categorias de ocorrências, impactos e bloqueios.
 - **Exportação**, fora dos módulos: Excel (.xlsx, uma aba por conjunto) ou CSV (.zip quando há vários conjuntos), com prévia das contagens. Conjuntos de Operação (OS, etapas, períodos, apontamentos, checklists) para quem consulta OS, no seu escopo de organizações; conjuntos de Abastecimento só para o gestor.
 
@@ -55,7 +54,6 @@ Proteções: senhas com PBKDF2-SHA256 (310 mil iterações, sal individual); ses
 | Solicitante | Solicitar abastecimento e acompanhar/cancelar os próprios pedidos (enquanto não agendados) |
 | Planejador | Agendar, reagendar e cancelar solicitações |
 | Abastecedor | Ver a agenda compartilhada, registrar o consumo de agendamentos e ver os próprios registros |
-| Porteiro | Módulo Portaria: entradas e saídas da Base Açu, fechamento do relatório do dia e impressão (não vê os demais módulos) |
 | Gestor | Tudo: estoque, reposições, cadastros, usuários e senhas, parâmetros, auditoria e exportação |
 
 Além do perfil, o gestor pode dar **acessos adicionais** acumuláveis:
@@ -64,7 +62,6 @@ Além do perfil, o gestor pode dar **acessos adicionais** acumuláveis:
 - *Operação*: executa as etapas das OS.
 - *Acompanhamento de OS*.
 - *Manutenção*: módulo de manutenção (critérios, preventivas, corretivas, leituras) e liberação técnica.
-- *Portaria*: controle de entradas e saídas (porteiro e Gestão; cliente não vê).
 
 Clientes usam o perfil *Sem acesso ao abastecimento* com *Organizações visíveis* marcadas: eles veem só as OS da sua organização.
 
@@ -110,7 +107,6 @@ Veja `.env.example`. Em produção ficam na Vercel (as sensíveis como *Sensitiv
 | `DATABASE_URL` | Pooler do Supabase (porta 6543) com o usuário restrito `nautilus_app` |
 | `DEFAULT_PASSWORD` | Senha padrão de primeiro acesso (obrigatória em produção) |
 | `APP_URL` | Endereço público usado nos links dos e-mails |
-| `PORTARIA_RETRO_MINUTES`, `PORTARIA_FUTURE_SKEW_MINUTES` | Portaria: tolerância de lançamento retroativo sem justificativa (padrão 30 min) e de relógio adiantado (padrão 2 min) |
 | `CRON_SECRET` | Protege a rotina diária `/api/cron/notifications` |
 | `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_ENABLED` | Avisos por e-mail (Resend). Pausados até configurar |
 

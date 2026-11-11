@@ -18,7 +18,6 @@ import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
 import {tvData} from '@/lib/tv';
-import {portariaGet,portariaPost,isSearchPath} from '@/lib/portaria-api';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -115,7 +114,6 @@ export async function GET(req:Request){try{
  if(path==='finance/request'){await rateLimit(member.id,'read');return json(await requestDetail(member,url.searchParams.get('id')||''));}
  if(path==='finance/attachment'){await rateLimit(member.id,'read');return await downloadAttachment(member,url.searchParams.get('id')||'');}
  if(path==='finance/order-uses'){await rateLimit(member.id,'read');return json(await orderUses(member,url.searchParams.get('os')||''));}
- if(path.startsWith('portaria/')){await rateLimit(member.id,'read');return json(await portariaGet(path,url,member));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
 
@@ -139,7 +137,7 @@ export async function POST(req:Request){try{
   return json(await changeOwnPassword(member,body.currentPassword,body.newPassword,token));
  }
  const {member}=await session();
- await rateLimit(member.id,isSearchPath(path)?'read':'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
+ await rateLimit(member.id,'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
  // Anexo do Financeiro: corpo binário (até 4 MB), lido antes e no lugar do JSON.
  if(path==='finance/attachments')return json(await uploadAttachment(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
  // Fluxos e checklists levam várias etapas/perguntas por envio.
@@ -155,7 +153,6 @@ export async function POST(req:Request){try{
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));
  if(path.startsWith('finance/config/')||path==='finance/suppliers'||path.startsWith('finance/requests/')||path==='finance/quotes')return json(await financeRequestsMutate(path,body,member));
  if(path.startsWith('finance/'))return json(await financeMutate(path,body,member));
- if(path.startsWith('portaria/'))return json(await portariaPost(path,body,member));
  const result=await mutate(path,body,member);
  flushLater(req);
  return json(result);
