@@ -1,6 +1,6 @@
 # Ferramentaria e Inventário · especificação
 
-Data: 11/11/2026 · Status: **aprovada pelo usuário em 11/11/2026**; implementação por fases. Substitui o módulo Portaria (removido).
+Data: 11/11/2026 · Status: **aprovada pelo usuário em 11/11/2026**; implementação por fases. **Fase A entregue** (migração 0026). Substitui o módulo Portaria (removido).
 
 ## 1. Objetivo
 Controlar entrada e saída de tudo que há no estoque (ferramentas e materiais), manter o inventário com quantidades e registrar empréstimos para terceirizadas, com baixa automática e termo em PDF assinado.

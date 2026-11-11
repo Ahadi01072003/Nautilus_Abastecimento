@@ -15,11 +15,12 @@ O planejador, no fim de cada dia, empilha as atividades do dia seguinte (D+1), a
 - Existe uma visão da manhã (**Designação do dia**) para escolher quem faz cada atividade.
 - Equipamento: bloqueia acima de **12 h/dia** (não estica).
 - A operação **para às 20h** (não há turno noturno).
+- **A equipe de cada barra e os planejadores de cada barra são configurados pela Gestão no próprio sistema** (sem planilha). Os planejadores planejam **a qualquer momento**: não há regra fixa de quem fecha a segunda-feira. Planejadores da OCP informados: Phillip, Yan, Italo e Jefferson; os demais planejadores são da Equinor.
+- Feriados ficam fora do escopo. **Wilhan** é Líder de Operações no cadastro (sem "função atuante").
 
 ## 3. Calendário e capacidade
 - ADM: segunda a sexta 08–17 (9 h) e **todo sábado 08–12 (4 h)**.
 - Turno: 12 h (08–20), **2x2**. Turno A trabalha em 11/11 e 12/11, folga 13 e 14; o B trabalha 13 e 14; e assim em ciclo de 4 dias (âncora: A em 11/11/2026).
-- **Wilhan Giribola Guedes** lidera o Turno B: cada pessoa tem uma **função atuante** (para escala), que pode diferir do cargo da planilha.
 - Capacidade por **dia e por função**, por barra = soma das pessoas marcadas para aquela barra e presentes no dia, × jornada. Faltas, férias e folgas reduzem a capacidade. Feriados e exceções por data.
 - Checagem simples: pessoas exigidas por função ≤ pessoas presentes naquele dia.
 - Sem faixas horárias (decorrência de não haver hora no planejamento).
@@ -42,7 +43,7 @@ O planejador, no fim de cada dia, empilha as atividades do dia seguinte (D+1), a
 3. **Durante o dia:** fila de solicitações → arrastar para um dia; urgência mostra quem perde o lugar.
 4. **16:00, Fechar D+1:** cada cartão fica Confirmado, Ajustar ou Adiar; registram-se as lideranças presentes; conferência automática (equipamento, material, função, dependência, impedimento). **Publicar** gera a versão, congela e alimenta a TV, o celular do líder e a lista de separação. Depois do corte, mudança = nova versão com justificativa. Passa de 16:00 sem publicar: aviso à Gestão (não trava).
 5. **Fim do dia:** cada cartão fica Concluído, Parcial (HH que restou) ou Não feito (motivo); a rolagem é automática com **contador de adiamentos** (alerta no 2º, sobe a prioridade).
-6. **Sexta:** fecha sábado e domingo; **segunda: a confirmar** (seção 9).
+6. **Sexta:** fecha sábado e domingo. Os planejadores podem planejar a segunda e qualquer outro dia a qualquer momento (cada um só na sua barra).
 
 ## 7. Impacto no que existe
 - `plans` e `plan_steps`: `planned_start/end` passam a **datas**. OS já lançadas: a parte da data é mantida; a hora antiga fica só como histórico.
@@ -54,17 +55,14 @@ O planejador, no fim de cada dia, empilha as atividades do dia seguinte (D+1), a
 
 ## 8. Fases
 - **P0:** planejamento por dia (a maior mudança, base de tudo).
-- **P1:** calendário, equipes, escala 2x2, barras e capacidade (somente leitura) + configuração de zonas.
+- **P1:** calendário, equipes, escala 2x2, **telas de configuração da barra de cada colaborador e dos planejadores de cada barra**, capacidade (somente leitura) e zonas.
 - **P2:** tela D+1: pilha, arrastar, zonas, linha de corte, prévia de rolagem.
 - **P3:** reunião, publicar, versões, congelamento, TV e lista de separação.
 - **P4:** Designação do dia e chamada.
 - **P5:** fechamento do dia, rolagem, indicadores (ocupação, rolagem, aderência, motivos).
 
 ## 9. Dados que faltam (bloqueiam a P1)
-1. Planilha com a coluna **barra por pessoa** (OCP ou Equinor) e a lista dos **planejadores por barra**.
-2. Quem fecha a **segunda-feira** (e o domingo, se não for na sexta).
-3. Lista de feriados da base e como registrar falta e férias (o líder na chamada? a Gestão?).
-4. Quando a função atuante difere do cargo (além do Wilhan).
+Nenhum bloqueio de dados: a Gestão configura no sistema a **barra de cada colaborador** (OCP ou Equinor) e os **planejadores de cada barra**. Falta definir só como registrar falta e férias (o líder na chamada ou a Gestão).
 
 ## 10. Limites
 Não substitui ponto ou folha; não decide jornada nem direito trabalhista; não move atividade publicada sem confirmação; esticar acima do teto não é possível; se o HH por atividade ou a marcação por barra estiverem errados, as barras mentem.
