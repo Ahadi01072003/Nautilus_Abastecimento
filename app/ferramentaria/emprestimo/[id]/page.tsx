@@ -1,6 +1,6 @@
 // Termo de empréstimo da Ferramentaria (A4, impressão pelo navegador) e comprovante de devolução
-// (?devolucao=ID). Campos de assinatura do Responsável OCP e do Responsável da terceirizada: com a
-// assinatura feita na tela, ela aparece; sem ela, linhas em branco para assinar no papel.
+// (?devolucao=ID). Campos de assinatura do Responsável OCP e de quem retira ou devolve pelo
+// solicitante: com a assinatura feita na tela, ela e o nome aparecem; sem ela, linhas em branco para nome e assinatura.
 import type {Metadata} from 'next';
 import {cookies} from 'next/headers';
 import {redirect} from 'next/navigation';
@@ -51,6 +51,7 @@ tr{break-inside:avoid}
 .sign img{max-height:86px;max-width:100%}
 .sign .line{border-top:1px solid #0b1d25;width:100%;padding-top:6px}
 .sign b{display:block}.sign small{color:#4b5f66}
+.sign .blank{display:block;height:18px}
 .foot{margin-top:26px;display:flex;justify-content:space-between;gap:12px;font:500 10.5px/1.3 var(--f-mono);color:#6c7c82;border-top:1px solid #c7d0ce;padding-top:8px}
 .noprint{position:fixed;right:18px;top:18px;background:#c8f25a;color:#0b1d25;border:0;border-radius:4px;padding:10px 16px;font-weight:700;cursor:pointer}
 @media print{.noprint{display:none}.sheet{padding:0}@page{size:A4 portrait;margin:14mm}}
@@ -69,6 +70,8 @@ export default async function LoanTerm({params,searchParams}:{params:Promise<{id
  const sig=ret?{ocp:ret.ocp_signature as string|null,contractor:ret.contractor_signature as string|null}:r.signatures;
  const retLines=ret?((r.returns as Row[]).find(x=>x.id===ret.id)?.lines||[]) as Row[]:[];
  const title=ret?`Comprovante de devolução ${ret.number}`:'Termo de empréstimo';
+ // Quem assina pelo solicitante é dito na hora da assinatura; no comprovante, o lado OCP é quem registrou a devolução.
+ const person=(ret?ret.returned_by:loan.contractorPerson) as string|null,ocpName=(ret?ret.created_by_name:loan.ocpName) as string;
  return <main className="sheet"><style>{css}</style><PrintButton/>
   <div className="rtop">
    {/* eslint-disable-next-line @next/next/no-img-element -- logotipo estático */}
@@ -79,8 +82,8 @@ export default async function LoanTerm({params,searchParams}:{params:Promise<{id
   <p className="lead">{ret?`Registrada em ${dt(ret.created_at)} por ${ret.created_by_name}.`:`Emitido em ${dt(loan.issuedAt)} por ${loan.issuedByName}.`}</p>
   {loan.status==='cancelado'&&<p className="warn">Empréstimo cancelado em {dt(loan.cancelledAt)}: {loan.cancelReason}</p>}
   <dl className="facts">
-   <div><dt>Terceirizada</dt><dd>{loan.contractorName}</dd></div><div><dt>Responsável da terceirizada</dt><dd>{loan.contractorPerson}</dd></div><div><dt>Responsável OCP</dt><dd>{loan.ocpName}</dd></div>
-   <div><dt>Devolução prevista</dt><dd>{day(loan.expectedReturn)}</dd></div><div><dt>Situação</dt><dd>{({emitido:'Emitido',parcial:'Devolução parcial',encerrado:'Encerrado',cancelado:'Cancelado'} as Record<string,string>)[loan.status]}</dd></div><div><dt>Impresso em</dt><dd>{dt(new Date().toISOString())}</dd></div>
+   <div><dt>Solicitante</dt><dd>{loan.contractorName}</dd></div><div><dt>{ret?'Devolvido por':'Retirado por'}</dt><dd>{person||'—'}</dd></div><div><dt>Responsável OCP</dt><dd>{ocpName}</dd></div>
+   <div><dt>Devolução prevista</dt><dd>{loan.expectedReturn?day(loan.expectedReturn):'Sem data'}</dd></div><div><dt>Situação</dt><dd>{({emitido:'Emitido',parcial:'Devolução parcial',encerrado:'Encerrado',cancelado:'Cancelado'} as Record<string,string>)[loan.status]}</dd></div><div><dt>Impresso em</dt><dd>{dt(new Date().toISOString())}</dd></div>
    <div className="wide"><dt>Finalidade</dt><dd>{loan.purpose}</dd></div>
    {ret?.note&&<div className="wide"><dt>Observação da devolução</dt><dd>{ret.note}</dd></div>}
   </dl>
@@ -90,20 +93,20 @@ export default async function LoanTerm({params,searchParams}:{params:Promise<{id
    :<table><thead><tr><th>Item</th><th>Tipo</th><th className="n">Quantidade</th><th>Un.</th></tr></thead><tbody>
     {(r.lines as Row[]).map(l=><tr key={l.id}><td>{l.itemName}</td><td>{KIND[l.kind]}{l.kind==='material'?' (consumível)':''}</td><td className="n">{q(l.out)}</td><td>{l.unitAbbr}</td></tr>)}</tbody></table>}
   <p className="decl">{ret?'Declaramos a devolução dos itens acima nas condições indicadas.'
-   :`Declaro ter recebido os itens acima em perfeito estado de conservação e funcionamento, comprometendo-me a devolver as ferramentas até ${day(loan.expectedReturn)} nas mesmas condições e a responder por danos ou perdas. Materiais consumíveis são de uso no serviço indicado; a sobra deve ser devolvida.`}</p>
+   :`Declaro ter recebido os itens acima em perfeito estado de conservação e funcionamento, comprometendo-me a devolver as ferramentas${loan.expectedReturn?` até ${day(loan.expectedReturn)}`:''} nas mesmas condições e a responder por danos ou perdas. Materiais consumíveis são de uso no serviço indicado; a sobra deve ser devolvida.`}</p>
   <div className="signs">
    <div className="sign"><div className="img">
     {sig.ocp&&<>
      {/* eslint-disable-next-line @next/next/no-img-element -- assinatura feita na tela (data URL) */}
      <img src={sig.ocp} alt="Assinatura do responsável OCP"/>
     </>}
-   </div><div className="line"><b>{loan.ocpName}</b><small>Responsável OCP</small></div></div>
+   </div><div className="line"><b>{ocpName}</b><small>Responsável OCP</small></div></div>
    <div className="sign"><div className="img">
     {sig.contractor&&<>
      {/* eslint-disable-next-line @next/next/no-img-element -- assinatura feita na tela (data URL) */}
-     <img src={sig.contractor} alt="Assinatura do responsável da terceirizada"/>
+     <img src={sig.contractor} alt="Assinatura do responsável do solicitante"/>
     </>}
-   </div><div className="line"><b>{loan.contractorPerson}</b><small>Responsável da terceirizada · {loan.contractorName}</small></div></div>
+   </div><div className="line">{person?<b>{person}</b>:<span className="blank" aria-label="Nome por extenso"/>}<small>{ret?'Devolvido por':'Retirado por'} · {loan.contractorName}</small></div></div>
   </div>
   <div className="foot"><span>NAUTILUS · Ferramentaria · Base Açu</span><span>{loan.code}{ret?` · devolução ${ret.number}`:''}</span></div>
  </main>;

@@ -1,4 +1,4 @@
-// Ferramentaria · fase B: terceirizadas, empréstimos, assinaturas (na tela ou papel escaneado), devoluções
+// Ferramentaria · fase B: solicitantes, empréstimos, assinaturas (na tela ou papel escaneado), devoluções
 // e cancelamento. Emitir abate o estoque na hora; devolver em bom estado repõe; ferramenta danificada ou
 // perdida e material consumido não voltam. Tudo idempotente e auditado; nada é apagado.
 import {db,type Executor,type Row} from './db';
@@ -28,7 +28,7 @@ function signature(value:unknown,label:string){
 function signatures(b:Row){
  const has=!!(b.ocpSignature||b.contractorSignature);
  if(!has)return null;
- return {ocp:signature(b.ocpSignature,'Assinatura do responsável OCP'),contractor:signature(b.contractorSignature,'Assinatura do responsável da terceirizada')};
+ return {ocp:signature(b.ocpSignature,'Assinatura do responsável OCP'),contractor:signature(b.contractorSignature,'Assinatura do responsável do solicitante')};
 }
 
 const lineRow=(l:Row)=>{
@@ -38,7 +38,7 @@ const lineRow=(l:Row)=>{
 function loanRow(r:Row){
  const open=['emitido','parcial'].includes(r.status),signed=!!r.signed_at||Number(r.files||0)>0;
  return {id:r.id,number:Number(r.number),code:loanCode(Number(r.number)),contractorId:r.contractor_id,contractorName:r.contractor_name,contractorPerson:r.contractor_person,
-  ocpName:r.ocp_name,purpose:r.purpose,expectedReturn:r.expected_return,status:r.status,late:open&&r.expected_return<today(),
+  ocpName:r.ocp_name,purpose:r.purpose,expectedReturn:r.expected_return,status:r.status,late:open&&!!r.expected_return&&r.expected_return<today(),
   signed,signedOnScreen:!!r.signed_at,signedAt:r.signed_at||null,signedByName:r.signed_by_name||null,
   unsignedAlert:open&&!signed&&Date.now()-Date.parse(r.issued_at)>UNSIGNED_ALERT_MS,
   issuedAt:r.issued_at,issuedByName:r.issued_by_name,closedAt:r.closed_at||null,closedByName:r.closed_by_name||null,
@@ -92,11 +92,11 @@ export async function loanDetail(member:Member,loanId:string){
  if(!l)throw new AppError('Empréstimo não encontrado.',404,'LOAN_NOT_FOUND');
  const [lines,returns,rlines,files]=await Promise.all([
   db().all('SELECT * FROM tool_loan_lines WHERE loan_id=? ORDER BY lower(item_name)',l.id),
-  db().all('SELECT id,number,note,closes_loan,signed_at,created_at,created_by_name FROM tool_loan_returns WHERE loan_id=? ORDER BY number',l.id),
+  db().all('SELECT id,number,note,closes_loan,signed_at,returned_by,created_at,created_by_name FROM tool_loan_returns WHERE loan_id=? ORDER BY number',l.id),
   db().all('SELECT rl.*,ll.item_name,ll.unit_abbr,ll.item_kind FROM tool_loan_return_lines rl JOIN tool_loan_lines ll ON ll.id=rl.line_id WHERE ll.loan_id=? ORDER BY lower(ll.item_name)',l.id),
   db().all('SELECT id,return_id,file_name,content_type,size_bytes,created_at,created_by_name FROM tool_loan_files WHERE loan_id=? ORDER BY created_at',l.id)]);
  return {loan:loanRow(l),lines:lines.map(lineRow),
-  returns:returns.map(r=>({id:r.id,number:Number(r.number),note:r.note||null,closesLoan:Number(r.closes_loan)===1,signed:!!r.signed_at,createdAt:r.created_at,createdByName:r.created_by_name,
+  returns:returns.map(r=>({id:r.id,number:Number(r.number),note:r.note||null,closesLoan:Number(r.closes_loan)===1,signed:!!r.signed_at,returnedBy:r.returned_by||null,createdAt:r.created_at,createdByName:r.created_by_name,
    lines:rlines.filter(x=>x.return_id===r.id).map(x=>({itemName:x.item_name,unitAbbr:x.unit_abbr,kind:x.item_kind,returned:Number(x.returned_milli)/1000,damaged:Number(x.damaged_milli)/1000,lost:Number(x.lost_milli)/1000,consumed:Number(x.consumed_milli)/1000}))})),
   files:files.map(f=>({id:f.id,returnId:f.return_id||null,name:f.file_name,contentType:f.content_type,size:Number(f.size_bytes),createdAt:f.created_at,createdByName:f.created_by_name}))};
 }
@@ -107,37 +107,37 @@ export async function loanPrint(member:Member,loanId:string,returnId?:string){
  const l=await db().first('SELECT ocp_signature,contractor_signature FROM tool_loans WHERE id=?',loanId);
  let ret:Row|null=null;
  if(returnId){
-  ret=await db().first('SELECT id,number,note,closes_loan,ocp_signature,contractor_signature,signed_at,created_at,created_by_name FROM tool_loan_returns WHERE id=? AND loan_id=?',returnId,loanId);
+  ret=await db().first('SELECT id,number,note,closes_loan,ocp_signature,contractor_signature,signed_at,returned_by,created_at,created_by_name FROM tool_loan_returns WHERE id=? AND loan_id=?',returnId,loanId);
   if(!ret)throw new AppError('Devolução não encontrada.',404);
  }
  return {...d,signatures:{ocp:l!.ocp_signature||null,contractor:l!.contractor_signature||null},ret};
 }
 
-/** O que cada terceirizada tem em mãos agora (empréstimos abertos, quantidade pendente). */
+/** O que cada solicitante tem em mãos agora (empréstimos abertos, quantidade pendente). */
 export async function contractorPosition(member:Member,contractorId:string){
  await tools(member);
  const c=await db().first('SELECT id,name FROM tool_contractors WHERE id=?',contractorId);
- if(!c)throw new AppError('Terceirizada não encontrada.',404);
+ if(!c)throw new AppError('Solicitante não encontrado.',404);
  const rows=await db().all(`SELECT ll.*,l.number,l.expected_return,l.contractor_person FROM tool_loan_lines ll JOIN tool_loans l ON l.id=ll.loan_id
   WHERE l.contractor_id=? AND l.status IN ('emitido','parcial') AND ll.qty_out_milli>ll.qty_returned_milli+ll.qty_damaged_milli+ll.qty_lost_milli+ll.qty_consumed_milli
   ORDER BY lower(ll.item_name),l.number`,c.id);
- return {contractor:{id:c.id,name:c.name},rows:rows.map(r=>({...lineRow(r),loanId:r.loan_id,loanCode:loanCode(Number(r.number)),expectedReturn:r.expected_return,late:r.expected_return<today(),person:r.contractor_person}))};
+ return {contractor:{id:c.id,name:c.name},rows:rows.map(r=>({...lineRow(r),loanId:r.loan_id,loanCode:loanCode(Number(r.number)),expectedReturn:r.expected_return,late:!!r.expected_return&&r.expected_return<today(),person:r.contractor_person}))};
 }
 
 // ---------- Comandos ----------
 
 async function saveContractor(a:Actor,b:Row){
- const name=required(b.name,'Nome da terceirizada',120),active=flag(b.active);
+ const name=required(b.name,'Nome do solicitante',120),active=flag(b.active);
  return await db().tx(async tx=>{
   const old=b.id?await tx.first('SELECT * FROM tool_contractors WHERE id=?',String(b.id)):null;
-  if(b.id&&!old)throw new AppError('Terceirizada não encontrada.',404);
+  if(b.id&&!old)throw new AppError('Solicitante não encontrado.',404);
   const rid=old?.id||id();
   try{
    if(old)await tx.run('UPDATE tool_contractors SET name=?,active=?,updated_at=? WHERE id=?',name,active,now(),rid);
    else await tx.run('INSERT INTO tool_contractors(id,name,active,created_at,updated_at) VALUES(?,?,?,?,?)',rid,name,active,now(),now());
-  }catch(e){if(/tool_contractors_name_key/.test((e as Error).message))throw new AppError('Já existe terceirizada com este nome.',409);throw e;}
-  await audit(tx,a,`Ferramentaria: terceirizada ${old?'atualizada':'cadastrada'}`,rid,{name,active:!!active});
-  return {id:rid,message:`Terceirizada ${old?'atualizada':'cadastrada'}.`};
+  }catch(e){if(/tool_contractors_name_key/.test((e as Error).message))throw new AppError('Já existe solicitante com este nome.',409);throw e;}
+  await audit(tx,a,`Ferramentaria: solicitante ${old?'atualizado':'cadastrado'}`,rid,{name,active:!!active});
+  return {id:rid,message:`Solicitante ${old?'atualizado':'cadastrado'}.`};
  });
 }
 
@@ -146,40 +146,47 @@ async function savePerson(a:Actor,b:Row){
  return await db().tx(async tx=>{
   const old=b.id?await tx.first('SELECT * FROM tool_contractor_people WHERE id=?',String(b.id)):null;
   if(b.id&&!old)throw new AppError('Responsável não encontrado.',404);
-  const contractorId=old?.contractor_id||required(b.contractorId,'Terceirizada',100);
-  if(!await tx.first('SELECT 1 FROM tool_contractors WHERE id=?',contractorId))throw new AppError('Terceirizada não encontrada.',404);
+  const contractorId=old?.contractor_id||required(b.contractorId,'Solicitante',100);
+  if(!await tx.first('SELECT 1 FROM tool_contractors WHERE id=?',contractorId))throw new AppError('Solicitante não encontrado.',404);
   const rid=old?.id||id();
   try{
    if(old)await tx.run('UPDATE tool_contractor_people SET name=?,active=?,updated_at=? WHERE id=?',name,active,now(),rid);
    else await tx.run('INSERT INTO tool_contractor_people(id,contractor_id,name,active,created_at,updated_at) VALUES(?,?,?,?,?,?)',rid,contractorId,name,active,now(),now());
-  }catch(e){if(/tool_contractor_people_name_key/.test((e as Error).message))throw new AppError('Este responsável já está cadastrado nesta terceirizada.',409);throw e;}
-  await audit(tx,a,`Ferramentaria: responsável da terceirizada ${old?'atualizado':'cadastrado'}`,rid,{name,contractorId,active:!!active});
+  }catch(e){if(/tool_contractor_people_name_key/.test((e as Error).message))throw new AppError('Este responsável já está cadastrado neste solicitante.',409);throw e;}
+  await audit(tx,a,`Ferramentaria: responsável do solicitante ${old?'atualizado':'cadastrado'}`,rid,{name,contractorId,active:!!active});
   return {id:rid,message:`Responsável ${old?'atualizado':'cadastrado'}.`};
  });
 }
 
-/** Emite o empréstimo: abate o estoque na hora. Assinaturas na tela podem vir junto ou depois. */
+/** Responsável que vai assinar o lado do solicitante: nem sempre é quem pediu, então é dito na assinatura. */
+const personName=(v:unknown,required_:boolean)=>{const s=text(v,120);if(!s&&required_)throw new AppError('Informe o nome de quem assina pelo solicitante.',400,'VALIDATION','contractorPerson');return s||null;};
+
+/** Cadastra no solicitante o responsável digitado na hora, se ainda não existe. */
+async function rememberPerson(tx:Executor,contractorId:string,person:string|null){
+ if(person&&!await tx.first('SELECT 1 FROM tool_contractor_people WHERE contractor_id=? AND lower(trim(name))=lower(trim(?))',contractorId,person))
+  await tx.run('INSERT INTO tool_contractor_people(id,contractor_id,name,active,created_at,updated_at) VALUES(?,?,?,1,?,?)',id(),contractorId,person,now(),now());
+}
+
+/** Emite o empréstimo: abate o estoque na hora. Assinaturas na tela (com o nome de quem assina) podem vir junto ou depois. */
 async function issueLoan(a:Actor,b:Row){
  const createKey=key(b.idempotencyKey);
- const person=required(b.contractorPerson,'Responsável da terceirizada',120),ocpName=required(b.ocpName,'Responsável OCP',120),purpose=required(b.purpose,'Finalidade',300);
- const expected=isoDay(b.expectedReturn);
- if(expected<today())throw new AppError('A devolução prevista não pode ser antes de hoje.',400,'VALIDATION','expectedReturn');
+ const sig=signatures(b);
+ const person=personName(b.contractorPerson,!!sig),ocpName=text(b.ocpName,120)||a.name,purpose=required(b.purpose,'Finalidade',300);
+ const expected=b.expectedReturn===undefined||b.expectedReturn===null||String(b.expectedReturn).trim()===''?null:isoDay(b.expectedReturn);
+ if(expected&&expected<today())throw new AppError('A devolução prevista não pode ser antes de hoje.',400,'VALIDATION','expectedReturn');
  const lines=Array.isArray(b.lines)?b.lines as Row[]:[];
  if(!lines.length)throw new AppError('Inclua ao menos um item.',400,'VALIDATION','lines');
  if(lines.length>100)throw new AppError('Até 100 itens por empréstimo.',400,'VALIDATION','lines');
  const ids=lines.map(l=>String(l?.itemId||''));
  if(ids.some(x=>!x))throw new AppError('Escolha o item de cada linha.',400,'VALIDATION','lines');
  if(new Set(ids).size!==ids.length)throw new AppError('Item repetido na lista: some as quantidades numa linha só.',400,'VALIDATION','lines');
- const sig=signatures(b);
  return await db().tx(async tx=>{
   const prior=await tx.first('SELECT id,number FROM tool_loans WHERE create_key=?',createKey);
   if(prior)return {id:prior.id as string,code:loanCode(Number(prior.number)),replayed:true,message:`${loanCode(Number(prior.number))} já emitido.`};
-  const c=await tx.first('SELECT * FROM tool_contractors WHERE id=?',required(b.contractorId,'Terceirizada',100));
-  if(!c)throw new AppError('Terceirizada não encontrada.',404,'VALIDATION','contractorId');
-  if(Number(c.active)!==1)throw new AppError(`${c.name} está inativa.`,409);
-  // Responsável novo digitado na hora entra no cadastro da terceirizada.
-  if(!await tx.first('SELECT 1 FROM tool_contractor_people WHERE contractor_id=? AND lower(trim(name))=lower(trim(?))',c.id,person))
-   await tx.run('INSERT INTO tool_contractor_people(id,contractor_id,name,active,created_at,updated_at) VALUES(?,?,?,1,?,?)',id(),c.id,person,now(),now());
+  const c=await tx.first('SELECT * FROM tool_contractors WHERE id=?',required(b.contractorId,'Solicitante',100));
+  if(!c)throw new AppError('Solicitante não encontrado.',404,'VALIDATION','contractorId');
+  if(Number(c.active)!==1)throw new AppError(`${c.name} está inativo.`,409);
+  await rememberPerson(tx,c.id,person);
   const lid=id(),stamp=now();
   const ins=await tx.first(`INSERT INTO tool_loans(id,contractor_id,contractor_name,contractor_person,ocp_name,purpose,expected_return,status,ocp_signature,contractor_signature,signed_at,signed_by_name,issued_at,issued_by,issued_by_name,create_key)
    VALUES(?,?,?,?,?,?,?,'emitido',?,?,?,?,?,?,?,?) RETURNING number`,lid,c.id,c.name,person,ocpName,purpose,expected,sig?.ocp??null,sig?.contractor??null,sig?stamp:null,sig?a.name:null,stamp,a.id,a.name,createKey);
@@ -212,23 +219,29 @@ async function signLoan(a:Actor,b:Row){
    const r=await tx.first('SELECT * FROM tool_loan_returns WHERE id=? AND loan_id=? FOR UPDATE',String(b.returnId),l.id);
    if(!r)throw new AppError('Devolução não encontrada.',404);
    if(r.signed_at)throw new AppError('Esta devolução já foi assinada.',409,'ALREADY_SIGNED');
-   await tx.run('UPDATE tool_loan_returns SET ocp_signature=?,contractor_signature=?,signed_at=? WHERE id=?',sig.ocp,sig.contractor,now(),r.id);
-   await audit(tx,a,'Ferramentaria: devolução assinada na tela',l.id,{code:loanCode(Number(l.number)),return:Number(r.number)});
+   const by=returnerName(b.returnedBy,!r.returned_by)||r.returned_by;
+   await rememberPerson(tx,l.contractor_id,by);
+   await tx.run('UPDATE tool_loan_returns SET ocp_signature=?,contractor_signature=?,signed_at=?,returned_by=? WHERE id=?',sig.ocp,sig.contractor,now(),by,r.id);
+   await audit(tx,a,'Ferramentaria: devolução assinada na tela',l.id,{code:loanCode(Number(l.number)),return:Number(r.number),returnedBy:by});
    return {message:'Devolução assinada.'};
   }
   if(l.status==='cancelado')throw new AppError('Empréstimo cancelado não se assina.',409);
   if(l.signed_at)throw new AppError('Este empréstimo já foi assinado.',409,'ALREADY_SIGNED');
-  await tx.run('UPDATE tool_loans SET ocp_signature=?,contractor_signature=?,signed_at=?,signed_by_name=?,version=version+1 WHERE id=?',sig.ocp,sig.contractor,now(),a.name,l.id);
-  await audit(tx,a,'Ferramentaria: empréstimo assinado na tela',l.id,{code:loanCode(Number(l.number))});
+  const person=personName(b.contractorPerson,!l.contractor_person)||l.contractor_person,ocpName=text(b.ocpName,120)||l.ocp_name;
+  await rememberPerson(tx,l.contractor_id,person);
+  await tx.run('UPDATE tool_loans SET ocp_signature=?,contractor_signature=?,signed_at=?,signed_by_name=?,contractor_person=?,ocp_name=?,version=version+1 WHERE id=?',sig.ocp,sig.contractor,now(),a.name,person,ocpName,l.id);
+  await audit(tx,a,'Ferramentaria: empréstimo assinado na tela',l.id,{code:loanCode(Number(l.number)),person,ocpName});
   return {message:`${loanCode(Number(l.number))} assinado.`};
  });
 }
+
+const returnerName=(v:unknown,required_:boolean)=>{const s=text(v,120);if(!s&&required_)throw new AppError('Informe o nome de quem devolve pelo solicitante.',400,'VALIDATION','returnedBy');return s||null;};
 
 /** Devolução: o que volta em bom estado repõe o estoque. "Encerrar" dá o material restante como consumido. */
 async function returnLoan(a:Actor,b:Row){
  const createKey=key(b.idempotencyKey),close=b.close===true,note=text(b.note,500)||null;
  const input=Array.isArray(b.lines)?b.lines as Row[]:[];
- const sig=signatures(b);
+ const sig=signatures(b),by=returnerName(b.returnedBy,!!sig);
  return await db().tx(async tx=>{
   const prior=await tx.first('SELECT id,number FROM tool_loan_returns WHERE create_key=?',createKey);
   if(prior)return {id:prior.id as string,replayed:true,message:'Devolução já registrada.'};
@@ -266,8 +279,9 @@ async function returnLoan(a:Actor,b:Row){
   const allDone=[...after.values()].every(v=>v===0);
   const n=Number((await tx.first('SELECT coalesce(max(number),0)::int n FROM tool_loan_returns WHERE loan_id=?',l.id))!.n)+1;
   const rid=id(),stamp=now();
-  await tx.run('INSERT INTO tool_loan_returns(id,loan_id,number,note,closes_loan,ocp_signature,contractor_signature,signed_at,created_at,created_by,created_by_name,create_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
-   rid,l.id,n,note,allDone?1:0,sig?.ocp??null,sig?.contractor??null,sig?stamp:null,stamp,a.id,a.name,createKey);
+  await rememberPerson(tx,l.contractor_id,by);
+  await tx.run('INSERT INTO tool_loan_returns(id,loan_id,number,note,closes_loan,ocp_signature,contractor_signature,signed_at,returned_by,created_at,created_by,created_by_name,create_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',
+   rid,l.id,n,note,allDone?1:0,sig?.ocp??null,sig?.contractor??null,sig?stamp:null,by,stamp,a.id,a.name,createKey);
   for(const p of plan){
    await tx.run('INSERT INTO tool_loan_return_lines(id,return_id,line_id,returned_milli,damaged_milli,lost_milli,consumed_milli) VALUES(?,?,?,?,?,?,?)',id(),rid,p.line.id,p.ret,p.dam,p.lost,p.cons);
    await tx.run('UPDATE tool_loan_lines SET qty_returned_milli=qty_returned_milli+?,qty_damaged_milli=qty_damaged_milli+?,qty_lost_milli=qty_lost_milli+?,qty_consumed_milli=qty_consumed_milli+? WHERE id=?',p.ret,p.dam,p.lost,p.cons,p.line.id);

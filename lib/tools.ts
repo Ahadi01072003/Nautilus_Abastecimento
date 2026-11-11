@@ -39,8 +39,14 @@ const itemRow=(r:Row)=>({id:r.id,kind:r.kind,name:r.name,code:r.code||null,categ
 const ITEM_SELECT=`SELECT i.*,c.name category_name,l.name location_name,u.abbr unit_abbr,u.name unit_name,u.integral
  FROM tool_items i LEFT JOIN tool_categories c ON c.id=i.category_id LEFT JOIN tool_locations l ON l.id=i.location_id JOIN tool_units u ON u.id=i.unit_id`;
 const moveRow=(r:Row)=>({id:r.id,itemId:r.item_id,itemName:r.item_name,unitAbbr:r.unit_abbr,kind:r.kind,delta:Number(r.delta_milli)/1000,balanceAfter:Number(r.balance_after_milli)/1000,
- reason:r.reason,refType:r.ref_type||null,refId:r.ref_id||null,occurredAt:r.occurred_at,authorName:r.author_name});
-const MOVE_SELECT=`SELECT m.*,i.name item_name,u.abbr unit_abbr FROM tool_movements m JOIN tool_items i ON i.id=m.item_id JOIN tool_units u ON u.id=i.unit_id`;
+ reason:r.reason,refType:r.ref_type||null,refId:r.ref_id||null,occurredAt:r.occurred_at,authorName:r.author_name,
+ // Movimento de empréstimo: o código, o solicitante e quem retirou (na saída) ou devolveu (na devolução).
+ loan:r.loan_number!=null?{id:r.ref_id,code:'EMP-'+String(r.loan_number).padStart(5,'0'),contractor:r.loan_contractor,person:r.loan_person||null}:null});
+const MOVE_SELECT=`SELECT m.*,i.name item_name,u.abbr unit_abbr,l.number loan_number,l.contractor_name loan_contractor,
+ CASE WHEN m.kind='emprestimo' THEN l.contractor_person WHEN m.operation_key LIKE 'ret:%' THEN r.returned_by END loan_person
+ FROM tool_movements m JOIN tool_items i ON i.id=m.item_id JOIN tool_units u ON u.id=i.unit_id
+ LEFT JOIN tool_loans l ON m.ref_type='loan' AND l.id=m.ref_id
+ LEFT JOIN tool_loan_returns r ON m.operation_key LIKE 'ret:%' AND r.id=split_part(m.operation_key,':',2)`;
 
 /** Listas de apoio dos formulários. */
 export async function toolsRefs(member:Member){
@@ -83,6 +89,7 @@ export async function toolsItems(member:Member,url:URL){
  else if(status==='inactive')where.push('i.active=0');
  else if(status==='low')where.push('i.active=1 AND i.min_milli>0 AND i.balance_milli<=i.min_milli');
  else if(status==='zero')where.push('i.active=1 AND i.balance_milli=0');
+ else if(status==='available')where.push('i.active=1 AND i.balance_milli>0');
  else if(status!=='all')throw new AppError('Situação inválida.');
  const rows=await db().all(`${ITEM_SELECT}${where.length?' WHERE '+where.join(' AND '):''} ORDER BY lower(i.name),i.id LIMIT ? OFFSET ?`,...values,p.limit+1,p.offset);
  return {rows:rows.slice(0,p.limit).map(itemRow),page:p.page,limit:p.limit,hasMore:rows.length>p.limit};

@@ -3,13 +3,13 @@
 Data: 11/11/2026 · Status: **aprovada pelo usuário em 11/11/2026**; implementação por fases. **Fases A e B entregues** (migrações 0026 e 0027). Na fase B os kits de empréstimo ficaram para a fase C. Substitui o módulo Portaria (removido).
 
 ## 1. Objetivo
-Controlar entrada e saída de tudo que há no estoque (ferramentas e materiais), manter o inventário com quantidades e registrar empréstimos para terceirizadas, com baixa automática e termo em PDF assinado.
+Controlar entrada e saída de tudo que há no estoque (ferramentas e materiais), manter o inventário com quantidades e registrar empréstimos para solicitantes, com baixa automática e termo em PDF assinado.
 
 ## 2. Decisões do usuário
 - Tipos de item: **Ferramenta** (volta no empréstimo) e **Material** (consumível, só baixa). Controle **por quantidade** (sem número de série).
 - Campos do item: nome, código opcional, categoria, local, **unidade de medida configurável**, quantidade, mínimo. **Sem** preço, foto, lote ou validade.
 - Empréstimo **não gera OS** e não se liga a OS.
-- Terceirizada: **cadastro novo** (nome e responsáveis). Sem CNPJ.
+- Solicitante (antes "terceirizada"): **cadastro novo** (nome e responsáveis). Sem CNPJ. Quem retira ou devolve é dito na hora da assinatura (nem sempre é quem pediu); nome novo entra no cadastro.
 - Assinatura: **na tela do tablet e/ou em papel com o escaneado anexado** (os dois).
 - Sem uso offline. Perfil novo **Almoxarife** (acesso `ferramentaria`); a Gestão tem sempre.
 - PDF pela impressão do navegador ("Salvar como PDF"), com a assinatura gravada; 2ª via a qualquer momento.
@@ -31,8 +31,8 @@ Controlar entrada e saída de tudo que há no estoque (ferramentas e materiais),
 - **Painel:** 4 botões grandes (Saída, Empréstimo, Receber, Devolução) + alertas (abaixo do mínimo, empréstimos atrasados, sem assinatura).
 - **Inventário:** busca e filtros (tipo, categoria, local, situação); detalhe do item com saldo, histórico e empréstimos em aberto.
 - **Movimentar:** item (buscar ou escanear) → quantidade → motivo → confirmar; vários itens de uma vez.
-- **Empréstimos:** lista por situação; assistente em 4 passos (terceirizada e responsável → itens com disponibilidade ao vivo e kits → revisão → emitir e assinar). Devolução item a item. **Posição da terceirizada:** tudo que ela tem em mãos.
-- **Contagem** (geral ou por local/categoria, opção cega) e **Cadastros** (itens, categorias, locais, unidades, terceirizadas, kits).
+- **Empréstimos:** lista por situação; assistente em 4 passos (solicitante e finalidade → itens em lista suspensa com disponibilidade ao vivo e kits → revisão → emitir e assinar). Devolução item a item. **Posição do solicitante:** tudo que ele tem em mãos.
+- **Contagem** (geral ou por local/categoria, opção cega) e **Cadastros** (itens, categorias, locais, unidades, solicitantes, kits).
 - **Exportação** em Excel: extrato, posição, atrasos, perdas.
 
 ## 6. Celular, tablet e computador
@@ -43,9 +43,18 @@ Controlar entrada e saída de tudo que há no estoque (ferramentas e materiais),
 
 ## 7. Fases
 - **A:** cadastros, saldo e movimentos, inventário, painel.
-- **B:** empréstimo, assinatura em tela, PDF, anexo do escaneado, devolução, posição da terceirizada.
+- **B:** empréstimo, assinatura em tela, PDF, anexo do escaneado, devolução, posição do solicitante.
 - **C:** contagem, alertas, Excel.
 - **D:** reserva de material do D+1 e lista de separação (depende do planejamento por dia).
 
 ## 8. Limites
 Sem preço, sem lote, sem foto, sem número de série, sem offline, sem geração de OS, sem integração fiscal.
+
+## Ajustes de 11/11/2026 (migração 0028)
+
+- "Terceirizada" passa a se chamar **Solicitante** em toda a Ferramentaria (as tabelas continuam `tool_contractors`).
+- O responsável do solicitante é informado **na hora da assinatura** (na emissão, em "Assinar na tela" depois, ou em branco no termo impresso). Depois de assinado não muda. O Responsável OCP também pode ser ajustado na assinatura.
+- A devolução registra **quem devolveu** (opcional ao registrar, obrigatório para assinar na tela).
+- **Devolução prevista é opcional.** Sem data, o empréstimo nunca aparece como atrasado e o termo não cita prazo.
+- Escolha de itens (empréstimo e Movimentar) em **lista suspensa**: abre ao tocar, filtra ao digitar, lê código de barras.
+- **Inventário só para consulta:** tocar no item (ferramenta ou material) abre saldo, cadastro e o histórico completo de movimentações, filtrável por tipo, com quem registrou e, nos empréstimos, o código, o solicitante e quem retirou ou devolveu. Movimentar, criar e editar item ficam só em **Movimentar** (botões "Novo item" e "Editar item"), para não haver dois lugares fazendo a mesma coisa.

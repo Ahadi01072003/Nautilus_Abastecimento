@@ -108,3 +108,30 @@
 .tl-contractor small{display:block}
 .tl-person{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding:4px 0}
 .tl-loan{max-width:820px}
+/* Lista suspensa com busca (itens, responsáveis): abre ao tocar, fecha fora ou com Esc. */
+.tl-combo{position:relative;min-width:0}
+.tl-combo-field{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:0 4px 0 10px}
+.tl-combo-field:focus-within{border-color:#087f77;box-shadow:0 0 0 3px color-mix(in srgb,#087f77 18%,transparent)}
+.tl-combo-field>svg{flex:none;color:var(--ink-2)}
+.tl-combo-field input,.tl-combo-field input:focus,.tl-combo-field input:focus-visible{border:0!important;box-shadow:none!important;outline:none!important;background:transparent!important;padding-left:0;min-height:44px;flex:1;min-width:0}
+.tl-combo-toggle{flex:none;display:grid;place-items:center;width:40px;height:40px;border:0;border-radius:8px;background:none;color:var(--ink-2);cursor:pointer}
+.tl-combo-toggle:hover{background:color-mix(in srgb,#087f77 10%,transparent);color:#087f77}
+.tl-combo-pop{margin-top:6px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:0 10px 24px rgba(3,22,31,.12);max-height:min(320px,46vh);overflow-y:auto;overscroll-behavior:contain}
+.tl-combo-pop ul{list-style:none;margin:0;padding:4px}
+.tl-combo-pop button{width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:10px 12px;min-height:48px;cursor:pointer;color:inherit}
+.tl-combo-pop button:hover,.tl-combo-pop button.on{background:color-mix(in srgb,#087f77 12%,transparent)}
+.tl-combo-pop small{display:block;color:var(--ink-2)}
+.tl-combo-note{margin:0;padding:10px 14px;color:var(--ink-2);font-size:.85rem;border-top:1px solid var(--line)}
+.tl-combo-pop ul:empty+.tl-combo-note,.tl-combo-note:only-child{border-top:0}
+/* Botões das janelas de cadastro com respiro em relação aos campos. */
+.tl-form-actions{margin-top:22px;justify-content:flex-end}
+.n-dialog form>.form-error{margin-top:14px}
+.tl-date{display:flex;align-items:center;gap:6px}.tl-date input{flex:1;min-width:0}
+.tl-sign-who{margin-top:14px}
+@media (max-width:560px){.tl-form-actions>*{flex:1}}
+.tl-item-actions{margin:0 22px 14px}
+@media (max-width:560px){.tl-item-actions{margin:0 14px 12px}}
+.tl-chips-in{padding:0;margin:0 0 8px}
+.tl-hint{margin:2px 0 6px}
+.tl-history .tl-hist-loan{color:#0b1d25;font-weight:600}
+@media (max-width:560px){.tl-dialog .tl-facts{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:6px}.tl-dialog .tl-facts>div{padding:6px 10px}}
