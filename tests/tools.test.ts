@@ -108,6 +108,9 @@ test('item inativo não movimenta; painel mostra o que está abaixo do mínimo',
  const d=await toolsGet('tools/dashboard',url(),almox) as {low:Row[],totals:Row,today:Row};
  assert.ok(d.low.some(r=>r.id===id));assert.ok(d.totals.items>=1);assert.ok(d.today.entrada>=1);
  const low=await toolsGet('tools/items',url({status:'low'}),almox) as {rows:Row[]};assert.ok(low.rows.every(r=>r.low));
+ const zero=await newItem({name:'Cabo zerado',initialQty:0});
+ const avail=(await toolsGet('tools/items',url({status:'available'}),almox) as {rows:Row[]}).rows;
+ assert.ok(avail.some(r=>r.id===id)&&!avail.some(r=>r.id===zero),'disponível: só itens ativos com saldo');
  await save('items/save',{id,kind:'material',name:'Cabo',unitId:'un',min:5,active:false});
  await rejects(move('entrada',[{itemId:id,qty:1}]),409,'ITEM_INACTIVE');
  assert.equal((await toolsGet('tools/items',url({status:'inactive'}),almox) as {rows:Row[]}).rows.some(r=>r.id===id),true);

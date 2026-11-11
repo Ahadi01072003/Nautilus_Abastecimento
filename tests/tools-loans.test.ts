@@ -169,3 +169,38 @@ test('banco: empréstimo não se apaga, item emitido não muda, devolução não
  await assert.rejects(db.run("UPDATE tool_loans SET status='emitido' WHERE id=?",r.id),/não pode passar/);
  await assert.rejects(db.run("UPDATE tool_loans SET purpose='outra' WHERE id=?",r.id),/não pode ser alterado/);
 });
+
+test('responsável do solicitante escolhido na assinatura; devolução prevista é opcional',async()=>{
+ const x=await item('Talhadeira','ferramenta',2);
+ // Emite sem responsável e sem data prevista.
+ const r=await issue([{itemId:x,qty:1}],{contractorPerson:'',expectedReturn:''});
+ let d=await detail(r.id as string);
+ assert.equal(d.loan.contractorPerson,null);assert.equal(d.loan.expectedReturn,null);assert.equal(d.loan.late,false);
+ const late=(await loansGet('tools/loans',url({status:'late'}),almox) as {rows:Row[]}).rows;
+ assert.ok(!late.some(l=>l.id===r.id),'sem data prevista não fica atrasado');
+ // Assinar exige dizer quem assina pelo solicitante.
+ await rejects(loansMutate('tools/loans/sign',{loanId:r.id,ocpSignature:SIG,contractorSignature:SIG},almox) as Promise<unknown>,400,'VALIDATION');
+ await loansMutate('tools/loans/sign',{loanId:r.id,contractorPerson:'Bruno Reis',ocpName:'Thiago Almeida',ocpSignature:SIG,contractorSignature:SIG},almox);
+ d=await detail(r.id as string);
+ assert.equal(d.loan.contractorPerson,'Bruno Reis');assert.equal(d.loan.ocpName,'Thiago Almeida');
+ const people=(await loansGet('tools/contractors',url(),almox) as {rows:Row[]}).rows.find(c=>c.id===contractor)!.people as Row[];
+ assert.ok(people.some(p=>p.name==='Bruno Reis'),'quem assinou entrou no cadastro');
+ await assert.rejects(db.run("UPDATE tool_loans SET contractor_person='Outro' WHERE id=?",r.id),/não pode ser alterado/);
+ // Assinar já na emissão também exige o nome.
+ await rejects(issue([{itemId:x,qty:1}],{contractorPerson:'',ocpSignature:SIG,contractorSignature:SIG}),400,'VALIDATION');
+ assert.equal(await balance(x),1);
+});
+
+test('devolução registra quem devolveu; assinar a devolução exige o nome',async()=>{
+ const x=await item('Trena','ferramenta',2);
+ const r=await issue([{itemId:x,qty:2}]);
+ const line=(await detail(r.id as string)).lines[0];
+ await rejects(ret(r.id as string,[{lineId:line.id,returned:1}],{ocpSignature:SIG,contractorSignature:SIG}),400,'VALIDATION');
+ const d1=await ret(r.id as string,[{lineId:line.id,returned:1}],{returnedBy:'Pedro Alves',ocpSignature:SIG,contractorSignature:SIG});
+ const d2=await ret(r.id as string,[{lineId:line.id,returned:1}]);
+ await rejects(loansMutate('tools/loans/sign',{loanId:r.id,returnId:d2.id,ocpSignature:SIG,contractorSignature:SIG},almox) as Promise<unknown>,400,'VALIDATION');
+ await loansMutate('tools/loans/sign',{loanId:r.id,returnId:d2.id,returnedBy:'Rita Gomes',ocpSignature:SIG,contractorSignature:SIG},almox);
+ const d=await detail(r.id as string);
+ assert.deepEqual(d.returns.map(x=>[x.id,x.returnedBy,x.signed]),[[d1.id,'Pedro Alves',true],[d2.id,'Rita Gomes',true]]);
+ await assert.rejects(db.run("UPDATE tool_loan_returns SET returned_by='Outro' WHERE id=?",d1.id),/não pode ser alterada/);
+});

@@ -1,7 +1,7 @@
 'use client';
 // Ferramentaria e Inventário · fase A: painel, inventário, movimentação em carrinho e cadastros.
 // Lista vira cartões no celular, a ação principal fica ao alcance do polegar e a busca aceita leitor de código.
-import {useCallback,useEffect,useRef,useState,FormEvent} from 'react';
+import {useCallback,useEffect,useState,FormEvent} from 'react';
 import {Plus,Search,ArrowDownToLine,ArrowUpFromLine,TriangleAlert,Pencil,LoaderCircle,Trash2,Boxes,PackageX,Handshake,Hammer,Package} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
@@ -10,7 +10,7 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Choice,Badge,Empty,Field,Toggle,fmt,load,type R} from './kit';
-import {KIND_NAMES,MOVE_NAMES,REASONS,PRESET_KEY,qtyText,pl,num,useKey,tpost} from './tools-kit';
+import {KIND_NAMES,MOVE_NAMES,REASONS,PRESET_KEY,qtyText,pl,num,useKey,tpost,ItemPicker} from './tools-kit';
 import {ContractorsTable,NEW_LOAN_KEY} from './tools-loans';
 import './tools.css';
 
@@ -40,7 +40,7 @@ export function ToolsDashboard({refreshKey,onGo}:{refreshKey?:number,onGo:(v:str
    <button type="button" onClick={()=>go('saida')}><ArrowUpFromLine/><b>Saída</b><small>Consumo e descarte</small></button>
    <button type="button" onClick={()=>go('entrada')}><ArrowDownToLine/><b>Receber</b><small>Compra e devolução</small></button>
    <button type="button" onClick={()=>go('perda')}><PackageX/><b>Perda</b><small>Extravio e quebra</small></button>
-   <button type="button" onClick={()=>{try{sessionStorage.setItem(NEW_LOAN_KEY,'1')}catch{/* segue */}onGo('fer-emprestimos')}}><Handshake/><b>Empréstimo</b><small>Para terceirizada</small></button>
+   <button type="button" onClick={()=>{try{sessionStorage.setItem(NEW_LOAN_KEY,'1')}catch{/* segue */}onGo('fer-emprestimos')}}><Handshake/><b>Empréstimo</b><small>Para solicitante</small></button>
   </div>
   <div className="tl-kpis">
    <div><span>Itens ativos</span><b>{t.items}</b><small>{pl(t.ferramentas,'ferramenta','ferramentas')} · {pl(t.materiais,'material','materiais')}</small></div>
@@ -85,7 +85,7 @@ function ItemForm({item,refs,onClose,onDone}:{item:R|null,refs:R,onClose:()=>voi
    {!editing&&<Field label="Saldo inicial"><Input inputMode="decimal" value={f.initialQty} onChange={e=>setF(x=>({...x,initialQty:e.target.value}))} placeholder="0"/></Field>}
    {editing&&<Toggle title="Item ativo" description="Inativo não aparece para movimentar, mas o histórico continua." checked={!!f.active} onChange={v=>setF(x=>({...x,active:v}))}/>}
   </div>{error&&<p className="form-error" role="alert">{error}</p>}
-  <div className="step-actions"><Button type="button" variant="outline" disabled={busy} onClick={onClose}>Cancelar</Button><Button type="submit" disabled={busy}>{busy&&<LoaderCircle className="spin" size={16}/>} Salvar</Button></div></form>
+  <div className="step-actions tl-form-actions"><Button type="button" variant="outline" disabled={busy} onClick={onClose}>Cancelar</Button><Button type="submit" disabled={busy}>{busy&&<LoaderCircle className="spin" size={16}/>} Salvar</Button></div></form>
  </DialogContent></Dialog>;
 }
 
@@ -157,17 +157,9 @@ type Line={item:R,qty:string};
 /** Movimentação em carrinho: vários itens num envio só, tudo ou nada. */
 export function ToolsMove({refreshKey,manager}:{refreshKey?:number,manager:boolean}){
  const [kind,setKind]=useState(()=>{try{const k=sessionStorage.getItem(PRESET_KEY)||'';sessionStorage.removeItem(PRESET_KEY);return REASONS[k]&&(k!=='ajuste')?k:'saida'}catch{return 'saida'}});
- const [q,setQ]=useState(''),[found,setFound]=useState<R[]>([]),[lines,setLines]=useState<Line[]>([]),[reason,setReason]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[done,setDone]=useState<R|null>(null),k=useKey(),searchRef=useRef<HTMLInputElement>(null);
+ const [lines,setLines]=useState<Line[]>([]),[reason,setReason]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[done,setDone]=useState<R|null>(null),k=useKey();
  const adjust=kind==='ajuste';
- useEffect(()=>{
-  if(!q.trim()){return;}
-  let stale=false;
-  const t=setTimeout(()=>{load<R>('tools/items?limit=8&q='+encodeURIComponent(q.trim())).then(d=>{if(!stale)setFound((d.rows as R[]).slice(0,8))},()=>{if(!stale)setFound([])})},220);
-  return()=>{stale=true;clearTimeout(t)};
- },[q,refreshKey]);
- const shown=q.trim()?found:[];
- const add=(item:R)=>{setLines(ls=>ls.some(l=>l.item.id===item.id)?ls:[...ls,{item,qty:''}]);setQ('');setFound([]);setDone(null);searchRef.current?.focus();};
- function onEnter(){const exact=shown.find(i=>i.code&&i.code.toLowerCase()===q.trim().toLowerCase());if(exact)add(exact);else if(shown.length===1)add(shown[0]);}
+ const add=(item:R)=>{setLines(ls=>ls.some(l=>l.item.id===item.id)?ls:[...ls,{item,qty:''}]);setDone(null);};
  async function submit(){
   setBusy(true);setError('');
   try{
@@ -179,9 +171,7 @@ export function ToolsMove({refreshKey,manager}:{refreshKey?:number,manager:boole
  return <div className="tl-screen tl-move">
   <section className="n-panel">
    <div className="segmented tl-kinds" role="group" aria-label="Tipo de movimentação">{['saida','entrada','perda',...(manager?['ajuste']:[])].map(v=><button key={v} type="button" className={kind===v?'active':''} aria-pressed={kind===v} onClick={()=>{setKind(v);setReason('');setLines(ls=>ls.map(l=>({...l,qty:''})))}}>{MOVE_NAMES[v]}</button>)}</div>
-   <div className="tl-search tl-add"><Search size={16} aria-hidden/><Input ref={searchRef} value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();onEnter()}}} placeholder="Buscar item ou ler o código de barras" aria-label="Adicionar item" autoComplete="off"/></div>
-   {shown.length>0&&<ul className="tl-found" role="listbox">{shown.map(i=><li key={i.id}><button type="button" role="option" aria-selected={false} onClick={()=>add(i)}><b>{i.name}</b><small>{KIND_NAMES[i.kind]} · saldo {qtyText(i.balance)} {i.unitAbbr}{i.locationName?` · ${i.locationName}`:''}</small></button></li>)}</ul>}
-   {q.trim()&&!shown.length&&<p className="muted-text tl-none">Nenhum item para “{q}”.</p>}
+   <div className="tl-add"><ItemPicker refreshKey={`${refreshKey}:${done?.message||''}`} exclude={lines.map(l=>l.item.id)} onPick={add}/></div>
   </section>
   <section className="n-panel"><div className="panel-heading"><div><h2>{adjust?'Contagem a ajustar':'Itens da movimentação'}</h2><p>{adjust?'Informe a quantidade contada: o saldo passa a ser esse valor.':'Informe a quantidade de cada item. Tudo é registrado junto, ou nada.'}</p></div></div>
    {lines.length?<ul className="tl-lines">{lines.map(l=>{const n=num(l.qty),after=adjust?n:l.item.balance+(kind==='entrada'?n:-n),bad=!adjust&&kind!=='entrada'&&Number.isFinite(n)&&after<0;
@@ -217,7 +207,7 @@ function NamedTable({title,hint,path,rows,fields,onChanged}:{title:string,hint:s
      <Toggle title="Aceita fração" description="Ligado para kg, metro e litro; desligado para peças e unidades." checked={!edit.integral} onChange={v=>setEdit(x=>({...x!,integral:!v}))}/></>}
     <Toggle title="Ativo" checked={!!edit.active} onChange={v=>setEdit(x=>({...x!,active:v}))}/>
    </div>{error&&<p className="form-error" role="alert">{error}</p>}
-   <div className="step-actions"><Button type="button" variant="outline" disabled={busy} onClick={()=>setEdit(null)}>Cancelar</Button><Button type="submit" disabled={busy}>{busy&&<LoaderCircle className="spin" size={16}/>} Salvar</Button></div></form></DialogContent></Dialog>}
+   <div className="step-actions tl-form-actions"><Button type="button" variant="outline" disabled={busy} onClick={()=>setEdit(null)}>Cancelar</Button><Button type="submit" disabled={busy}>{busy&&<LoaderCircle className="spin" size={16}/>} Salvar</Button></div></form></DialogContent></Dialog>}
  </section>;
 }
 
@@ -225,7 +215,7 @@ export function ToolsRegistry({refreshKey}:{refreshKey?:number}){
  const [tick,setTick]=useState(0),refs=useRefs((refreshKey||0)*1000+tick);
  if(!refs)return <Skeleton className="h-48 rounded-xl"/>;
  const changed=()=>setTick(t=>t+1);
- return <Tabs defaultValue="units"><TabsList className="n-tabs"><TabsTrigger value="units">Unidades</TabsTrigger><TabsTrigger value="categories">Categorias</TabsTrigger><TabsTrigger value="locations">Locais</TabsTrigger><TabsTrigger value="contractors">Terceirizadas</TabsTrigger></TabsList>
+ return <Tabs defaultValue="units"><TabsList className="n-tabs"><TabsTrigger value="units">Unidades</TabsTrigger><TabsTrigger value="categories">Categorias</TabsTrigger><TabsTrigger value="locations">Locais</TabsTrigger><TabsTrigger value="contractors">Solicitantes</TabsTrigger></TabsList>
   <TabsContent value="units"><NamedTable title="Unidades de medida" hint="Como cada item é contado: un, caixa, kg, metro…" path="tools/units/save" rows={refs.units} fields="unit" onChanged={changed}/></TabsContent>
   <TabsContent value="categories"><NamedTable title="Categorias" hint="Agrupam os itens no inventário (ex.: Elétrica, Solda, EPI)." path="tools/categories/save" rows={refs.categories} fields="name" onChanged={changed}/></TabsContent>
   <TabsContent value="locations"><NamedTable title="Locais" hint="Onde o item fica guardado (ex.: Prateleira 1, Container A)." path="tools/locations/save" rows={refs.locations} fields="name" onChanged={changed}/></TabsContent>

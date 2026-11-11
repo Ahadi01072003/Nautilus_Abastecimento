@@ -46,8 +46,8 @@ export const MODULES:Module[]=[
   {id:'fer-painel',label:'Painel',icon:LayoutDashboard,subtitle:'Itens abaixo do mínimo, o que se movimentou hoje e atalhos para as ações mais usadas.'},
   {id:'fer-inventario',label:'Inventário',icon:Boxes,subtitle:'Tudo que há no estoque, com saldo, local e histórico de cada item.'},
   {id:'fer-movimentar',label:'Movimentar',icon:ArrowLeftRight,subtitle:'Entradas, saídas e perdas de vários itens de uma vez. O saldo muda só por movimentação.'},
-  {id:'fer-emprestimos',label:'Empréstimos',icon:Handshake,subtitle:'Empréstimos para terceirizadas: termo com assinatura, devolução e o que cada uma tem em mãos.'},
-  {id:'fer-cadastros',label:'Cadastros',icon:LayoutList,subtitle:'Unidades de medida, categorias, locais e terceirizadas.'},
+  {id:'fer-emprestimos',label:'Empréstimos',icon:Handshake,subtitle:'Empréstimos para solicitantes: termo com assinatura, devolução e o que cada um tem em mãos.'},
+  {id:'fer-cadastros',label:'Cadastros',icon:LayoutList,subtitle:'Unidades de medida, categorias, locais e solicitantes.'},
  ]},
  {id:'cadastros',label:'Cadastros gerais',icon:Database,screens:[
   {id:'cad-solicitantes',label:'Solicitantes e clientes',icon:Building2,subtitle:'Organizações solicitantes, etiquetas visuais e pessoas de contato.'},

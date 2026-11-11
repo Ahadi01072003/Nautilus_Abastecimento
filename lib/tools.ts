@@ -83,6 +83,7 @@ export async function toolsItems(member:Member,url:URL){
  else if(status==='inactive')where.push('i.active=0');
  else if(status==='low')where.push('i.active=1 AND i.min_milli>0 AND i.balance_milli<=i.min_milli');
  else if(status==='zero')where.push('i.active=1 AND i.balance_milli=0');
+ else if(status==='available')where.push('i.active=1 AND i.balance_milli>0');
  else if(status!=='all')throw new AppError('Situação inválida.');
  const rows=await db().all(`${ITEM_SELECT}${where.length?' WHERE '+where.join(' AND '):''} ORDER BY lower(i.name),i.id LIMIT ? OFFSET ?`,...values,p.limit+1,p.offset);
  return {rows:rows.slice(0,p.limit).map(itemRow),page:p.page,limit:p.limit,hasMore:rows.length>p.limit};
