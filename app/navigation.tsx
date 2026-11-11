@@ -2,7 +2,7 @@
 // Configuração central de módulos e telas. Uma tela só aparece quando existe e quando o
 // servidor a libera em actor.modules; o servidor revalida cada consulta e comando.
 import {useEffect,useState} from 'react';
-import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign,FileSpreadsheet,Settings2,DoorOpen,FileClock,ChartColumn} from 'lucide-react';
+import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign,FileSpreadsheet,Settings2} from 'lucide-react';
 import {Sidebar,SidebarContent,SidebarHeader,SidebarFooter,SidebarGroup,SidebarGroupLabel,SidebarMenu,SidebarMenuItem,SidebarMenuButton,SidebarMenuSub,SidebarMenuSubItem,SidebarMenuSubButton,useSidebar} from '@/components/ui/sidebar';
 import {signOut} from './login';
 import Bathy from './bathy';
@@ -41,11 +41,6 @@ export const MODULES:Module[]=[
   {id:'fin-solicitacoes',label:'Solicitação de recobráveis',icon:FileSpreadsheet,subtitle:'Cotações dos fornecedores por atividade, relatório para o cliente assinar e a OS ligada.'},
   {id:'fin-tarifas',label:'Tarifas',icon:Receipt,subtitle:'Valor por hora e horas por diária de cada equipamento cobrado, com vigência.'},
   {id:'fin-config',label:'Configurações',icon:Settings2,subtitle:'Clientes habilitados para recobráveis, margem e impostos por cliente e fornecedores.'},
- ]},
- {id:'portaria',label:'Portaria',icon:DoorOpen,screens:[
-  {id:'por-registro',label:'Registro do dia',icon:DoorOpen,subtitle:'Entradas e saídas da Base Açu, quem está na base agora e o fechamento do relatório do dia.'},
-  {id:'por-relatorios',label:'Relatórios e revisões',icon:FileClock,subtitle:'Relatórios diários, revisões emitidas, movimentos posteriores, reabertura e impressão.'},
-  {id:'por-painel',label:'Indicadores',icon:ChartColumn,subtitle:'Entradas, saídas, pessoas únicas e presença por período e por empresa.'},
  ]},
  {id:'cadastros',label:'Cadastros gerais',icon:Database,screens:[
   {id:'cad-solicitantes',label:'Solicitantes e clientes',icon:Building2,subtitle:'Organizações solicitantes, etiquetas visuais e pessoas de contato.'},
