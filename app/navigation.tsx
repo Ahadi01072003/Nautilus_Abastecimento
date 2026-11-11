@@ -2,7 +2,7 @@
 // Configuração central de módulos e telas. Uma tela só aparece quando existe e quando o
 // servidor a libera em actor.modules; o servidor revalida cada consulta e comando.
 import {useEffect,useState} from 'react';
-import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign,FileSpreadsheet,Settings2,Hammer,Boxes,ArrowLeftRight,LayoutList} from 'lucide-react';
+import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign,FileSpreadsheet,Settings2,Hammer,Boxes,ArrowLeftRight,LayoutList,Handshake} from 'lucide-react';
 import {Sidebar,SidebarContent,SidebarHeader,SidebarFooter,SidebarGroup,SidebarGroupLabel,SidebarMenu,SidebarMenuItem,SidebarMenuButton,SidebarMenuSub,SidebarMenuSubItem,SidebarMenuSubButton,useSidebar} from '@/components/ui/sidebar';
 import {signOut} from './login';
 import Bathy from './bathy';
@@ -46,7 +46,8 @@ export const MODULES:Module[]=[
   {id:'fer-painel',label:'Painel',icon:LayoutDashboard,subtitle:'Itens abaixo do mínimo, o que se movimentou hoje e atalhos para as ações mais usadas.'},
   {id:'fer-inventario',label:'Inventário',icon:Boxes,subtitle:'Tudo que há no estoque, com saldo, local e histórico de cada item.'},
   {id:'fer-movimentar',label:'Movimentar',icon:ArrowLeftRight,subtitle:'Entradas, saídas e perdas de vários itens de uma vez. O saldo muda só por movimentação.'},
-  {id:'fer-cadastros',label:'Cadastros',icon:LayoutList,subtitle:'Unidades de medida, categorias e locais do estoque.'},
+  {id:'fer-emprestimos',label:'Empréstimos',icon:Handshake,subtitle:'Empréstimos para terceirizadas: termo com assinatura, devolução e o que cada uma tem em mãos.'},
+  {id:'fer-cadastros',label:'Cadastros',icon:LayoutList,subtitle:'Unidades de medida, categorias, locais e terceirizadas.'},
  ]},
  {id:'cadastros',label:'Cadastros gerais',icon:Database,screens:[
   {id:'cad-solicitantes',label:'Solicitantes e clientes',icon:Building2,subtitle:'Organizações solicitantes, etiquetas visuais e pessoas de contato.'},

@@ -15,6 +15,7 @@ import {planningState,planningMutate,planDetail,availability,ordersList,ordersRe
 import {conditionState,conditionMutate} from '@/lib/condition';
 import {financeRates,orderUses,financeMutate,financePanel} from '@/lib/finance';
 import {toolsGet,toolsMutate} from '@/lib/tools';
+import {loansGet,loansMutate,uploadLoanFile,downloadLoanFile} from '@/lib/tools-loans';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
@@ -114,7 +115,8 @@ export async function GET(req:Request){try{
  if(path==='finance/requests'){await rateLimit(member.id,'read');return json(await requestList(member,url));}
  if(path==='finance/request'){await rateLimit(member.id,'read');return json(await requestDetail(member,url.searchParams.get('id')||''));}
  if(path==='finance/attachment'){await rateLimit(member.id,'read');return await downloadAttachment(member,url.searchParams.get('id')||'');}
- if(path.startsWith('tools/')){await rateLimit(member.id,'read');return json(await toolsGet(path,url,member));}
+ if(path==='tools/loan-file'){await rateLimit(member.id,'read');return await downloadLoanFile(member,url.searchParams.get('id')||'');}
+ if(path.startsWith('tools/')){await rateLimit(member.id,'read');return json(await loansGet(path,url,member)??await toolsGet(path,url,member));}
  if(path==='finance/order-uses'){await rateLimit(member.id,'read');return json(await orderUses(member,url.searchParams.get('os')||''));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
@@ -142,8 +144,10 @@ export async function POST(req:Request){try{
  await rateLimit(member.id,'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
  // Anexo do Financeiro: corpo binário (até 4 MB), lido antes e no lugar do JSON.
  if(path==='finance/attachments')return json(await uploadAttachment(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
+ if(path==='tools/loan-file')return json(await uploadLoanFile(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
  // Fluxos e checklists levam várias etapas/perguntas por envio.
- const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'||path==='planning/save'||path==='maint/plan'?262144:undefined);
+ // Empréstimo, assinatura e devolução levam as duas assinaturas feitas na tela (até 400 KB cada).
+ const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'||path==='planning/save'||path==='maint/plan'?262144:path==='tools/loans/issue'||path==='tools/loans/sign'||path==='tools/loans/return'?900000:undefined);
  if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));
  if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
  if(path.startsWith('maint/'))return json(await maintenanceMutate(path,body,member));
@@ -155,7 +159,7 @@ export async function POST(req:Request){try{
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));
  if(path.startsWith('finance/config/')||path==='finance/suppliers'||path.startsWith('finance/requests/')||path==='finance/quotes')return json(await financeRequestsMutate(path,body,member));
  if(path.startsWith('finance/'))return json(await financeMutate(path,body,member));
- if(path.startsWith('tools/'))return json(await toolsMutate(path,body,member));
+ if(path.startsWith('tools/'))return json(await loansMutate(path,body,member)??await toolsMutate(path,body,member));
  const result=await mutate(path,body,member);
  flushLater(req);
  return json(result);

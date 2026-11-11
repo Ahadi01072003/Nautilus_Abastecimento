@@ -9,24 +9,11 @@ import {Tabs,TabsList,TabsTrigger,TabsContent} from '@/components/ui/tabs';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
-import {Choice,Badge,Empty,Field,Toggle,fmt,post,load,type R} from './kit';
+import {Choice,Badge,Empty,Field,Toggle,fmt,load,type R} from './kit';
+import {KIND_NAMES,MOVE_NAMES,REASONS,PRESET_KEY,qtyText,pl,num,useKey,tpost} from './tools-kit';
+import {ContractorsTable,NEW_LOAN_KEY} from './tools-loans';
 import './tools.css';
 
-const KIND_NAMES:Record<string,string>={ferramenta:'Ferramenta',material:'Material'};
-const MOVE_NAMES:Record<string,string>={entrada:'Entrada',saida:'Saída',perda:'Perda',ajuste:'Ajuste',emprestimo:'Empréstimo',devolucao:'Devolução',contagem:'Contagem'};
-const REASONS:Record<string,string[]>={entrada:['Compra','Devolução','Transferência','Outro'],saida:['Consumo','Descarte','Transferência','Outro'],perda:['Extravio','Quebra','Desgaste','Outro'],ajuste:['Contagem','Correção de cadastro','Outro']};
-export const PRESET_KEY='nautilus.tools.kind';
-const qtyText=(n:number)=>n.toLocaleString('pt-BR',{maximumFractionDigits:3});
-const pl=(n:number,one:string,many:string)=>`${n} ${n===1?one:many}`;
-const num=(s:string)=>Number(String(s).trim().replace(/\./g,'').replace(',','.'));
-
-/** Uma chave por tentativa: reenviar o MESMO conteúdo (duplo toque, rede) devolve o mesmo resultado; conteúdo novo ganha chave nova. */
-function useKey(){
- const ref=useRef<{id:string,body:string}|null>(null);
- if(ref.current==null)ref.current={id:crypto.randomUUID(),body:''};
- return {for:(body:unknown)=>{const c=ref.current as {id:string,body:string},t=JSON.stringify(body);if(c.body&&t!==c.body)c.id=crypto.randomUUID();c.body=t;return c.id;},renew:()=>{ref.current={id:crypto.randomUUID(),body:''};}};
-}
-const tpost=(path:string,body:R,k:ReturnType<typeof useKey>)=>post(path,{...body,idempotencyKey:k.for(body)});
 function useRefs(refreshKey?:number){
  const [refs,setRefs]=useState<R|null>(null);
  useEffect(()=>{load<R>('tools/refs').then(setRefs,()=>setRefs(null))},[refreshKey]);
@@ -47,17 +34,18 @@ export function ToolsDashboard({refreshKey,onGo}:{refreshKey?:number,onGo:(v:str
  const go=(kind:string)=>{try{sessionStorage.setItem(PRESET_KEY,kind)}catch{/* segue sem lembrar */}onGo('fer-movimentar')};
  if(error)return <div className="error-panel"><TriangleAlert/><h2>Painel indisponível</h2><p>{error}</p></div>;
  if(!data)return <Skeleton className="h-64 rounded-xl"/>;
- const t=data.totals as R,today=data.today as R,low=data.low as R[],recent=data.recent as R[];
+ const t=data.totals as R,loans=(data.loans||{open:0,late:0,unsigned:0}) as R,today=data.today as R,low=data.low as R[],recent=data.recent as R[];
  return <div className="tl-screen">
   <div className="tl-actions" role="group" aria-label="Ações rápidas">
    <button type="button" onClick={()=>go('saida')}><ArrowUpFromLine/><b>Saída</b><small>Consumo e descarte</small></button>
    <button type="button" onClick={()=>go('entrada')}><ArrowDownToLine/><b>Receber</b><small>Compra e devolução</small></button>
    <button type="button" onClick={()=>go('perda')}><PackageX/><b>Perda</b><small>Extravio e quebra</small></button>
-   <button type="button" disabled title="Chega na próxima fase"><Handshake/><b>Empréstimo</b><small>Em breve</small></button>
+   <button type="button" onClick={()=>{try{sessionStorage.setItem(NEW_LOAN_KEY,'1')}catch{/* segue */}onGo('fer-emprestimos')}}><Handshake/><b>Empréstimo</b><small>Para terceirizada</small></button>
   </div>
   <div className="tl-kpis">
    <div><span>Itens ativos</span><b>{t.items}</b><small>{pl(t.ferramentas,'ferramenta','ferramentas')} · {pl(t.materiais,'material','materiais')}</small></div>
-   <div className={low.length?'warn':''}><span>Abaixo do mínimo</span><b>{low.length}</b><small>precisam de reposição</small></div>
+   <button type="button" className={`tl-kpi-link ${loans.late||loans.unsigned?'warn':''}`} onClick={()=>onGo('fer-emprestimos')}><span>Empréstimos abertos</span><b>{loans.open}</b><small>{pl(loans.late,'atrasado','atrasados')} · {loans.unsigned} sem assinatura há mais de 24 h</small></button>
+  <div className={low.length?'warn':''}><span>Abaixo do mínimo</span><b>{low.length}</b><small>precisam de reposição</small></div>
    <div><span>Movimentos hoje</span><b>{Object.values(today).reduce((s:number,v)=>s+Number(v),0)}</b><small>{pl(today.entrada||0,'entrada','entradas')} · {pl(today.saida||0,'saída','saídas')} · {pl(today.perda||0,'perda','perdas')}</small></div>
   </div>
   <section className="n-panel"><div className="panel-heading"><div><h2>Abaixo do mínimo</h2><p>Itens com saldo igual ou menor que o mínimo cadastrado.</p></div></div>
@@ -237,8 +225,9 @@ export function ToolsRegistry({refreshKey}:{refreshKey?:number}){
  const [tick,setTick]=useState(0),refs=useRefs((refreshKey||0)*1000+tick);
  if(!refs)return <Skeleton className="h-48 rounded-xl"/>;
  const changed=()=>setTick(t=>t+1);
- return <Tabs defaultValue="units"><TabsList className="n-tabs"><TabsTrigger value="units">Unidades</TabsTrigger><TabsTrigger value="categories">Categorias</TabsTrigger><TabsTrigger value="locations">Locais</TabsTrigger></TabsList>
+ return <Tabs defaultValue="units"><TabsList className="n-tabs"><TabsTrigger value="units">Unidades</TabsTrigger><TabsTrigger value="categories">Categorias</TabsTrigger><TabsTrigger value="locations">Locais</TabsTrigger><TabsTrigger value="contractors">Terceirizadas</TabsTrigger></TabsList>
   <TabsContent value="units"><NamedTable title="Unidades de medida" hint="Como cada item é contado: un, caixa, kg, metro…" path="tools/units/save" rows={refs.units} fields="unit" onChanged={changed}/></TabsContent>
   <TabsContent value="categories"><NamedTable title="Categorias" hint="Agrupam os itens no inventário (ex.: Elétrica, Solda, EPI)." path="tools/categories/save" rows={refs.categories} fields="name" onChanged={changed}/></TabsContent>
-  <TabsContent value="locations"><NamedTable title="Locais" hint="Onde o item fica guardado (ex.: Prateleira 1, Container A)." path="tools/locations/save" rows={refs.locations} fields="name" onChanged={changed}/></TabsContent></Tabs>;
+  <TabsContent value="locations"><NamedTable title="Locais" hint="Onde o item fica guardado (ex.: Prateleira 1, Container A)." path="tools/locations/save" rows={refs.locations} fields="name" onChanged={changed}/></TabsContent>
+  <TabsContent value="contractors"><ContractorsTable/></TabsContent></Tabs>;
 }

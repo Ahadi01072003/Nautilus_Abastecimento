@@ -6,10 +6,10 @@ import {AppError,required,text,milli} from './domain';
 import {type Member,isManager,requireAny} from './permissions';
 import {audit} from './registry';
 
-type Actor=Member&{capabilities:string[],org_scope:string[]};
+export type Actor=Member&{capabilities:string[],org_scope:string[]};
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
-const tools=async(m:Member)=>await requireAny(m,['ferramentaria']) as Actor;
+export const tools=async(m:Member)=>await requireAny(m,['ferramentaria']) as Actor;
 export const MOVE_KINDS=['entrada','saida','perda','ajuste'] as const;
 type MoveKind=typeof MOVE_KINDS[number];
 const MOVE_LABEL:Record<MoveKind,string>={entrada:'Entrada',saida:'Saída',perda:'Perda',ajuste:'Ajuste'};
@@ -19,7 +19,7 @@ const like=(q:string)=>'%'+q.replace(/[\\%_]/g,'\\$&')+'%';
 const flag=(v:unknown)=>v===false||v===0||v==='0'?0:1;
 
 /** Traduz as travas do banco para mensagens da tela. */
-function dbError(e:unknown):never{
+export function dbError(e:unknown):never{
  const m=(e as {message?:string}).message||'';
  if(/Saldo insuficiente/.test(m))throw new AppError('Saldo insuficiente para esta movimentação. Atualize a tela.',409,'INSUFFICIENT_BALANCE');
  if(/Item inativo/.test(m))throw new AppError('Este item está inativo.',409,'ITEM_INACTIVE');
@@ -56,13 +56,18 @@ export async function toolsDashboard(member:Member){
  await tools(member);
  const dayStart=new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo'}).format(Date.now());
  const since=new Date(`${dayStart}T00:00:00-03:00`).toISOString();
- const [totals,low,today,recent]=await Promise.all([
+ const [totals,low,today,recent,loans]=await Promise.all([
   db().first("SELECT count(*)::int total,count(*) FILTER (WHERE kind='ferramenta')::int ferramentas,count(*) FILTER (WHERE kind='material')::int materiais FROM tool_items WHERE active=1"),
   db().all(`${ITEM_SELECT} WHERE i.active=1 AND i.min_milli>0 AND i.balance_milli<=i.min_milli ORDER BY (i.balance_milli::float/i.min_milli),lower(i.name) LIMIT 20`),
   db().all('SELECT kind,count(*)::int n FROM tool_movements WHERE occurred_at>=? GROUP BY kind',since),
-  db().all(`${MOVE_SELECT} ORDER BY m.occurred_at DESC,m.id DESC LIMIT 10`)]);
+  db().all(`${MOVE_SELECT} ORDER BY m.occurred_at DESC,m.id DESC LIMIT 10`),
+  db().first(`SELECT count(*)::int open,
+    count(*) FILTER (WHERE l.expected_return<?)::int late,
+    count(*) FILTER (WHERE l.signed_at IS NULL AND NOT EXISTS (SELECT 1 FROM tool_loan_files f WHERE f.loan_id=l.id AND f.return_id IS NULL) AND l.issued_at<?)::int unsigned
+    FROM tool_loans l WHERE l.status IN ('emitido','parcial')`,dayStart,new Date(Date.now()-24*3600_000).toISOString())]);
  return {totals:{items:Number(totals!.total),ferramentas:Number(totals!.ferramentas),materiais:Number(totals!.materiais)},low:low.map(itemRow),
-  today:Object.fromEntries((today as Row[]).map(r=>[r.kind,Number(r.n)])),recent:recent.map(moveRow),generatedAt:now()};
+  today:Object.fromEntries((today as Row[]).map(r=>[r.kind,Number(r.n)])),recent:recent.map(moveRow),
+  loans:{open:Number(loans!.open),late:Number(loans!.late),unsigned:Number(loans!.unsigned)},generatedAt:now()};
 }
 
 /** Inventário: busca e filtros, paginado. */
@@ -108,7 +113,7 @@ export async function toolsMovements(member:Member,url:URL){
  return {rows:rows.slice(0,p.limit).map(moveRow),page:p.page,limit:p.limit,hasMore:rows.length>p.limit};
 }
 
-const key=(value:unknown)=>{const k=String(value??'');if(k.length<8||k.length>100)throw new AppError('Envio sem identificador. Atualize a tela e tente de novo.',400,'IDEMPOTENCY_KEY_REQUIRED');return k;};
+export const key=(value:unknown)=>{const k=String(value??'');if(k.length<8||k.length>100)throw new AppError('Envio sem identificador. Atualize a tela e tente de novo.',400,'IDEMPOTENCY_KEY_REQUIRED');return k;};
 
 /** Cadastro simples de nome (categoria e local). */
 async function saveNamed(table:'tool_categories'|'tool_locations',a:Actor,b:Row,label:string){

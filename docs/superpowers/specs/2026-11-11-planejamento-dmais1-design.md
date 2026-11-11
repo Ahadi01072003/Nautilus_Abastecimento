@@ -15,7 +15,7 @@ O planejador, no fim de cada dia, empilha as atividades do dia seguinte (D+1), a
 - Existe uma visão da manhã (**Designação do dia**) para escolher quem faz cada atividade.
 - Equipamento: bloqueia acima de **12 h/dia** (não estica).
 - A operação **para às 20h** (não há turno noturno).
-- **A equipe de cada barra e os planejadores de cada barra são configurados pela Gestão no próprio sistema** (sem planilha). Os planejadores planejam **a qualquer momento**: não há regra fixa de quem fecha a segunda-feira. **Equipe da barra OCP:** Phillip, Yan, Italo e Jefferson. **Equipe da barra Equinor:** todos os demais (os 25 da planilha). **Planejadores:** Thiago Almeida e Jefferson (cada um planeja só a sua barra; Jefferson é da equipe OCP; a barra do Thiago a Gestão confirma na configuração).
+- **A equipe de cada barra e os planejadores de cada barra são configurados pela Gestão no próprio sistema** (sem planilha). Os planejadores planejam **a qualquer momento**: não há regra fixa de quem fecha a segunda-feira. **Equipe da barra OCP:** Phillip, Yan, Italo e Jefferson. **Equipe da barra Equinor:** todos os demais (os 25 da planilha). **Planejadores:** OCP: Thiago Almeida e Jefferson; Equinor: Jorge, Ivo, Wilhan e Kíssila. **No cadastro do usuário com perfil Planejador, a Gestão escolhe a barra que ele planeja: OCP, Equinor ou as duas.**
 - Feriados ficam fora do escopo. **Wilhan** é Líder de Operações no cadastro (sem "função atuante").
 
 ## 3. Calendário e capacidade
