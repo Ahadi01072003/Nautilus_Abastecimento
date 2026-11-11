@@ -32,9 +32,10 @@ import RecoveryRequests from './finance-requests';
 import FinanceConfig from './finance-config';
 import {PreventivePanel,MaintenanceCriteria,Correctives,Readings} from './maintenance';
 import Central from './central';
+import {ToolsDashboard,ToolsInventory,ToolsMove,ToolsRegistry} from './tools';
 type State={actor:R;fuels:R[];equipment:R[];operators:R[];supplies:R[];movements:R[];requests:R[];members:R[];holidays:R[];audits:R[];stats:R[];daily:R[];appointments:R[];executors:R[];notifications:R[];pagination:{page:number;limit:number;appointments:number;supplies:number};emailReady:boolean;emailSetup?:EmailSetup;access?:{defaultPassword:string|null;temporaryPasswordDays:number};generatedAt:string};
 type Identity={name:string,username:string};
-const roles:Record<string,string>={fueler:'Abastecedor',planner:'Planejador',operator:'Operador',maintainer:'Mantenedor',manager:'Gestão'};
+const roles:Record<string,string>={fueler:'Abastecedor',planner:'Planejador',operator:'Operador',maintainer:'Mantenedor',almoxarife:'Almoxarife',manager:'Gestão'};
 const number=(n:number)=>new Intl.NumberFormat('pt-BR',{maximumFractionDigits:3}).format(n);
 const localNow=(precise=false)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',...(precise?{second:'2-digit',fractionalSecondDigits:3} as const:{}),hourCycle:'h23'}).format(new Date()).replace(' ','T').replace(',','.');
 const statusNames:Record<string,string>={open:'Aberta',purchasing:'Em compra',partial:'Recebida parcialmente',received:'Recebida',cancelled:'Cancelada',confirmed:'Confirmado'};
@@ -115,6 +116,10 @@ export default function Workspace({identity}:{identity:Identity}){
  {view==='fin-solicitacoes'&&<RecoveryRequests refreshKey={registryTick} canPlan={data.actor.modules.includes('plan-atividade')} canCreateResource={data.actor.modules.includes('plan-atividade')} onOpenPlan={id=>{openPlan(id);navigate('plan-atividade')}} onOpenOrder={data.actor.modules.includes('op-os')?openOrder:undefined}/>}
  {view==='fin-config'&&<FinanceConfig refreshKey={registryTick}/>}
  {view==='fin-painel'&&<RecoverablePanel refreshKey={registryTick} onOpenOrder={data.actor.modules.includes('op-os')?openOrder:undefined}/>}
+ {view==='fer-painel'&&<ToolsDashboard refreshKey={registryTick} onGo={navigate}/>}
+ {view==='fer-inventario'&&<ToolsInventory refreshKey={registryTick}/>}
+ {view==='fer-movimentar'&&<ToolsMove refreshKey={registryTick} manager={manage}/>}
+ {view==='fer-cadastros'&&<ToolsRegistry refreshKey={registryTick}/>}
  {view==='exportacao'&&<ExportCenter manager={manage} operation={data.actor.modules.includes('op-os')} finance={data.actor.modules.includes('fin-painel')} fuels={data.fuels}/>}
  </ModuleBoundary>}
  {data&&['solicitacoes','abastecimentos'].includes(view)&&<div className="pagination-bar"><span>Página {page+1} · {view==='solicitacoes'?data.pagination.appointments:data.pagination.supplies} registros acessíveis</span><Button variant="outline" disabled={page===0} onClick={()=>setPage(p=>p-1)}>Anterior</Button><Button variant="outline" disabled={(page+1)*data.pagination.limit>=(view==='solicitacoes'?data.pagination.appointments:data.pagination.supplies)} onClick={()=>setPage(p=>p+1)}>Próxima</Button></div>}<div className="privacy-note"><ShieldCheck size={14}/><span>Seu usuário identifica cada lançamento que você faz. A senha é pessoal: não a compartilhe. Solicite ao gestor correções no seu cadastro.</span></div><footer className="main-footer"><span><Compass size={14}/> NAUTILUS</span><p>Precisão. Profundidade. Clareza.</p><small>Horário de Brasília</small></footer></main></SidebarInset><Toaster position="bottom-right" richColors/>

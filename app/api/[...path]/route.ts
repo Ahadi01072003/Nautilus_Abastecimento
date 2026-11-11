@@ -14,6 +14,7 @@ import {maintenancePanel,maintenanceCriteria,maintenanceRecord,maintenanceRecord
 import {planningState,planningMutate,planDetail,availability,ordersList,ordersRefs,ordersSteps,ordersResources} from '@/lib/planning';
 import {conditionState,conditionMutate} from '@/lib/condition';
 import {financeRates,orderUses,financeMutate,financePanel} from '@/lib/finance';
+import {toolsGet,toolsMutate} from '@/lib/tools';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
@@ -113,6 +114,7 @@ export async function GET(req:Request){try{
  if(path==='finance/requests'){await rateLimit(member.id,'read');return json(await requestList(member,url));}
  if(path==='finance/request'){await rateLimit(member.id,'read');return json(await requestDetail(member,url.searchParams.get('id')||''));}
  if(path==='finance/attachment'){await rateLimit(member.id,'read');return await downloadAttachment(member,url.searchParams.get('id')||'');}
+ if(path.startsWith('tools/')){await rateLimit(member.id,'read');return json(await toolsGet(path,url,member));}
  if(path==='finance/order-uses'){await rateLimit(member.id,'read');return json(await orderUses(member,url.searchParams.get('os')||''));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
@@ -153,6 +155,7 @@ export async function POST(req:Request){try{
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));
  if(path.startsWith('finance/config/')||path==='finance/suppliers'||path.startsWith('finance/requests/')||path==='finance/quotes')return json(await financeRequestsMutate(path,body,member));
  if(path.startsWith('finance/'))return json(await financeMutate(path,body,member));
+ if(path.startsWith('tools/'))return json(await toolsMutate(path,body,member));
  const result=await mutate(path,body,member);
  flushLater(req);
  return json(result);

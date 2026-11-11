@@ -20,6 +20,7 @@ Sistema web da Base Açu. Módulos (menu lateral expansível):
   - **Leituras**: horímetro e odômetro. As leituras de horímetro dos abastecimentos entram sozinhas. Uma leitura nunca volta, e o horímetro não avança mais do que o tempo corrido.
 - **Financeiro** (acesso adicional "Financeiro"; a Gestão sempre tem): **recobráveis por equipamento**. Tarifas por equipamento e cliente, com vigência (valor por hora e horas por diária). A Operação registra o início e o fim de uso do equipamento na OS, inclusive de forma retroativa. A diária é por equipamento e cliente, numa janela de horas corridas que vale para todas as OS do cliente. Há fim automático ao finalizar a última etapa ou cancelar a OS, usos "a conferir", **Painel de recobráveis** (previsto pelas reservas × realizado pelos usos) e exportação de diárias e usos. Detalhes em `docs/FINANCEIRO-RECOBRAVEIS.md`.
 - **Financeiro › Solicitação de recobráveis** (por atividade): cotações dos fornecedores com o valor a faturar (margem e impostos por cliente, com vigência), relatório versionado para o cliente assinar, autorização com o relatório assinado anexado e ligação com a OS (planejar ou vincular). **Configurações** do Financeiro: clientes habilitados, margem e impostos, fornecedores. Detalhes em `docs/FINANCEIRO-RECOBRAVEIS.md`.
+- **Ferramentaria e Inventário** (perfil Almoxarife ou acesso "Ferramentaria"; a Gestão sempre tem): itens do tipo Ferramenta e Material controlados por quantidade, com unidade de medida configurável, saldo que só muda por movimentação (livro que não se apaga), entradas, saídas e perdas em carrinho, painel de itens abaixo do mínimo e extrato por item. Pensado para celular e tablet. Fase A entregue; empréstimo para terceirizada com assinatura e PDF vem na fase B. Especificação em `docs/superpowers/specs/2026-11-11-ferramentaria-design.md`.
 - **Cadastros gerais**: solicitantes e clientes, locais, tipos e equipamentos, colaboradores e funções (com usuários e senhas), checklists versionados e categorias de ocorrências, impactos e bloqueios.
 - **Exportação**, fora dos módulos: Excel (.xlsx, uma aba por conjunto) ou CSV (.zip quando há vários conjuntos), com prévia das contagens. Conjuntos de Operação (OS, etapas, períodos, apontamentos, checklists) para quem consulta OS, no seu escopo de organizações; conjuntos de Abastecimento só para o gestor.
 
@@ -54,6 +55,7 @@ Proteções: senhas com PBKDF2-SHA256 (310 mil iterações, sal individual); ses
 | Solicitante | Solicitar abastecimento e acompanhar/cancelar os próprios pedidos (enquanto não agendados) |
 | Planejador | Agendar, reagendar e cancelar solicitações |
 | Abastecedor | Ver a agenda compartilhada, registrar o consumo de agendamentos e ver os próprios registros |
+| Almoxarife | Módulo Ferramentaria: itens, inventário, entradas, saídas, perdas e (fase B) empréstimos; não vê os demais módulos |
 | Gestor | Tudo: estoque, reposições, cadastros, usuários e senhas, parâmetros, auditoria e exportação |
 
 Além do perfil, o gestor pode dar **acessos adicionais** acumuláveis:
@@ -62,6 +64,7 @@ Além do perfil, o gestor pode dar **acessos adicionais** acumuláveis:
 - *Operação*: executa as etapas das OS.
 - *Acompanhamento de OS*.
 - *Manutenção*: módulo de manutenção (critérios, preventivas, corretivas, leituras) e liberação técnica.
+- *Ferramentaria*: inventário e movimentos de estoque (almoxarife e Gestão).
 
 Clientes usam o perfil *Sem acesso ao abastecimento* com *Organizações visíveis* marcadas: eles veem só as OS da sua organização.
 
