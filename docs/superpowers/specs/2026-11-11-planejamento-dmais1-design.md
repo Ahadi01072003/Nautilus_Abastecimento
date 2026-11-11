@@ -15,7 +15,7 @@ O planejador, no fim de cada dia, empilha as atividades do dia seguinte (D+1), a
 - Existe uma visão da manhã (**Designação do dia**) para escolher quem faz cada atividade.
 - Equipamento: bloqueia acima de **12 h/dia** (não estica).
 - A operação **para às 20h** (não há turno noturno).
-- **A equipe de cada barra e os planejadores de cada barra são configurados pela Gestão no próprio sistema** (sem planilha). Os planejadores planejam **a qualquer momento**: não há regra fixa de quem fecha a segunda-feira. **Equipe da barra OCP:** Phillip, Yan, Italo e Jefferson, todos **ADM da OCP de segunda a sexta (sem sábado)**. **Equipe da barra Equinor:** todos os demais (os 25 da planilha). **Planejadores:** OCP: Thiago Almeida e Jefferson; Equinor: Jorge, Ivo, Wilhan e Kíssila. **No cadastro do usuário com perfil Planejador, a Gestão escolhe a barra que ele planeja: OCP, Equinor ou as duas.**
+- **A equipe de cada barra e os planejadores de cada barra são configurados pela Gestão no próprio sistema** (sem planilha). Os planejadores planejam **a qualquer momento**: não há regra fixa de quem fecha a segunda-feira. **Equipe da barra OCP:** Phillip (Artífice), Yan (Assistente de Eletromecânica), Italo (Técnico em Elétrica) e Jefferson (Analista de PCM), todos **ADM da OCP de segunda a sexta (sem sábado)**. **Jefferson não entra no HH** (planeja). Capacidade OCP: 3 pessoas × 9 h = **27 HH por dia útil** (9 HH por função), **0 no fim de semana**. **Equipe da barra Equinor:** todos os demais (os 25 da planilha). **Planejadores:** OCP: Thiago Almeida e Jefferson; Equinor: Jorge, Ivo, Wilhan e Kíssila. **No cadastro do usuário com perfil Planejador, a Gestão escolhe a barra que ele planeja: OCP, Equinor ou as duas.**
 - Feriados ficam fora do escopo. **Wilhan** é Líder de Operações no cadastro (sem "função atuante").
 
 ## 3. Calendário e capacidade
@@ -62,7 +62,7 @@ O planejador, no fim de cada dia, empilha as atividades do dia seguinte (D+1), a
 - **P5:** fechamento do dia, rolagem, indicadores (ocupação, rolagem, aderência, motivos).
 
 ## 9. Dados que faltam (bloqueiam a P1)
-Nenhum bloqueio de dados: a Gestão configura no sistema a **barra de cada colaborador** (OCP ou Equinor) e os **planejadores de cada barra**. Faltam: (1) **funções das 4 pessoas da OCP** e se o Jefferson (que também planeja) entra no HH; a jornada considerada é a do ADM, 08–17 de segunda a sexta; (2) como registrar falta e férias (o líder na chamada ou a Gestão).
+Nenhum bloqueio de dados: a Gestão configura no sistema a **barra de cada colaborador** (OCP ou Equinor) e os **planejadores de cada barra**. Falta só: como registrar falta e férias (o líder na chamada ou a Gestão).
 
 ## 10. Limites
 Não substitui ponto ou folha; não decide jornada nem direito trabalhista; não move atividade publicada sem confirmação; esticar acima do teto não é possível; se o HH por atividade ou a marcação por barra estiverem errados, as barras mentem.
