@@ -33,6 +33,7 @@ import FinanceConfig from './finance-config';
 import {PreventivePanel,MaintenanceCriteria,Correctives,Readings} from './maintenance';
 import Central from './central';
 import {ToolsDashboard,ToolsInventory,ToolsMove,ToolsRegistry} from './tools';
+import {ToolsLoans} from './tools-loans';
 type State={actor:R;fuels:R[];equipment:R[];operators:R[];supplies:R[];movements:R[];requests:R[];members:R[];holidays:R[];audits:R[];stats:R[];daily:R[];appointments:R[];executors:R[];notifications:R[];pagination:{page:number;limit:number;appointments:number;supplies:number};emailReady:boolean;emailSetup?:EmailSetup;access?:{defaultPassword:string|null;temporaryPasswordDays:number};generatedAt:string};
 type Identity={name:string,username:string};
 const roles:Record<string,string>={fueler:'Abastecedor',planner:'Planejador',operator:'Operador',maintainer:'Mantenedor',almoxarife:'Almoxarife',manager:'Gestão'};
@@ -119,6 +120,7 @@ export default function Workspace({identity}:{identity:Identity}){
  {view==='fer-painel'&&<ToolsDashboard refreshKey={registryTick} onGo={navigate}/>}
  {view==='fer-inventario'&&<ToolsInventory refreshKey={registryTick}/>}
  {view==='fer-movimentar'&&<ToolsMove refreshKey={registryTick} manager={manage}/>}
+ {view==='fer-emprestimos'&&<ToolsLoans refreshKey={registryTick} userName={data.actor.name}/>}
  {view==='fer-cadastros'&&<ToolsRegistry refreshKey={registryTick}/>}
  {view==='exportacao'&&<ExportCenter manager={manage} operation={data.actor.modules.includes('op-os')} finance={data.actor.modules.includes('fin-painel')} fuels={data.fuels}/>}
  </ModuleBoundary>}
