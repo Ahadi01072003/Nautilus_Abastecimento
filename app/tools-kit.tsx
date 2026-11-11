@@ -50,20 +50,20 @@ export function Combo({value,onText,options,onPick,label,placeholder,note,onEnte
 }
 
 /** Escolha de item do estoque em lista suspensa. Com "available", só itens ativos com saldo (empréstimo, saída). */
-export function ItemPicker({onPick,available,exclude=[],refreshKey,inputRef,autoFocus}:{onPick:(item:R)=>void,available?:boolean,exclude?:string[],refreshKey?:unknown,inputRef?:RefObject<HTMLInputElement|null>,autoFocus?:boolean}){
+export function ItemPicker({onPick,available,all,exclude=[],refreshKey,inputRef,autoFocus,label='Adicionar item'}:{onPick:(item:R)=>void,available?:boolean,all?:boolean,exclude?:string[],refreshKey?:unknown,inputRef?:RefObject<HTMLInputElement|null>,autoFocus?:boolean,label?:string}){
  const [q,setQ]=useState(''),[rows,setRows]=useState<R[]|null>(null),[more,setMore]=useState(false);
  useEffect(()=>{
-  let stale=false;const p=new URLSearchParams({status:available?'available':'active'});if(q.trim())p.set('q',q.trim());
+  let stale=false;const p=new URLSearchParams({status:available?'available':all?'all':'active'});if(q.trim())p.set('q',q.trim());
   const t=setTimeout(()=>{load<R>('tools/items?'+p).then(d=>{if(!stale){setRows(d.rows as R[]);setMore(!!d.hasMore);}},()=>{if(!stale)setRows([]);})},q.trim()?220:0);
   return()=>{stale=true;clearTimeout(t);};
- },[q,available,refreshKey]);
+ },[q,available,all,refreshKey]);
  const list=(rows||[]).filter(i=>!exclude.includes(i.id));
- const options=list.map(i=>({id:i.id as string,label:i.name as string,sub:`${KIND_NAMES[i.kind]} · ${available?'disponível':'saldo'} ${qtyText(i.balance)} ${i.unitAbbr}${i.locationName?` · ${i.locationName}`:''}${i.code?` · ${i.code}`:''}`}));
+ const options=list.map(i=>({id:i.id as string,label:i.name as string,sub:`${KIND_NAMES[i.kind]} · ${available?'disponível':'saldo'} ${qtyText(i.balance)} ${i.unitAbbr}${i.locationName?` · ${i.locationName}`:''}${i.code?` · ${i.code}`:''}${i.active?'':' · inativo'}`}));
  const choose=(id:string)=>{const it=list.find(i=>i.id===id);if(it){onPick(it);setQ('');}};
  const onEnter=()=>{const t=q.trim().toLowerCase(),exact=list.find(i=>i.code&&String(i.code).toLowerCase()===t);if(exact)choose(exact.id);else if(list.length===1)choose(list[0].id);};
  const note=rows===null?'Carregando…':!list.length?(q.trim()?`Nenhum item para “${q.trim()}”.`:available?'Nenhum item com saldo.':'Nenhum item cadastrado.'):more?'Mostrando os primeiros. Digite para filtrar.':undefined;
  return <Combo search value={q} onText={setQ} options={options} onPick={o=>choose(o.id)} onEnter={onEnter} note={note} inputRef={inputRef} autoFocus={autoFocus}
-  label="Adicionar item" placeholder="Toque para escolher ou digite"/>;
+  label={label} placeholder="Toque para escolher ou digite"/>;
 }
 
 /** Nome de quem assina pelo solicitante: lista dos responsáveis cadastrados; nome novo também vale. */

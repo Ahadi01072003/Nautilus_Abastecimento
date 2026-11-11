@@ -57,3 +57,4 @@ Sem preço, sem lote, sem foto, sem número de série, sem offline, sem geraçã
 - A devolução registra **quem devolveu** (opcional ao registrar, obrigatório para assinar na tela).
 - **Devolução prevista é opcional.** Sem data, o empréstimo nunca aparece como atrasado e o termo não cita prazo.
 - Escolha de itens (empréstimo e Movimentar) em **lista suspensa**: abre ao tocar, filtra ao digitar, lê código de barras.
+- **Inventário só para consulta:** tocar no item (ferramenta ou material) abre saldo, cadastro e o histórico completo de movimentações, filtrável por tipo, com quem registrou e, nos empréstimos, o código, o solicitante e quem retirou ou devolveu. Movimentar, criar e editar item ficam só em **Movimentar** (botões "Novo item" e "Editar item"), para não haver dois lugares fazendo a mesma coisa.
