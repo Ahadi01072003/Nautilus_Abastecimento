@@ -1,0 +1,26 @@
+/* Planejamento › Capacidade. Azul-marinho e vermelho identificam a barra (OCP e Equinor). */
+.cap-screen{display:grid;gap:16px;--bar:#B3261E}.cap-screen.bar-ocp{--bar:#14254A}
+.cap-head{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px 18px}
+.cap-bars button{display:inline-flex;align-items:center;gap:8px}
+.cap-dot{width:10px;height:10px;border-radius:50%;display:inline-block}.cap-dot.ocp{background:#14254A}.cap-dot.equinor{background:#B3261E}
+.cap-period{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.cap-period input[type=date]{width:160px}
+.cap-zones{display:flex;gap:6px;flex-wrap:wrap}
+.cap-table th,.cap-table td{white-space:nowrap}
+.cap-table th.we,.cap-table td.we{background:color-mix(in srgb,var(--bar) 5%,transparent)}
+.cap-table th.today .cap-day b{color:var(--bar)}
+.cap-day{background:none;border:0;padding:2px 4px;border-radius:6px;cursor:pointer;display:grid;justify-items:end;color:inherit}
+.cap-day small{font-size:.7rem;color:var(--ink-2)}
+.cap-day[aria-pressed=true]{background:color-mix(in srgb,var(--bar) 14%,transparent)}
+.cap-total td{border-top:2px solid var(--bar)}
+.cap-abs{color:#9A6700}
+.cap-legend{padding:8px 22px 16px;margin:0}
+.cap-detail{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:0 22px 18px}
+.cap-detail ul{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px}.cap-detail li{display:grid}.cap-detail small{color:var(--ink-2)}
+.cap-config{display:grid;gap:8px;padding:0 22px 18px;margin:0}.cap-config dt{font:600 11px/1.2 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}.cap-config dd{margin:2px 0 0}
+.cap-form{padding:0 22px 18px;display:grid;gap:12px}
+.cap-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}.cap-week label{display:grid;gap:4px;font-size:.8rem;color:var(--ink-2)}
+.cap-actions{justify-content:flex-end}
+.cap-absences ul{list-style:none;margin:4px 0;padding:0;display:grid;gap:4px}.cap-absences li{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:.88rem}
+.cap-abs-add{display:grid;grid-template-columns:150px 150px 150px minmax(0,1fr) auto;gap:6px;margin-top:6px}
+.plan-team-head small{color:var(--ink-2)}
+@media (max-width:760px){.cap-detail{grid-template-columns:minmax(0,1fr)}.cap-week{grid-template-columns:repeat(4,minmax(0,1fr))}.cap-abs-add{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}

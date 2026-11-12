@@ -200,18 +200,21 @@ export async function mutate(path:string,b:Row,a:Member){
   if(b.orgScope!=null&&(!Array.isArray(b.orgScope)||b.orgScope.length>100||b.orgScope.some((o:unknown)=>typeof o!=='string')))throw new AppError('Escopo de organizações inválido.');
   const scope=profile==='manager'?[]:[...new Set<string>(b.orgScope||[])];
   if(scope.length){const known=await all('SELECT id FROM requester_orgs WHERE id = ANY(?::text[])',scope);if(known.length!==scope.length)throw new AppError('Escopo de organizações inválido.');}
+  // Barras que o planejador planeja (OCP, Equinor ou as duas). Vazio = sem restrição.
+  if(b.planningBars!=null&&(!Array.isArray(b.planningBars)||b.planningBars.some((x:unknown)=>x!=='ocp'&&x!=='equinor')))throw new AppError('Barras do planejador inválidas: OCP e/ou Equinor.');
+  const planningBars=profile==='manager'?[]:b.planningBars!=null?[...new Set<string>(b.planningBars)].sort():(existing?.planning_bars||[]);
   const notifyRequests=profile==='planner'?Number(b.notifyRequests!==false):1,notifySchedule=profile==='fueler'?Number(b.notifySchedule!==false):1,active=flag(b.active);
   if(!existing){
    const temporary=b.temporaryPassword?checkTemporaryPassword(b.temporaryPassword):defaultPassword();
    const hash=await hashPassword(temporary),mid=id();
    await db().tx(async tx=>{
-    await tx.run('INSERT INTO members(id,username,email,name,profile,capabilities,org_scope,notify_requests,notify_schedule,active,created_at,password_hash,must_change_password,password_changed_at) VALUES(?,?,?,?,?,?::text[],?::text[],?,?,?,?,?,1,?)',mid,username,addr,name,profile,caps,scope,notifyRequests,notifySchedule,active,t,hash,t);
+    await tx.run('INSERT INTO members(id,username,email,name,profile,capabilities,org_scope,notify_requests,notify_schedule,active,created_at,password_hash,must_change_password,password_changed_at,planning_bars) VALUES(?,?,?,?,?,?::text[],?::text[],?,?,?,?,?,1,?,?::text[])',mid,username,addr,name,profile,caps,scope,notifyRequests,notifySchedule,active,t,hash,t,planningBars);
     await audit(tx,a,'Acesso criado',mid,{username,profile,capabilities:caps,active:!!active,customTemporaryPassword:!!b.temporaryPassword});
    });
    return {id:mid,username,message:`Usuário ${username} criado. No primeiro acesso a pessoa usa a senha ${b.temporaryPassword?'provisória informada':'padrão'} e define a senha definitiva.`};
   }
   await db().tx(async tx=>{
-   await tx.run('UPDATE members SET username=?,email=?,name=?,profile=?,capabilities=?::text[],org_scope=?::text[],notify_requests=?,notify_schedule=?,active=? WHERE id=?',username,addr,name,profile,caps,scope,notifyRequests,notifySchedule,active,existing.id);
+   await tx.run('UPDATE members SET username=?,email=?,name=?,profile=?,capabilities=?::text[],org_scope=?::text[],notify_requests=?,notify_schedule=?,active=?,planning_bars=?::text[] WHERE id=?',username,addr,name,profile,caps,scope,notifyRequests,notifySchedule,active,planningBars,existing.id);
    if(!active||existing.profile!==profile)await tx.run('DELETE FROM sessions WHERE member_id=?',existing.id);
    await audit(tx,a,'Acesso atualizado',existing.id,{before:{username:existing.username,email:existing.email,profile:existing.profile,capabilities:existing.capabilities,orgScope:existing.org_scope,active:existing.active},after:{username,email:addr,profile,capabilities:caps,orgScope:scope,active,notifyRequests,notifySchedule}});
   });

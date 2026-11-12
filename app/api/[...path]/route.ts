@@ -16,6 +16,7 @@ import {conditionState,conditionMutate} from '@/lib/condition';
 import {financeRates,orderUses,financeMutate,financePanel} from '@/lib/finance';
 import {toolsGet,toolsMutate} from '@/lib/tools';
 import {loansGet,loansMutate,uploadLoanFile,downloadLoanFile} from '@/lib/tools-loans';
+import {capacityGet,capacityMutate} from '@/lib/capacity';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
@@ -98,6 +99,7 @@ export async function GET(req:Request){try{
  if(path==='planning/availability'){await rateLimit(member.id,'read');return json(await availability(member,url));}
  if(path==='planning/validate'){await rateLimit(member.id,'read');return json(await validateRealized(member,url.searchParams.get('id')||''));}
  if(path==='planning/recoverable'){await rateLimit(member.id,'read');return json(await recoverableEquipment(member,url));}
+ if(path==='planning/capacity'||path==='planning/bars'||path==='planning/absences'){await rateLimit(member.id,'read');return json(await capacityGet(path,url,member));}
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}
  if(path==='orders/steps'){await rateLimit(member.id,'read');return json(await ordersSteps(member,url));}
  if(path==='orders/refs'){await rateLimit(member.id,'read');return json(await ordersRefs(member));}
@@ -153,6 +155,7 @@ export async function POST(req:Request){try{
  if(path.startsWith('maint/'))return json(await maintenanceMutate(path,body,member));
  if(path==='planning/realize')return json(await realizeActivity(body,member));
  if(path.startsWith('planning/revision/'))return json(await revisionMutate(path,body,member));
+ if(path==='planning/bars/save')return json(await capacityMutate(path,body,member));
  if(path==='planning/cancel')return json(await cancelOrder(body,member));
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
  if(path.startsWith('ops/'))return json(await operationMutate(path,body,member));

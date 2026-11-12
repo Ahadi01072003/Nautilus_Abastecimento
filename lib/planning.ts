@@ -717,6 +717,10 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
  const description=text(b.description,2000);
  const org=await activeOr('requester_orgs',b.orgId,'Organização',plan.org_id);
  if(org&&!inScope(a,org.id))throw new AppError('Organização fora do seu acesso.',403);
+ // Planejador por barra (P1): quem planeja só a OCP (ou só a Equinor) lança OS só da sua barra.
+ const myBars=((a as Actor&{planning_bars?:string[]}).planning_bars)||[],barName=(x:string)=>x==='ocp'?'OCP':'Equinor';
+ if(org&&plan.mode!=='realizada'&&!isManager(a)&&myBars.length&&!myBars.includes(org.bar))
+  throw new AppError(`Você planeja a barra ${myBars.map(barName).join(' e ')}: ${org.name} é da barra ${barName(org.bar)}.`,403);
  const revision=await revisionContext(plan);
  if(plan.work_order_id&&(org?.id||null)!==plan.org_id)throw new AppError('A organização solicitante da OS não muda na revisão.');
  // Rascunho de uma solicitação de recobrável autorizada: o cliente é o que autorizou a cotação.

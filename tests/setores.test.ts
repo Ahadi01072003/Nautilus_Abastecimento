@@ -254,7 +254,7 @@ test('perfis: módulo principal + acessos adicionais; cancelar OS só Planejador
  await rejects(cancelOrder({workOrderId:a.wo,reason:'Teste'},fueler),403,/Planejador ou Gestão/);
  // Planejador sem acessos adicionais: só o Planejamento (sem Abastecimento nem Operação).
  const pl=await set(await addMember(db,'planner'),[],'planner');
- assert.deepEqual(modules(pl).filter(m=>m!=='painel'&&m!=='exportacao'),['plan-fluxos','plan-atividade','plan-os']);
+ assert.deepEqual(modules(pl).filter(m=>m!=='painel'&&m!=='exportacao'),['plan-fluxos','plan-atividade','plan-os','plan-capacidade']);
  await cancelOrder({workOrderId:a.wo,reason:'Prioridade mudou'},pl);
  // O módulo principal não é repetido como acesso adicional na tela, mas fica gravado (regras do banco).
  const stored=(await db.first('SELECT capabilities FROM members WHERE id=?',pl.id))!.capabilities;

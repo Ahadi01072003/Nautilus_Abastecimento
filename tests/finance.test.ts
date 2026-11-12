@@ -97,7 +97,9 @@ test('uso: Operação inicia e encerra; idempotente pela operationKey; sem tarif
  assert.equal((await fm('uses/start',{operationKey:k,workOrderId:wo,equipmentId:'eq1',startedAt:ago(19),confirm:true},operator)).id,u.id);
  await fm('uses/end',{id:u.id,endedAt:ago(17)},operator);
  const row=(await db.first('SELECT * FROM equipment_uses WHERE id=?',u.id))!;
- assert.deepEqual([row.end_source,row.review,row.started_by],['registrado','normal',operator.id]);
+ // A situação (normal ou a conferir) depende da janela das 08h às 20h dos dias reservados e é testada com
+ // horários fixos em "uso: fora dos dias reservados"; aqui os horários são relativos a agora.
+ assert.deepEqual([row.end_source,row.started_by],['registrado',operator.id]);
  const view=await orderUses(operator,wo);
  assert.equal(view.eligible,true);assert.deepEqual(view.equipment.map(e=>e.id),['eq1']);
  assert.equal(view.dailies.length,1);assert.equal(view.dailies[0].valueCents,400000);

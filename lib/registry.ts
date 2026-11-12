@@ -5,6 +5,7 @@ import {db,type Executor,type Row} from './db';
 import {AppError,required,text,email} from './domain';
 import {type Member,isManager,requireCapability} from './permissions';
 import {defaultPassword,TEMPORARY_PASSWORD_DAYS} from './auth';
+import {saveAbsence,cancelAbsence} from './capacity';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -71,7 +72,7 @@ export async function registryState(member:Member){
   all('SELECT q.* FROM checklist_questions q JOIN checklist_versions v ON v.id=q.version_id JOIN checklist_templates t ON t.id=v.template_id AND t.current_version=v.version ORDER BY q.position'),
   all('SELECT l.* FROM checklist_links l JOIN checklist_versions v ON v.id=l.version_id JOIN checklist_templates t ON t.id=v.template_id AND t.current_version=v.version'),
   all('SELECT id,code,name,active FROM activity_types ORDER BY name'),
-  manager?all('SELECT id,username,email,name,profile AS role,capabilities,org_scope,notify_requests,notify_schedule,active,created_at,must_change_password,password_changed_at,locked_until,last_login_at FROM members ORDER BY name'):none,
+  manager?all('SELECT id,username,email,name,profile AS role,capabilities,org_scope,planning_bars,notify_requests,notify_schedule,active,created_at,must_change_password,password_changed_at,locked_until,last_login_at FROM members ORDER BY name'):none,
   manager?all('SELECT * FROM audits ORDER BY created_at DESC LIMIT 150'):none,
   all(`SELECT s.*,(SELECT count(*) FROM work_orders w WHERE w.code=s.code)::int orders FROM sectors s ORDER BY s.code`),
  ]);
@@ -105,10 +106,13 @@ export async function registryMutate(path:string,b:Row,member:Member){
   if(!['interna','cliente'].includes(b.category))throw new AppError('Escolha a categoria: operação interna ou cliente.');
   if(!/^[A-Z0-9][A-Z0-9 ._-]{0,11}$/.test(acronym))throw new AppError('Sigla deve ter até 12 letras ou números.');
   if(!COLOR.test(color))throw new AppError('Cor inválida. Use o formato #RRGGBB.');
+  // Barra de HH da OS (planejamento): OCP OCEANPACT → OCP; os demais → Equinor (a Gestão pode mudar).
+  const bar=b.bar==null||b.bar===''?(old?.bar||(acronym==='OCP'||/^OCP/i.test(name)?'ocp':'equinor')):String(b.bar);
+  if(!['ocp','equinor'].includes(bar))throw new AppError('Barra inválida: OCP ou Equinor.');
   const oid=old?.id||id(),active=flag(b.active);
   await db().tx(async tx=>{
-   await tx.run('INSERT INTO requester_orgs(id,name,acronym,category,color,active,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,acronym=excluded.acronym,category=excluded.category,color=excluded.color,active=excluded.active,updated_at=excluded.updated_at',oid,name,acronym,b.category,color,active,old?.created_at||t,t);
-   await audit(tx,a,old?'Cadastros gerais: organização atualizada':'Cadastros gerais: organização cadastrada',oid,{before:old,after:{name,acronym,category:b.category,color,active}});
+   await tx.run('INSERT INTO requester_orgs(id,name,acronym,category,color,active,created_at,updated_at,bar) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,acronym=excluded.acronym,category=excluded.category,color=excluded.color,active=excluded.active,bar=excluded.bar,updated_at=excluded.updated_at',oid,name,acronym,b.category,color,active,old?.created_at||t,t,bar);
+   await audit(tx,a,old?'Cadastros gerais: organização atualizada':'Cadastros gerais: organização cadastrada',oid,{before:old,after:{name,acronym,category:b.category,color,active,bar}});
   });
   return {id:oid};
  }
@@ -220,6 +224,8 @@ export async function registryMutate(path:string,b:Row,member:Member){
   return {id:fid};
  }
 
+ if(path==='registry/absences')return saveAbsence(a,b);
+ if(path==='registry/absences/cancel')return cancelAbsence(a,b);
  if(path==='registry/operators'){
   const old=await existing('operators',b.id,'Colaborador');
   const name=required(b.name,'Nome',180),badge=text(b.badge,60),functionIds=idList(b.functionIds,'Funções',30);
@@ -231,12 +237,19 @@ export async function registryMutate(path:string,b:Row,member:Member){
    if(!isManager(a))throw new AppError('Somente o gestor vincula colaboradores a usuários de acesso.',403);
    if(memberId&&!await first('SELECT id FROM members WHERE id=?',memberId))throw new AppError('Usuário não encontrado.',404);
   }
+  // Planejamento: barra (OCP/Equinor), equipe (ADM, Turno A, Turno B), função atuante e se entra no HH.
+  const bar=b.bar===undefined?(old?.bar??null):b.bar||null,team=b.team===undefined?(old?.team??null):b.team||null;
+  if(bar&&!['ocp','equinor'].includes(bar))throw new AppError('Barra inválida: OCP ou Equinor.');
+  if(team&&!['adm','turno_a','turno_b'].includes(team))throw new AppError('Equipe inválida: ADM, Turno A ou Turno B.');
+  const acting=b.actingFunctionId===undefined?(old?.acting_function_id??null):b.actingFunctionId||null;
+  if(acting&&!functionIds.includes(acting))throw new AppError('A função atuante deve ser uma das funções do colaborador.');
+  const countsHh=b.countsHh===undefined?Number(old?.counts_hh??1):b.countsHh===false?0:1;
   const oid=old?.id||id(),active=flag(b.active);
   await db().tx(async tx=>{
-   await tx.run('INSERT INTO operators(id,name,badge,active,member_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,badge=excluded.badge,active=excluded.active,member_id=excluded.member_id',oid,name,badge,active,memberId);
+   await tx.run('INSERT INTO operators(id,name,badge,active,member_id,bar,team,acting_function_id,counts_hh) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,badge=excluded.badge,active=excluded.active,member_id=excluded.member_id,bar=excluded.bar,team=excluded.team,acting_function_id=excluded.acting_function_id,counts_hh=excluded.counts_hh',oid,name,badge,active,memberId,bar,team,acting,countsHh);
    await tx.run('DELETE FROM operator_functions WHERE operator_id=?',oid);
    for(const f of functionIds)await tx.run('INSERT INTO operator_functions(operator_id,function_id) VALUES(?,?)',oid,f);
-   await audit(tx,a,old?'Cadastros gerais: colaborador atualizado':'Cadastros gerais: colaborador cadastrado',oid,{before:old?{...old,functionIds:before}:null,after:{name,badge,functionIds,memberId,active}});
+   await audit(tx,a,old?'Cadastros gerais: colaborador atualizado':'Cadastros gerais: colaborador cadastrado',oid,{before:old?{...old,functionIds:before}:null,after:{name,badge,functionIds,memberId,active,bar,team,actingFunctionId:acting,countsHh:!!countsHh}});
   });
   return {id:oid};
  }

@@ -36,14 +36,14 @@ export async function requireAny(a:Member,list:Capability[]){
 }
 /** Cadastro atual (perfil, acessos e escopo), sem exigir um acesso específico. */
 export async function loadAccess(a:Member){
- const current=await db().first('SELECT profile,active,capabilities,org_scope FROM members WHERE id=?',a.id);
+ const current=await db().first('SELECT profile,active,capabilities,org_scope,planning_bars FROM members WHERE id=?',a.id);
  if(!current?.active)throw new AppError('Seu acesso mudou. Atualize a tela.',403);
  // Capacidades efetivas: o módulo principal do perfil já vem incluído.
- return {...a,profile:current.profile,capabilities:effectiveCaps(current.profile,current.capabilities),org_scope:current.org_scope||[]} as Member&{capabilities:string[],org_scope:string[]};
+ return {...a,profile:current.profile,capabilities:effectiveCaps(current.profile,current.capabilities),org_scope:current.org_scope||[],planning_bars:current.planning_bars||[]} as Member&{capabilities:string[],org_scope:string[],planning_bars:string[]};
 }
 export const fuelModules=['visao','solicitacoes','abastecimentos','estoque','alertas'];
 export const registryModules=['cad-solicitantes','cad-locais','cad-equipamentos','cad-colaboradores','cad-checklists','cad-categorias'];
-export const planningModules=['plan-fluxos','plan-atividade','plan-os'];
+export const planningModules=['plan-fluxos','plan-atividade','plan-os','plan-capacidade'];
 export const operationModules=['op-painel','op-os','op-registro'];
 export const maintenanceModules=['man-painel','man-criterios','man-corretivas','man-leituras'];
 export const toolsModules=['fer-painel','fer-inventario','fer-movimentar','fer-emprestimos','fer-cadastros'];
