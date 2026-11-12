@@ -11,9 +11,31 @@ export type Executor={
 };
 export type Database=Executor&{tx<T>(fn:(tx:Executor)=>Promise<T>):Promise<T>};
 
+type Env={DATABASE_URL?:string;DATABASE_USER?:string;DATABASE_PASSWORD?:string;NAUTILUS_AMBIENTE?:string;VERCEL_GIT_COMMIT_REF?:string;
+ RESEND_API_KEY?:string;EMAIL_FROM?:string;EMAIL_ENABLED?:string;CRON_SECRET?:string;DEFAULT_PASSWORD?:string;APP_URL?:string};
 export function env(){
- return process.env as {DATABASE_URL?:string;RESEND_API_KEY?:string;EMAIL_FROM?:string;EMAIL_ENABLED?:string;CRON_SECRET?:string;DEFAULT_PASSWORD?:string;APP_URL?:string};
+ return process.env as Env;
 }
+
+/** Ambiente de teste: o mesmo endereço do banco, com o usuário e a senha do teste (esse usuário só enxerga o
+ *  schema de teste). No ramo de teste, sem usuário próprio, recusa conectar para nunca gravar na produção. */
+export function databaseUrl(e:Env=env()){
+ const url=e.DATABASE_URL;
+ if(!url)throw new Error('DATABASE_URL não configurada.');
+ const isTest=e.NAUTILUS_AMBIENTE==='teste'||e.VERCEL_GIT_COMMIT_REF==='teste';
+ if(!e.DATABASE_USER){
+  if(isTest)throw new Error('Ambiente de teste sem usuário de banco próprio (DATABASE_USER): conexão recusada para não usar a produção.');
+  return url;
+ }
+ if(!e.DATABASE_PASSWORD)throw new Error('DATABASE_USER definido sem a senha (DATABASE_PASSWORD).');
+ const u=new URL(url),current=decodeURIComponent(u.username),dot=current.indexOf('.');
+ // No pooler do Supabase o usuário vem como "usuario.projeto": troca só a parte do usuário.
+ u.username=encodeURIComponent(dot>0?`${e.DATABASE_USER}${current.slice(dot)}`:e.DATABASE_USER);
+ u.password=encodeURIComponent(e.DATABASE_PASSWORD);
+ return u.toString();
+}
+/** Mostra a faixa "Ambiente de teste" na tela. */
+export const isTestEnvironment=()=>env().NAUTILUS_AMBIENTE==='teste';
 
 /** Converte `?` em `$1..$n`, ignorando literais entre aspas simples. */
 export function placeholders(query:string){
@@ -72,9 +94,7 @@ export function connect(url:string,options:postgres.Options<Record<string,never>
 export function db():Database{
  if(override)return override;
  if(!instance){
-  const url=env().DATABASE_URL;
-  if(!url)throw new Error('DATABASE_URL não configurada.');
-  instance=connect(url);
+  instance=connect(databaseUrl());
  }
  return instance;
 }

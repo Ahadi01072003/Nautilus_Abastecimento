@@ -16,5 +16,8 @@ export const metadata:Metadata={
 export const viewport:Viewport={themeColor:'#03161F',width:'device-width',initialScale:1};
 
 export default function RootLayout({children}:Readonly<{children:React.ReactNode}>){
- return <html lang="pt-BR" className={`${archivo.variable} ${instrument.variable} ${jetbrains.variable}`}><body className="antialiased">{children}</body></html>;
+ // Ambiente de teste (ramo "teste", banco separado): faixa sempre visível para não confundir com o sistema oficial.
+ const test=process.env.NAUTILUS_AMBIENTE==='teste';
+ return <html lang="pt-BR" className={`${archivo.variable} ${instrument.variable} ${jetbrains.variable}`}><body className="antialiased">{children}
+  {test&&<div className="env-test" role="note">Ambiente de teste · dados copiados da produção · nada aqui afeta o sistema oficial</div>}</body></html>;
 }
