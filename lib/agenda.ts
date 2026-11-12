@@ -8,6 +8,7 @@ import {preventiveRows} from './maintenance';
 import {ordersResources} from './planning';
 import {NO_SECTOR} from './os-order';
 import {resourceFromParams,listFilterLabels,type Alloc} from './resource-agenda';
+import {reservationWindows,operationWindows} from './days';
 
 type Actor=Member&{org_scope:string[]};
 const DAY=86400_000,H=3600_000;
@@ -43,7 +44,7 @@ export async function agendaData(member:Member,params:{from:unknown,to:unknown,s
  const plans=orders.map(o=>o.current_plan_id);
  const [equipment,people,materials,functions,impediments]=plans.length?await Promise.all([
   // Cada reserva com o horário, a etapa e o local da etapa: diz onde e quando o equipamento é usado.
-  db().all(`SELECT r.plan_id,e.id,e.tag,e.description,et.name type_name,r.start_at,r.end_at,s.name step_name,l.name step_location
+  db().all(`SELECT r.plan_id,e.id,e.tag,e.description,et.name type_name,r.start_at,r.end_at,r.hours_per_day,s.name step_name,l.name step_location
    FROM reservations r JOIN equipment e ON e.id=r.equipment_id LEFT JOIN equipment_types et ON et.id=e.type_id
    LEFT JOIN plan_steps s ON s.id=r.plan_step_id LEFT JOIN locations l ON l.id=s.location_id
    WHERE r.plan_id = ANY(?::text[]) AND r.status<>'liberada' ORDER BY e.tag,r.start_at::timestamptz`,plans),
@@ -58,9 +59,11 @@ export async function agendaData(member:Member,params:{from:unknown,to:unknown,s
  const union=(spans:number[][])=>{let total=0,cur:number[]|null=null;for(const x of spans.filter(x=>x[1]>x[0]).sort((a,b)=>a[0]-b[0])){if(!cur||x[0]>cur[1]){if(cur)total+=cur[1]-cur[0];cur=[...x];}else cur[1]=Math.max(cur[1],x[1]);}return cur?total+cur[1]-cur[0]:total;};
  const inPeriod=(a:number,b:number)=>[Math.max(a,t0),Math.min(b,t1)];
  const usesOf=(o:Row)=>{const mine=equipment.filter(e=>e.plan_id===o.current_plan_id);const by=new Map<string,Row>();
-  for(const e of mine){const g=by.get(e.id)||{id:e.id,tag:e.tag,type:e.type_name,description:e.description,spans:[] as number[][],steps:new Set<string>(),places:new Set<string>()};
-   g.spans.push([Date.parse(e.start_at),Date.parse(e.end_at)]);if(e.step_name)g.steps.add(e.step_name);g.places.add(e.step_location||o.location_name||'');by.set(e.id,g);}
-  return [...by.values()].map(g=>({id:g.id,tag:g.tag,type:g.type,description:g.description,start:new Date(Math.min(...g.spans.map((x:number[])=>x[0]))).toISOString(),end:new Date(Math.max(...g.spans.map((x:number[])=>x[1]))).toISOString(),
+  for(const e of mine){const g=by.get(e.id)||{id:e.id,tag:e.tag,type:e.type_name,description:e.description,spans:[] as number[][],raw:[] as number[][],steps:new Set<string>(),places:new Set<string>()};
+   g.raw.push([Date.parse(e.start_at),Date.parse(e.end_at)]);
+   // Reserva por dia: horas por dia a partir das 08h de cada dia (a ordem no dia é do líder).
+   for(const w of reservationWindows(e.start_at,e.end_at,Number(e.hours_per_day??12)))g.spans.push(w);if(e.step_name)g.steps.add(e.step_name);g.places.add(e.step_location||o.location_name||'');by.set(e.id,g);}
+  return [...by.values()].map(g=>({id:g.id,tag:g.tag,type:g.type,description:g.description,start:new Date(Math.min(...g.raw.map((x:number[])=>x[0]))).toISOString(),end:new Date(Math.max(...g.raw.map((x:number[])=>x[1]))).toISOString(),
    hours:union(g.spans.map((x:number[])=>inPeriod(x[0],x[1])))/H,steps:[...g.steps],location:[...g.places].filter(Boolean).join(' · ')||null}));};
  const list:Row[]=orders.map((o):Row=>({...o,
   equipment:usesOf(o),
@@ -70,7 +73,8 @@ export async function agendaData(member:Member,params:{from:unknown,to:unknown,s
  }));
 
  // Resumo: horas planejadas recortadas ao período; cada recurso uma vez, com as OS em que aparece.
- const clip=(o:Row)=>Math.max(0,Math.min(Date.parse(o.planned_end),t1)-Math.max(Date.parse(o.planned_start),t0));
+ // OS por dia: a janela de operação (08h às 20h) de cada dia previsto.
+ const clip=(o:Row)=>operationWindows(o.planned_start,o.planned_end).reduce((s,[a,b])=>s+Math.max(0,Math.min(b,t1)-Math.max(a,t0)),0);
  const byStatus:Record<string,number>={};for(const o of list)byStatus[o.status]=(byStatus[o.status]||0)+1;
  const orgs=new Map<string,Row>();for(const o of list){const g=orgs.get(o.org_id)||{acronym:o.org_acronym,name:o.org_name,color:o.org_color,count:0,hours:0};g.count++;g.hours+=clip(o)/H;orgs.set(o.org_id,g);}
  // Por equipamento: cada OS em que está reservado, com local, horário da reserva e horas.

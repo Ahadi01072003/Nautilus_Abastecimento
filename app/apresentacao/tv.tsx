@@ -12,6 +12,7 @@ import {ArrangeControls,MultiPick,DEFAULT_VIEW,readView,writeView,type OsView} f
 import {barsOf} from '../gantt';
 import {arrangeOrders,flatRows,viewFromParams,viewToParams,EMPTY_FILTER,type Flags,type OsGroup,type OsItem} from '@/lib/os-order';
 import './tv.css';
+import {dayRangeShort} from '@/lib/days';
 
 const H=3600_000,DAY=24*H,OFF=3*H;
 const TZ='America/Sao_Paulo';
@@ -27,7 +28,7 @@ const READS=[{v:5,l:'5 s'},{v:8,l:'8 s'},{v:15,l:'15 s'}];
 const DWELLS=[{v:10,l:'10 s'},{v:15,l:'15 s'},{v:30,l:'30 s'}];
 const TOP_HOLD=2500,FADE=350;
 const t=(v?:string|null)=>{if(!v)return null;const x=Date.parse(v);return Number.isFinite(x)?x:null;};
-const period=(a?:string|null,b?:string|null)=>{const x=t(a),y=t(b);if(x==null)return '—';if(y==null)return `${dm.format(x)} ${hm.format(x)} →`;return dm.format(x)===dm.format(y)?`${dm.format(x)} ${hm.format(x)}–${hm.format(y)}`:`${dm.format(x)} ${hm.format(x)} → ${dm.format(y)} ${hm.format(y)}`;};
+const period=(a?:string|null,b?:string|null)=>{const days=dayRangeShort(a,b);if(days)return days;const x=t(a),y=t(b);if(x==null)return '—';if(y==null)return `${dm.format(x)} ${hm.format(x)} →`;return dm.format(x)===dm.format(y)?`${dm.format(x)} ${hm.format(x)}–${hm.format(y)}`:`${dm.format(x)} ${hm.format(x)} → ${dm.format(y)} ${hm.format(y)}`;};
 const qty=(n:number)=>n.toLocaleString('pt-BR',{maximumFractionDigits:3});
 
 type Screen='os'|'res';

@@ -373,7 +373,10 @@ const LIST_LIMIT=1000;
 /** Lista de OS lançadas (mesma fonte para Planejamento, Operação e contagens). */
 export async function ordersList(member:Member,url:URL){
  const a=await requireAny(member,['planejamento','acompanhamento','operacao']);
- const from=instant(url.searchParams.get('from'),'Período inicial'),to=instant(url.searchParams.get('to'),'Período final');
+ // Período: dias (AAAA-MM-DD, do início do primeiro ao fim do último) ou data e hora.
+ const fromQ=url.searchParams.get('from'),toQ=url.searchParams.get('to'),ymd=/^\d{4}-\d{2}-\d{2}$/;
+ const from=fromQ&&ymd.test(fromQ)?dayRange(fromQ,null,['Período inicial','Período final'])[0]:instant(fromQ,'Período inicial');
+ const to=toQ&&ymd.test(toQ)?dayRange(null,toQ,['Período inicial','Período final'])[1]:instant(toQ,'Período final');
  const where:string[]=[],values:unknown[]=[];
  const scope=scopeOf(a);if(scope){where.push('w.org_id = ANY(?::text[])');values.push(scope);}
  if(from){where.push('w.planned_end::timestamptz > ?::timestamptz');values.push(from);}
@@ -410,7 +413,7 @@ export async function ordersResources(member:Member,url:URL){
  if(!plans.length)return {allocations:[],more:list.more};
  const byPlan=new Map(orders.map(o=>[o.current_plan_id,o]));
  const [eq,needs]=await Promise.all([
-  all(`SELECT r.plan_id,r.start_at,r.end_at,e.id,e.tag,e.description,et.name type_name,s.name step_name
+  all(`SELECT r.plan_id,r.start_at,r.end_at,r.hours_per_day,e.id,e.tag,e.description,et.name type_name,s.name step_name
    FROM reservations r JOIN equipment e ON e.id=r.equipment_id LEFT JOIN equipment_types et ON et.id=e.type_id JOIN plan_steps s ON s.id=r.plan_step_id
    WHERE r.plan_id = ANY(?::text[]) AND r.status<>'liberada' ORDER BY r.start_at::timestamptz`,plans),
   all(`SELECT n.plan_id,n.function_id,n.material_id,n.quantity,n.amount::float8 amount,n.unit,f.name function_name,m.name material_name,s.name step_name,s.planned_start,s.planned_end
@@ -419,7 +422,7 @@ export async function ordersResources(member:Member,url:URL){
  ]);
  const os=(planId:string)=>{const o=byPlan.get(planId)!;return {orderId:o.id,number:o.number,activity:o.activity_name,status:o.status,orgId:o.org_id,sector:o.sector_code||null};};
  const allocations=[
-  ...eq.map(r=>({kind:'equipamento',key:r.id,label:r.tag,sub:[r.type_name,r.description].filter(Boolean).join(' · '),start:r.start_at,end:r.end_at,step:r.step_name,quantity:1,unit:null,...os(r.plan_id)})),
+  ...eq.map(r=>({kind:'equipamento',key:r.id,label:r.tag,sub:[r.type_name,r.description].filter(Boolean).join(' · '),start:r.start_at,end:r.end_at,step:r.step_name,quantity:1,unit:null,hoursPerDay:isWholeDays(r.start_at,r.end_at)?Number(r.hours_per_day):null,...os(r.plan_id)})),
   ...needs.map(n=>{const o=byPlan.get(n.plan_id)!;const start=n.planned_start||o.planned_start,end=n.planned_end||o.planned_end;
    return n.function_id?{kind:'funcao',key:n.function_id,label:n.function_name,sub:'Função',start,end,step:n.step_name,quantity:n.quantity,unit:'pessoa(s)',...os(n.plan_id)}
     :{kind:'material',key:`${n.material_id}|${n.unit}`,label:n.material_name,sub:`Material · ${n.unit}`,start,end,step:n.step_name,quantity:Number(n.amount),unit:n.unit,...os(n.plan_id)};}),

@@ -19,12 +19,31 @@ import {ArrangeControls,useOsView,useNow} from './os-arrange';
 import {arrangeOrders,flatRows,viewToParams,type Flags,type OsGroup,type OsItem} from '@/lib/os-order';
 import {listFilterLabels} from '@/lib/resource-agenda';
 import {RecoveryBadge} from './recovery-badge';
+import {dayOf,lastDay,dayStart,dayAfter,dayText,EQUIPMENT_DAY_HOURS} from '@/lib/days';
 
 /** Horário de Brasília para o campo datetime-local e de volta (com fuso explícito). */
 const toLocal=toLocalInput;
 const toISO=fromLocalInput;
+/** Planejamento por dia: o campo guarda o dia de Brasília (AAAA-MM-DD); o servidor grava o dia inteiro.
+ *  Atividade realizada continua com data e hora reais (campos datetime-local). */
+const DAY_RE=/^(\d{4})-(\d{2})-(\d{2})$/;
+export const dayIssue=(v:string)=>{if(!v)return '';const m=DAY_RE.exec(v);if(!m||new Date(v+'T12:00:00Z').toISOString().slice(0,10)!==v)return 'Data inválida: confira dia, mês e ano.';const y=Number(m[1]);return y<2000||y>2100?`Ano ${y} fora da faixa aceita (2000 a 2100).`:'';};
+const dayIn=(iso?:string|null)=>iso?dayOf(iso):'',dayInEnd=(iso?:string|null)=>iso?lastDay(iso):'';
+/** Quantos dias de a até b (inclusive), ou null. */
+export const daysCount=(a?:string,b?:string)=>a&&b&&!dayIssue(a)&&!dayIssue(b)?Math.round((Date.parse(b+'T12:00:00Z')-Date.parse(a+'T12:00:00Z'))/86_400_000)+1:null;
+const daysText=(n:number|null)=>n==null?'':n<1?'O último dia não pode ser antes do primeiro':n===1?'1 dia':`${n} dias`;
+/** Período em dias para os componentes que mostram início e fim (dia inteiro de Brasília). */
+const dayISO=(a?:string,b?:string):[string|null,string|null]=>[a&&!dayIssue(a)?dayStart(a):null,b&&!dayIssue(b)?dayAfter(b):null];
+const hoursNum=(v:string|undefined)=>{const h=Number(String(v??'').replace(',','.'));return Number.isFinite(h)&&h>0?h:null;};
 /** Primeiro problema de data do formulário (atividade, etapas e apontamentos), para não gravar lixo. */
-const dateIssue=(f:Form,free=false)=>{for(const [label,v] of [['Início',f.start],['Fim',f.end],...f.steps.filter(s=>s.included&&!free).flatMap(s=>[[`${s.name} · início`,s.start],[`${s.name} · fim`,s.end]]),...f.notes.flatMap(n=>[['Apontamento',n.at],['Apontamento · até',n.until]])] as [string,string][]){const m=localIssue(v);if(m)return `${label}: ${m}`;}return '';};
+const dateIssue=(f:Form,free=false,realized=false)=>{const check=realized?localIssue:dayIssue;
+ for(const [label,v] of [['Início',f.start],['Fim',f.end],...f.steps.filter(s=>s.included&&!free).flatMap(s=>[[`${s.name} · início`,s.start],[`${s.name} · fim`,s.end]])] as [string,string][]){const m=check(v);if(m)return `${label}: ${m}`;}
+ if(!realized){const n=daysCount(f.start,f.end);if(n!=null&&n<1)return 'Fim: o último dia não pode ser antes do primeiro.';
+  for(const st of f.steps.filter(x=>x.included&&!free)){const k=daysCount(st.start,st.end);if(k!=null&&k<1)return `${st.name}: o último dia não pode ser antes do primeiro.`;
+   for(const [e,h] of Object.entries(st.hours||{}))if(st.equipmentIds.includes(e)&&h!==''&&(hoursNum(h)==null||hoursNum(h)!>EQUIPMENT_DAY_HOURS))return `${st.name}: horas de uso por dia de 0,25 a ${EQUIPMENT_DAY_HOURS}.`;}
+  if(free)for(const st of f.steps)for(const [e,h] of Object.entries(st.hours||{}))if(st.equipmentIds.includes(e)&&h!==''&&(hoursNum(h)==null||hoursNum(h)!>EQUIPMENT_DAY_HOURS))return `Horas de uso por dia de 0,25 a ${EQUIPMENT_DAY_HOURS}.`;}
+ for(const [label,v] of f.notes.flatMap(n=>[['Apontamento',n.at],['Apontamento · até',n.until]]) as [string,string][]){const m=localIssue(v);if(m)return `${label}: ${m}`;}
+ return '';};
 const minutesBetween=(a?:string|null,b?:string|null)=>a&&b?Math.round((Date.parse(b)-Date.parse(a))/60000):null;
 export const osLabel=(n:number)=>'OS '+String(n).padStart(6,'0');
 const statusNames:Record<string,[string,string]>={programada:['Programada','info'],em_andamento:['Em andamento','success'],encerramento_pendente:['Encerramento pendente','warning'],concluida:['Concluída','muted'],cancelada:['Cancelada','danger']};
@@ -32,25 +51,38 @@ const statusNames:Record<string,[string,string]>={programada:['Programada','info
 const range=(a?:string|null,b?:string|null)=><Period a={a} b={b}/>;
 
 export type Need={equipmentTypeId:string|null,functionId:string|null,materialId:string|null,quantity:number|null,amount:number|null,unit:string|null};
-/** Período de uso de um equipamento (OS sem fluxo), em horário local; ausente = a OS inteira. */
+/** Dias de uso de um equipamento (OS sem fluxo), AAAA-MM-DD; ausente = a OS inteira. */
 type Use={start:string,end:string};
-type Step={key:string,id:string,name:string,description:string,required:boolean,included:boolean,dependsOn:string[],defaultMinutes:number|null,start:string,end:string,locationId:string,needs:Need[],equipmentIds:string[],operatorIds:string[],uses:Record<string,Use>};
+/** hours: horas de uso por dia de cada equipamento (texto do campo; vazio = 12 h, o dia todo). */
+type Step={key:string,id:string,name:string,description:string,required:boolean,included:boolean,dependsOn:string[],defaultMinutes:number|null,start:string,end:string,locationId:string,needs:Need[],equipmentIds:string[],operatorIds:string[],uses:Record<string,Use>,hours:Record<string,string>};
 /** Apontamento informado no registro de atividade realizada (horários locais de Brasília). */
 type Note={key:string,kind:string,categoryId:string,description:string,at:string,until:string};
 /** Horas de uso de um equipamento no registro de atividade realizada (horários locais de Brasília). */
 type RUse={key:string,equipmentId:string,start:string,end:string,recoverable:boolean};
 type Form={title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[],notes:Note[],uses:RUse[]};
-const fromPlan=(p:R):Form=>({uses:((p.realized_uses||[]) as R[]).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toLocal(u.start),end:toLocal(u.end),recoverable:!!u.recoverable})),notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until)})),title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:toLocal(p.planned_start),end:toLocal(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:toLocal(s.planned_start),end:toLocal(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,uses:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>r.start_at!==s.planned_start||r.end_at!==s.planned_end).map(r=>[r.equipment_id,{start:toLocal(r.start_at),end:toLocal(r.end_at)}]))}))});
+const fromPlan=(p:R):Form=>{const realized=p.mode==='realizada',S=realized?toLocal:dayIn,E=realized?toLocal:dayInEnd;return {uses:((p.realized_uses||[]) as R[]).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toLocal(u.start),end:toLocal(u.end),recoverable:!!u.recoverable})),notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until)})),title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:S(p.planned_start),end:E(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:S(s.planned_start),end:E(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,
+  uses:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>!realized&&(r.start_at!==s.planned_start||r.end_at!==s.planned_end)).map(r=>[r.equipment_id,{start:dayIn(r.start_at),end:dayInEnd(r.end_at)}])),
+  hours:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>r.hours_per_day!=null&&Number(r.hours_per_day)!==EQUIPMENT_DAY_HOURS).map(r=>[r.equipment_id,String(Number(r.hours_per_day)).replace('.',',')]))}))};};
 const usedIds=(f:Form)=>new Set(f.steps.filter(s=>s.included).flatMap(s=>s.equipmentIds));
-const toBody=(f:Form,realized=false)=>({...(realized?{uses:f.uses.filter(u=>usedIds(f).has(u.equipmentId)).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toISO(u.start),end:toISO(u.end),recoverable:u.recoverable})),notes:f.notes.map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||null,description:n.description,at:toISO(n.at),until:n.kind==='bloqueio'||(n.kind==='impacto'&&n.until)?toISO(n.until):null}))}:{}),title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,plannedStart:toISO(f.start),plannedEnd:toISO(f.end),steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:toISO(s.start),plannedEnd:toISO(s.end),locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],equipmentWindows:realized?{}:usesBody(s,f)}))});
+const toBody=(f:Form,realized=false)=>({...(realized?{uses:f.uses.filter(u=>usedIds(f).has(u.equipmentId)).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toISO(u.start),end:toISO(u.end),recoverable:u.recoverable})),notes:f.notes.map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||null,description:n.description,at:toISO(n.at),until:n.kind==='bloqueio'||(n.kind==='impacto'&&n.until)?toISO(n.until):null}))}:{}),title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,
+ // Planejamento: dias (AAAA-MM-DD). Atividade realizada: data e hora reais.
+ plannedStart:realized?toISO(f.start):f.start||null,plannedEnd:realized?toISO(f.end):f.end||null,
+ steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:realized?toISO(s.start):s.start||null,plannedEnd:realized?toISO(s.end):s.end||null,locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],
+  equipmentWindows:realized?{}:usesBody(s,f),equipmentHours:realized?undefined:hoursBody(s)}))});
 
-/** Períodos de uso enviados ao servidor (só OS sem fluxo): recortados ao início e fim da OS; o que
- * ficou vazio, inválido ou fora da OS volta a ser a OS inteira (nada é gravado fora da janela). */
+/** Dias de uso enviados ao servidor (só OS sem fluxo): recortados aos dias da OS; o que ficou vazio,
+ * inválido ou fora da OS volta a ser a OS inteira (nada é gravado fora dos dias da OS). */
 function usesBody(s:Step,f:Form){
- const a=toISO(f.start),b=toISO(f.end);if(!a||!b||!s.included)return undefined;
+ const a=f.start,b=f.end;if(!a||!b||dayIssue(a)||dayIssue(b)||!s.included)return undefined;
  const out:Record<string,{start:string,end:string}>={};
- for(const e of s.equipmentIds){const u=s.uses?.[e];if(!u)continue;const x=toISO(u.start),y=toISO(u.end);if(!x||!y)continue;
-  const st=Math.max(Date.parse(x),Date.parse(a)),en=Math.min(Date.parse(y),Date.parse(b));if(en>st)out[e]={start:new Date(st).toISOString(),end:new Date(en).toISOString()};}
+ for(const e of s.equipmentIds){const u=s.uses?.[e];if(!u||dayIssue(u.start)||dayIssue(u.end)||!u.start||!u.end)continue;
+  const st=u.start>a?u.start:a,en=u.end<b?u.end:b;if(en>=st)out[e]={start:st,end:en};}
+ return out;
+}
+/** Horas por dia de cada equipamento (em branco = 12 h, o dia todo). */
+function hoursBody(s:Step){
+ const out:Record<string,number>={};
+ for(const e of s.equipmentIds){const h=hoursNum(s.hours?.[e]);if(h!=null)out[e]=h;}
  return out;
 }
 /** Abre a revisão da OS (ou reabre a que já está em rascunho) e leva ao editor. */
@@ -119,7 +151,7 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
  useEffect(()=>{void reload()},[reload]);
  const save=useCallback(async(f:Form)=>{
   // Data inválida ou fora da faixa não vai ao servidor: o campo mostra o problema e nada é perdido.
-  const issue=dateIssue(f,freeMode.current);if(issue){setSaveError(issue);setSaveState('error');return false}
+  const issue=dateIssue(f,freeMode.current,planMode.current==='realizada');if(issue){setSaveError(issue);setSaveState('error');return false}
   const tick=dirtyTick.current;setSaveState('saving');
   try{const r=await post('planning/save',{id:planId,version:version.current,...toBody(f,planMode.current==='realizada')});version.current=r.version;setSavedAt(r.savedAt);setSaveError('');setSaveState(dirtyTick.current===tick?'saved':'dirty');return true}
   catch(e){setSaveError((e as Error).message);setSaveState('error');return false}
@@ -147,11 +179,15 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
  async function launch(){setLaunching(true);try{const body={id:planId,version:version.current,launchKey:launchKey.current};const r=realized?await post('planning/realize',body):revision?await post('planning/revision/launch',{...body,reason:revisionReason}):await post('planning/launch',body);toast.success(r.message);setReview(null);onLaunched(r.workOrderId)}catch(e){toast.error((e as Error).message);setReview(null);await reload()}finally{setLaunching(false)}}
  async function discard(){try{const r=await post('planning/discard',{id:planId,version:version.current});toast.success(r.message);onClose()}catch(e){toast.error((e as Error).message)}}
  async function doChangeType(){try{if(saveState!=='saved'&&form)await save(form);const r=await post('planning/change-type',{id:planId,version:version.current,activityTypeId:changeType});toast.success(r.message);setChangeType('');onReplaced(r.id)}catch(e){toast.error((e as Error).message);setChangeType('')}}
- function proposeTimes(){
-  if(!form?.start||!toISO(form.start)||localIssue(form.start)){toast.error('Informe um início previsto válido da atividade para sugerir os horários.');return}
-  const end=new Map<string,number>();const out=form.steps.map(s=>({...s}));
+ /** Sugestão de dias: a partir do dia de início, cada etapa depois das que ela depende (pode começar no
+  *  mesmo dia em que a anterior termina); a duração padrão vira dias de 12 h (mínimo 1 dia). */
+ function proposeDays(){
+  if(!form?.start||dayIssue(form.start)){toast.error('Informe um dia de início válido da atividade para sugerir os dias.');return}
+  const plus=(d:string,n:number)=>dayOf(Date.parse(dayStart(d))+n*86_400_000);
+  const end=new Map<string,string>();const out=form.steps.map(s=>({...s}));
   const sorted=[...out].filter(s=>s.included).sort((a,b)=>(order.level.get(a.key)??0)-(order.level.get(b.key)??0));
-  for(const s of sorted){const deps=s.dependsOn.map(d=>end.get(d)).filter((x):x is number=>x!=null);const st=Math.max(Date.parse(toISO(form.start)!),...deps);const en=st+(s.defaultMinutes||60)*60000;end.set(s.key,en);s.start=toLocal(new Date(st).toISOString());s.end=toLocal(new Date(en).toISOString())}
+  for(const s of sorted){const deps=s.dependsOn.map(d=>end.get(d)).filter((x):x is string=>!!x);const st=[form.start,...deps].sort().at(-1)!;
+   const en=plus(st,Math.max(1,Math.ceil((s.defaultMinutes||60)/(EQUIPMENT_DAY_HOURS*60)))-1);end.set(s.key,en);s.start=st;s.end=en;}
   setSuggest(out);
  }
 
@@ -175,13 +211,18 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
     <Field label="Organização solicitante *" hint={revision?'A organização da OS não muda na revisão.':undefined}><Choice disabled={revision} value={form.orgId} onChange={v=>update(f=>({...f,orgId:v,personId:''}))} options={refs.orgs.filter((o:R)=>o.active||o.id===form.orgId).map((o:R)=>({value:o.id,label:`${o.acronym} · ${o.name}`}))}/></Field>
     <Field label="Pessoa solicitante"><Choice disabled={!form.orgId} value={form.personId||'none'} onChange={v=>update(f=>({...f,personId:v==='none'?'':v}))} options={[{value:'none',label:'Não informada'},...people.map((p:R)=>({value:p.id,label:p.name}))]}/></Field>
     <Field label="Local *"><Choice value={form.locationId} onChange={v=>update(f=>({...f,locationId:v}))} options={refs.locations.filter((l:R)=>l.active||l.id===form.locationId).map((l:R)=>({value:l.id,label:paths.get(l.id)!}))}/></Field>
-    <Field label={realized?'Início real (Brasília) *':free?'Início (Brasília) *':'Início previsto (Brasília) *'} hint={localIssue(form.start)||(realized?'Quando a atividade começou.':free?'Marco de início da OS.':undefined)}><Input type="datetime-local" min={INPUT_MIN} max={realized?nowMax:INPUT_MAX} aria-invalid={!!localIssue(form.start)} value={form.start} onChange={e=>update(f=>({...f,start:e.target.value}))}/></Field>
-    <Field label={realized?'Fim real (Brasília) *':free?'Fim (Brasília) *':'Fim previsto (Brasília) *'} hint={localIssue(form.end)||(form.start&&form.end&&!localIssue(form.start)?`${realized?'Duração':free?'Marco de fim · duração':'Janela de'} ${hhmm(minutesBetween(toISO(form.start),toISO(form.end)))}`:undefined)}><Input type="datetime-local" min={INPUT_MIN} max={INPUT_MAX} aria-invalid={!!localIssue(form.end)} value={form.end} onChange={e=>update(f=>({...f,end:e.target.value}))}/></Field>
+    {realized?<>
+     <Field label="Início real (Brasília) *" hint={localIssue(form.start)||'Quando a atividade começou.'}><Input type="datetime-local" min={INPUT_MIN} max={nowMax} aria-invalid={!!localIssue(form.start)} value={form.start} onChange={e=>update(f=>({...f,start:e.target.value}))}/></Field>
+     <Field label="Fim real (Brasília) *" hint={localIssue(form.end)||(form.start&&form.end&&!localIssue(form.start)?`Duração ${hhmm(minutesBetween(toISO(form.start),toISO(form.end)))}`:undefined)}><Input type="datetime-local" min={INPUT_MIN} max={INPUT_MAX} aria-invalid={!!localIssue(form.end)} value={form.end} onChange={e=>update(f=>({...f,end:e.target.value}))}/></Field>
+    </>:<>
+     <Field label={free?'Dia de início *':'Dia de início previsto *'} hint={dayIssue(form.start)||'Planejamento por dia: a hora fica com a Operação.'}><Input type="date" min="2000-01-01" max="2100-12-31" aria-invalid={!!dayIssue(form.start)} value={form.start} onChange={e=>update(f=>({...f,start:e.target.value,end:f.end&&e.target.value>f.end?e.target.value:f.end}))}/></Field>
+     <Field label={free?'Dia de fim *':'Dia de fim previsto *'} hint={dayIssue(form.end)||daysText(daysCount(form.start,form.end))||undefined}><Input type="date" min={form.start||'2000-01-01'} max="2100-12-31" aria-invalid={!!dayIssue(form.end)||(daysCount(form.start,form.end)??1)<1} value={form.end} onChange={e=>update(f=>({...f,end:e.target.value}))}/></Field>
+    </>}
     <Field label="Descrição" wide><Textarea maxLength={2000} value={form.description} onChange={e=>update(f=>({...f,description:e.target.value}))} placeholder="O que será feito, observações para a operação"/></Field>
     {org&&<div className="n-field"><label>Etiqueta</label><OrgTag org={org}/></div>}
    </div>
   </section>
-  <section className="n-panel plan-section"><div className="panel-heading"><div><h2>{realized?'Recursos usados':free?'Recursos':'Etapas, horários e recursos'}</h2><p>{realized?`Equipamentos, colaboradores e materiais usados entre o início e o fim reais. ${reserved} equipamento(s) no período.`:free?`A OS sem fluxo tem os marcos Início e Fim, iguais às datas acima; na Operação, registra-se o início e o fim da execução. ${reserved} equipamento(s) reservado(s) provisoriamente.`:<>{order.cyclic.length?'':`${steps.filter(s=>s.included).length} etapa(s) incluída(s) · ${reserved} equipamento(s) reservado(s) provisoriamente.`} Etapas sem dependência podem ocorrer em paralelo.</>}</p></div>{editable&&!free&&<Button variant="outline" onClick={proposeTimes}><Wand2 size={16}/> Sugerir horários</Button>}</div>
+  <section className="n-panel plan-section"><div className="panel-heading"><div><h2>{realized?'Recursos usados':free?'Recursos':'Etapas, dias e recursos'}</h2><p>{realized?`Equipamentos, colaboradores e materiais usados entre o início e o fim reais. ${reserved} equipamento(s) no período.`:free?`A OS sem fluxo vale nos dias acima; na Operação, registra-se o início e o fim reais da execução. ${reserved} equipamento(s) reservado(s) provisoriamente.`:<>{order.cyclic.length?'':`${steps.filter(s=>s.included).length} etapa(s) incluída(s) · ${reserved} equipamento(s) reservado(s) provisoriamente.`} Etapas sem dependência podem ocorrer em paralelo.</>}</p></div>{editable&&!free&&!realized&&<Button variant="outline" onClick={proposeDays}><Wand2 size={16}/> Sugerir dias</Button>}</div>
    <div className="plan-steps">{steps.map(s=><StepCard key={s.key} free={free} realized={realized} onRefs={onRefs} step={s} steps={steps} refs={refs} paths={paths} planId={planId} serverStep={plan.steps.find((x:R)=>x.step_key===s.key)} osStatus={osSteps?.find(o=>o.step_key===s.key)?.status} editable={editable} onChange={patch=>setStep(s.key,patch)}/>)}</div>
   </section>
   {realized&&<RealizedNotes notes={form.notes} start={form.start} end={form.end} categories={refs.categories||[]} onChange={notes=>update(f=>({...f,notes}))}/>}
@@ -191,14 +232,15 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
 
   <Dialog open={!!changeType} onOpenChange={v=>{if(!v)setChangeType('')}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><AlertTriangle size={16}/> TROCAR TIPO DE ATIVIDADE</div><DialogTitle>Substituir as etapas?</DialogTitle><DialogDescription>Serão substituídos: etapas, horários das etapas, equipamentos reservados, colaboradores e documentos de etapa. Serão mantidos: organização, pessoa, local, janela prevista, descrição e documentos gerais.</DialogDescription></DialogHeader><div className="modal-footer"><Button variant="outline" onClick={()=>setChangeType('')}>Cancelar</Button><Button className="primary-action" onClick={()=>void doChangeType()}>Trocar tipo</Button></div></DialogContent></Dialog>
   <Dialog open={confirmDiscard} onOpenChange={setConfirmDiscard}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><Trash2 size={16}/> DESCARTAR</div><DialogTitle>{revision?'Descartar esta revisão?':'Descartar este rascunho?'}</DialogTitle><DialogDescription>{revision?`A ${osLabel(plan.os_number)} continua exatamente como está, com as reservas atuais. As reservas novas desta revisão são liberadas.`:'As reservas provisórias de equipamentos são liberadas. O rascunho deixa de aparecer nas listas.'}</DialogDescription></DialogHeader><div className="modal-footer"><Button variant="outline" onClick={()=>setConfirmDiscard(false)}>Cancelar</Button><Button className="primary-action" onClick={()=>void discard()}>Descartar</Button></div></DialogContent></Dialog>
-  <Dialog open={!!suggest} onOpenChange={v=>{if(!v)setSuggest(null)}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><Wand2 size={16}/> SUGESTÃO</div><DialogTitle>Horários pelas durações padrão</DialogTitle><DialogDescription>A partir do início previsto, respeitando as dependências (etapas sem dependência começam juntas). Etapas sem duração padrão usam 01:00. Nada é aplicado sem sua confirmação.</DialogDescription></DialogHeader>
-   <ul className="suggest-list">{suggest?.filter(s=>s.included).map(s=><li key={s.key}><b>{s.name}</b><span>{s.start.replace('T',' ')} → {s.end.replace('T',' ')}</span></li>)}</ul>
-   <div className="modal-footer"><Button variant="outline" onClick={()=>setSuggest(null)}>Cancelar</Button><Button className="primary-action" onClick={()=>{const s=suggest!;update(f=>({...f,steps:f.steps.map(x=>{const n=s.find(y=>y.key===x.key)!;return x.included?{...x,start:n.start,end:n.end}:x})}));setSuggest(null)}}>Aplicar horários</Button></div>
+  <Dialog open={!!suggest} onOpenChange={v=>{if(!v)setSuggest(null)}}><DialogContent className="n-dialog"><DialogHeader><div className="modal-eyebrow"><Wand2 size={16}/> SUGESTÃO</div><DialogTitle>Dias pelas durações padrão</DialogTitle><DialogDescription>A partir do dia de início, respeitando as dependências: a etapa seguinte pode começar no mesmo dia em que a anterior termina. Cada 12 h de duração padrão contam como um dia (mínimo um dia). Nada é aplicado sem sua confirmação.</DialogDescription></DialogHeader>
+   <ul className="suggest-list">{suggest?.filter(s=>s.included).map(s=><li key={s.key}><b>{s.name}</b><span>{s.start===s.end?dayText(s.start):`${dayText(s.start)} → ${dayText(s.end)}`}</span></li>)}</ul>
+   <div className="modal-footer"><Button variant="outline" onClick={()=>setSuggest(null)}>Cancelar</Button><Button className="primary-action" onClick={()=>{const s=suggest!;update(f=>({...f,steps:f.steps.map(x=>{const n=s.find(y=>y.key===x.key)!;return x.included?{...x,start:n.start,end:n.end}:x})}));setSuggest(null)}}>Aplicar dias</Button></div>
   </DialogContent></Dialog>
   <Dialog open={!!review} onOpenChange={v=>{if(!launching&&!v)setReview(null)}}><DialogContent className="n-dialog n-dialog-wide"><DialogHeader><div className="modal-eyebrow"><Rocket size={16}/> {realized?'REGISTRAR ATIVIDADE REALIZADA':revision?`REVISÃO ${plan.revision} · ${osLabel(plan.os_number)}`:'REVISAR E LANÇAR'}</div><DialogTitle>{free?(form.title||'Atividade sem título'):plan.activity_name}{org?` · ${org.acronym}`:''}</DialogTitle><DialogDescription>{realized?'O registro cria a OS já executada, com o início e o fim informados, confirma os equipamentos usados no período e registra a execução como lançamento posterior. Confira antes de registrar.':revision?'O lançamento troca, de uma vez, o planejamento e as reservas da OS pelos desta revisão. O número da OS, a execução registrada e os apontamentos são mantidos; a versão anterior fica no histórico.':'Você mesmo revisa e lança; não há aprovação de terceiro. O lançamento cria o número da OS, congela este planejamento, confirma as reservas e publica a OS na Operação.'}</DialogDescription></DialogHeader>
    {review&&<div className="review">
-    <div className="review-grid"><div><small>Solicitante</small><OrgTag org={org}/></div><div><small>Local</small><b>{paths.get(form.locationId)||'—'}</b></div><div><small>{realized?'Execução':'Janela prevista'}</small><b>{range(toISO(form.start),toISO(form.end))}</b></div>{form.code&&<div><small>Código</small><b>{form.code}</b></div>}</div>
-    <ol className="review-steps">{steps.filter(s=>s.included).map(s=><li key={s.key}><b>{free?'Início → Fim':s.name}</b><span>{range(toISO(s.start),toISO(s.end))}</span><small>{[...s.equipmentIds.map(e=>{const t=refs.equipment.find((x:R)=>x.id===e)?.tag,u=free?s.uses?.[e]:null;return u?`${t} (uso ${u.start.slice(8,10)}/${u.start.slice(5,7)} ${u.start.slice(11)} → ${u.end.slice(8,10)}/${u.end.slice(5,7)} ${u.end.slice(11)})`:t}),...s.operatorIds.map(o=>refs.operators.find((x:R)=>x.id===o)?.name)].filter(Boolean).join(' · ')||'Sem recursos identificados'}</small>{s.needs.length>0&&<small>Necessidades: {s.needs.map(n=>needLabel(n,refs)).join(' · ')}</small>}</li>)}</ol>
+    <div className="review-grid"><div><small>Solicitante</small><OrgTag org={org}/></div><div><small>Local</small><b>{paths.get(form.locationId)||'—'}</b></div><div><small>{realized?'Execução':'Dias previstos'}</small><b>{realized?range(toISO(form.start),toISO(form.end)):range(...dayISO(form.start,form.end))}</b></div>{form.code&&<div><small>Código</small><b>{form.code}</b></div>}</div>
+    <ol className="review-steps">{steps.filter(s=>s.included).map(s=><li key={s.key}><b>{free?'Dias da OS':s.name}</b><span>{realized?range(toISO(s.start),toISO(s.end)):range(...dayISO(s.start,s.end))}</span><small>{[...s.equipmentIds.map(e=>{const t=refs.equipment.find((x:R)=>x.id===e)?.tag,u=free&&!realized?s.uses?.[e]:null,h=realized?null:hoursNum(s.hours?.[e])??EQUIPMENT_DAY_HOURS;
+     return `${t}${h!=null?` · ${String(h).replace('.',',')} h/dia`:''}${u?` (dias ${u.start===u.end?dayText(u.start):`${dayText(u.start)} a ${dayText(u.end)}`})`:''}`}),...s.operatorIds.map(o=>refs.operators.find((x:R)=>x.id===o)?.name)].filter(Boolean).join(' · ')||'Sem recursos identificados'}</small>{s.needs.length>0&&<small>Necessidades: {s.needs.map(n=>needLabel(n,refs)).join(' · ')}</small>}</li>)}</ol>
     {revision&&<div className="revision-changes"><b>O que muda</b>{review.changes?.length?<ul>{review.changes.map((c:string,i:number)=><li key={i}>{c}</li>)}</ul>:<p className="notice"><Info size={16}/><span><b>Nenhuma alteração em relação à versão vigente.</b> Você pode relançar assim mesmo: a revisão {plan.revision} fica registrada no histórico como “sem alterações”, com o motivo informado.</span></p>}</div>}
     {realized&&review.realized?.rows.length>0&&<div className="notice"><Clock size={17}/><span>Horas de uso: <b>{hoursText(review.realized.recoverableHours)} recobráveis</b>{review.realized.recoverableHours>0?` → ${review.realized.dailies} diária(s) nova(s), ${(review.realized.valueCents/100).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}, vão para o Financeiro ligadas à OS`:''} · {hoursText(review.realized.otherHours)} não recobráveis ficam registradas na OS.</span></div>}
     {review.errors.length?<ReviewErrors errors={review.errors} realized={realized}/>:<div className="notice"><CheckCircle2 size={17}/><span>Sem pendências. Pronto para {realized?'registrar':'lançar'}.</span></div>}
@@ -241,10 +283,12 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false
  const frozen=osStatus==='concluida'||osStatus==='dispensada',started=!!osStatus&&osStatus!=='nao_iniciada'&&!frozen;
  const editable=canEdit&&!frozen;
  const [avail,setAvail]=useState<Record<string,R>>({}),[people,setPeople]=useState<Record<string,R>>({}),[showAll,setShowAll]=useState(false);
- const badDates=!!(localIssue(s.start)||localIssue(s.end));
- const startISO=toISO(s.start),endISO=toISO(s.end),valid=!badDates&&!!startISO&&!!endISO&&Date.parse(endISO)>Date.parse(startISO);
- // Consulta a agenda do intervalo da etapa (o servidor revalida ao gravar).
- useEffect(()=>{if(!valid||!s.included||!editable||realized)return;const t=setTimeout(async()=>{try{const r=await load<R>(`planning/availability?start=${encodeURIComponent(startISO!)}&end=${encodeURIComponent(endISO!)}&planId=${planId}&stepId=${serverStep?.id||''}`);setAvail(Object.fromEntries(r.equipment.map((e:R)=>[e.id,e])));setPeople(Object.fromEntries((r.operators||[]).map((o:R)=>[o.id,o])))}catch{/* sem prévia: a gravação confere */}},400);return()=>clearTimeout(t)},[valid,startISO,endISO,s.included,editable,realized,planId,serverStep?.id]);
+ // Planejamento: dias (AAAA-MM-DD); atividade realizada: data e hora reais.
+ const badDates=realized?!!(localIssue(s.start)||localIssue(s.end)):!!(dayIssue(s.start)||dayIssue(s.end));
+ const startQ=realized?toISO(s.start):s.start,endQ=realized?toISO(s.end):s.end;
+ const valid=!badDates&&!!startQ&&!!endQ&&(realized?Date.parse(endQ)>Date.parse(startQ):endQ>=startQ);
+ // Consulta a agenda dos dias da etapa (o servidor revalida ao gravar).
+ useEffect(()=>{if(!valid||!s.included||!editable||realized)return;const t=setTimeout(async()=>{try{const r=await load<R>(`planning/availability?start=${encodeURIComponent(startQ!)}&end=${encodeURIComponent(endQ!)}&planId=${planId}&stepId=${serverStep?.id||''}`);setAvail(Object.fromEntries(r.equipment.map((e:R)=>[e.id,e])));setPeople(Object.fromEntries((r.operators||[]).map((o:R)=>[o.id,o])))}catch{/* sem prévia: a gravação confere */}},400);return()=>clearTimeout(t)},[valid,startQ,endQ,s.included,editable,realized,planId,serverStep?.id]);
  const deps=s.dependsOn.map(d=>steps.find(x=>x.key===d)).filter(Boolean) as Step[];
  const typeNeeds=s.needs.filter(n=>n.equipmentTypeId),fnNeeds=s.needs.filter(n=>n.functionId);
  const neededTypes=typeNeeds.map(n=>n.equipmentTypeId);
@@ -255,52 +299,56 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false
   .map((o,i)=>({o,i,rank:(fitsFn(o)?0:2)+(people[o.id]?.status==='ocupado'?1:0)})).sort((x,y)=>x.rank-y.rank||x.i-y.i).map(x=>x.o);
  const freeFor=(fn:string)=>(refs.operators as R[]).filter(o=>o.active&&o.function_ids.includes(fn)&&people[o.id]?.status!=='ocupado').length;
  const name=(list:string,id:string|null)=>(refs[list] as R[]).find(x=>x.id===id)?.name||'—';
- const dur=badDates?null:minutesBetween(startISO,endISO);
+ const dur=badDates||!realized?null:minutesBetween(startQ,endQ);
+ const nDays=realized?null:daysCount(s.start,s.end);
  return <article className={`step-card ${s.included?'':'excluded'}`}>
   <header><div><b>{free?'Início → Fim da OS':s.name}</b>{!s.required&&<Badge>Opcional</Badge>}{osStatus&&osStatus!=='nao_iniciada'&&<Badge tone={frozen?'muted':'success'}>{osStepNames[osStatus]}{frozen?' · não muda':''}</Badge>}{deps.length>0&&<small>Após: {deps.map(d=>d.name+(d.included?'':' (não incluída — ignorada)')).join(', ')}</small>}{s.defaultMinutes!=null&&<small><Clock size={12} className="inline"/> Duração padrão {hhmm(s.defaultMinutes)}</small>}</div>
    {!s.required&&!frozen&&!started&&<Toggle title="Incluir etapa" checked={s.included} onChange={v=>onChange({included:v})}/>}</header>
   {s.included&&<fieldset disabled={frozen} className="plan-fieldset"><div className="form-grid">
-   {free?<div className="n-field wide"><label>Marcos</label><small>Início {s.start?s.start.replace('T',' '):'—'} · Fim {s.end?s.end.replace('T',' '):'—'}{dur!=null&&dur>0?` · duração ${hhmm(dur)}`:''}. Ajuste nas datas da atividade, acima.</small></div>:<>
-   <Field label="Início (Brasília)" hint={localIssue(s.start)||(started?'Etapa iniciada: o início previsto é a referência do desvio e não muda.':undefined)}><Input type="datetime-local" min={INPUT_MIN} max={INPUT_MAX} aria-invalid={!!localIssue(s.start)} disabled={started} value={s.start} onChange={e=>onChange({start:e.target.value})}/></Field>
-   <Field label="Fim (Brasília)" hint={localIssue(s.end)||(dur!=null?(dur>0?`Duração ${hhmm(dur)}`:'O fim deve ser depois do início'):undefined)}><Input type="datetime-local" min={INPUT_MIN} max={INPUT_MAX} aria-invalid={!!localIssue(s.end)} value={s.end} onChange={e=>onChange({end:e.target.value})}/></Field></>}
+   {free?<div className="n-field wide"><label>{realized?'Marcos':'Dias da OS'}</label><small>{realized?<>Início {s.start?s.start.replace('T',' '):'—'} · Fim {s.end?s.end.replace('T',' '):'—'}{dur!=null&&dur>0?` · duração ${hhmm(dur)}`:''}. Ajuste nas datas da atividade, acima.</>:<>{s.start&&s.end&&!badDates?(s.start===s.end?dayText(s.start):`${dayText(s.start)} a ${dayText(s.end)}`):'—'}{nDays&&nDays>0?` · ${daysText(nDays)}`:''}. Ajuste nos dias da atividade, acima.</>}</small></div>:<>
+   <Field label="Primeiro dia" hint={dayIssue(s.start)||(started?'Etapa iniciada: o dia de início previsto é a referência do desvio e não muda.':undefined)}><Input type="date" min="2000-01-01" max="2100-12-31" aria-invalid={!!dayIssue(s.start)} disabled={started} value={s.start} onChange={e=>onChange({start:e.target.value,...(s.end&&e.target.value>s.end?{end:e.target.value}:{})})}/></Field>
+   <Field label="Último dia" hint={dayIssue(s.end)||daysText(nDays)||undefined}><Input type="date" min={s.start||'2000-01-01'} max="2100-12-31" aria-invalid={!!dayIssue(s.end)||(nDays??1)<1} value={s.end} onChange={e=>onChange({end:e.target.value})}/></Field></>}
    <Field label="Local específico da etapa"><Choice value={s.locationId||'none'} onChange={v=>onChange({locationId:v==='none'?'':v})} options={[{value:'none',label:'Mesmo local da atividade'},...(refs.locations as R[]).filter(l=>l.active||l.id===s.locationId).map(l=>({value:l.id,label:paths.get(l.id)!}))]}/></Field>
    <div className="n-field wide"><label>Necessidades de recursos</label><div className="need-chips">{s.needs.length?s.needs.map((n,i)=><span key={i} className="need-chip">{n.materialId?<Package size={13}/>:n.equipmentTypeId?<Truck size={13}/>:<Users size={13}/>}{n.materialId?<><input type="number" min={0.001} step="any" aria-label="Quantidade" className="amount" value={n.amount??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,amount:Number(e.target.value)||0}:x)})}/><input aria-label="Unidade de medida" className="unit" maxLength={12} list="units" value={n.unit??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,unit:e.target.value}:x)})}/>{name('materials',n.materialId)}</>:<><input type="number" min={1} max={99} aria-label="Quantidade" value={n.quantity??1} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,quantity:Math.min(99,Math.max(1,Number(e.target.value)||1))}:x)})}/>× {n.equipmentTypeId?name('equipmentTypes',n.equipmentTypeId):name('functions',n.functionId)}</>}<button type="button" aria-label="Remover necessidade" onClick={()=>onChange({needs:s.needs.filter((_,j)=>j!==i)})}><X size={12}/></button></span>):<small>Nenhuma necessidade informada.</small>}</div>
     {editable&&<NeedAdder refs={refs} needs={s.needs} onRefs={onRefs} onAdd={n=>onChange({needs:[...s.needs,n]})}/>}</div>
    <fieldset className="n-field wide"><legend>Equipamentos identificados {typeNeeds.length>0&&<small>({typeNeeds.map(n=>`${n.quantity}× ${name('equipmentTypes',n.equipmentTypeId)}`).join(', ')})</small>}</legend>
-    {!valid?<small className="pending-text">Informe início e fim da etapa para consultar a agenda e reservar equipamentos.</small>:<div className="resource-list">{equipment.map(e=>{const a=realized?undefined:avail[e.id];const chosen=s.equipmentIds.includes(e.id);const blocked=a&&!chosen&&(free?a.status==='bloqueado':a.status!=='livre');return <label key={e.id} className={`resource ${a?.status||''} ${chosen?'chosen':''}`}><Checkbox checked={chosen} disabled={!!blocked} onCheckedChange={v=>onChange({equipmentIds:v?[...s.equipmentIds,e.id]:s.equipmentIds.filter(x=>x!==e.id)})}/><span><b>{e.tag}</b><small>{name('equipmentTypes',e.type_id)}{e.capacity?` · ${e.capacity}`:''}</small>{a&&a.status!=='livre'&&<em>{a.detail}</em>}</span>{!realized&&<Badge tone={!a?'muted':a.status==='livre'?'success':a.status==='bloqueado'?'danger':'warning'}>{!a?(editable?'Consultando…':chosen?'Reservado aqui':'—'):a.status==='livre'?'Livre':a.status==='bloqueado'?'Bloqueado':chosen?'Reservado aqui':'Reservado'}</Badge>}</label>})}{neededTypes.length>0&&<button type="button" className="text-action" onClick={()=>setShowAll(v=>!v)}>{showAll?'Mostrar só os tipos necessários':'Mostrar todos os equipamentos'}</button>}</div>}
-    {valid&&free&&!realized&&s.equipmentIds.length>0&&<div className="equip-uses"><b>Período de uso de cada equipamento</b><small>Por padrão o equipamento fica reservado na OS inteira. Informe o início e as horas de uso para reservar só esse período e deixá-lo livre para outras OS no restante.</small>
-     {s.equipmentIds.map(id=><EquipmentUse key={id} tag={(refs.equipment as R[]).find(x=>x.id===id)?.tag||'—'} equipmentId={id} step={s} planId={planId} stepId={serverStep?.id} editable={editable} onChange={u=>{const uses={...s.uses};if(u)uses[id]=u;else delete uses[id];onChange({uses})}}/>)}</div>}
-    {valid&&(realized?<small>Registro do que foi usado: sem conferência de agenda, reserva ou bloqueio.</small>:<small>{free?'Equipamento já reservado em parte da OS pode ser escolhido: ajuste o período de uso para um horário livre. ':''}O rascunho não segura o equipamento: ele fica reservado quando a OS é lançada, e outra OS lançada antes no mesmo horário tem prioridade.</small>)}
+    {!valid?<small className="pending-text">Informe os dias da etapa para consultar a agenda e reservar equipamentos.</small>:<div className="resource-list">{equipment.map(e=>{const a=realized?undefined:avail[e.id];const chosen=s.equipmentIds.includes(e.id);
+     // Por dia: o equipamento é dividido em horas (até 12 h no dia). Só não dá para escolher o bloqueado ou o que não tem hora livre.
+     const freeH=a?Number(a.freeHours??0):EQUIPMENT_DAY_HOURS,blocked=a&&!chosen&&(a.status==='bloqueado'||(a.status==='reservado'&&freeH<=0&&!free));
+     return <label key={e.id} className={`resource ${a?.status||''} ${chosen?'chosen':''}`}><Checkbox checked={chosen} disabled={!!blocked} onCheckedChange={v=>onChange({equipmentIds:v?[...s.equipmentIds,e.id]:s.equipmentIds.filter(x=>x!==e.id),...(v&&a&&freeH>0&&freeH<EQUIPMENT_DAY_HOURS?{hours:{...s.hours,[e.id]:String(freeH).replace('.',',')}}:{})})}/><span><b>{e.tag}</b><small>{name('equipmentTypes',e.type_id)}{e.capacity?` · ${e.capacity}`:''}</small>{a&&a.status!=='livre'&&<em>{a.detail}</em>}</span>
+      {!realized&&<Badge tone={!a?'muted':a.status==='livre'?'success':a.status==='bloqueado'?'danger':'warning'}>{!a?(editable?'Consultando…':chosen?'Reservado aqui':'—'):a.status==='livre'?'Livre':a.status==='bloqueado'?'Bloqueado':chosen?'Reservado aqui':freeH>0?`${String(freeH).replace('.',',')} h livres/dia`:'Sem horas livres'}</Badge>}</label>})}{neededTypes.length>0&&<button type="button" className="text-action" onClick={()=>setShowAll(v=>!v)}>{showAll?'Mostrar só os tipos necessários':'Mostrar todos os equipamentos'}</button>}</div>}
+    {valid&&!realized&&s.equipmentIds.length>0&&<div className="equip-uses"><b>{free?'Dias e horas de uso de cada equipamento':'Horas de uso por dia de cada equipamento'}</b><small>Padrão: 12 h por dia (o dia todo). Diminua quando o uso for menor: o restante do dia fica livre para outras OS (a soma no dia, entre as OS, vai até 12 h).{free?' Na OS sem fluxo, informe também os dias de uso para reservar só esses dias.':''}</small>
+     {s.equipmentIds.map(id=><EquipmentDay key={id} tag={(refs.equipment as R[]).find(x=>x.id===id)?.tag||'—'} equipmentId={id} step={s} free={free} planId={planId} stepId={serverStep?.id} editable={editable} onChange={p=>{const patch:Partial<Step>={};if('use' in p){const uses={...s.uses};if(p.use)uses[id]=p.use;else delete uses[id];patch.uses=uses;}if(p.hours!==undefined)patch.hours={...s.hours,[id]:p.hours};onChange(patch)}}/>)}</div>}
+    {valid&&(realized?<small>Registro do que foi usado: sem conferência de agenda, reserva ou bloqueio.</small>:<small>O rascunho não segura o equipamento: as horas ficam reservadas quando a OS é lançada, e outra OS lançada antes no mesmo dia tem prioridade. A ordem dentro do dia é combinada com o líder.</small>)}
    </fieldset>
    <fieldset className="n-field wide"><legend>Colaboradores {fnNeeds.length>0&&<small>({fnNeeds.map(n=>`${n.quantity}× ${name('functions',n.functionId)}${valid&&Object.keys(people).length?` · ${freeFor(n.functionId||'')} livre(s)`:''}`).join(', ')})</small>}</legend>
     <div className="resource-list people">{operators.map(o=>{const fits=fitsFn(o),p=valid&&!realized?people[o.id]:undefined,chosen=s.operatorIds.includes(o.id);
      return <label key={o.id} className={`resource ${p?.status==='ocupado'?'busy':''} ${chosen?'chosen':''}`}><Checkbox checked={chosen} onCheckedChange={v=>onChange({operatorIds:v?[...s.operatorIds,o.id]:s.operatorIds.filter(x=>x!==o.id)})}/><span><b>{o.name}</b><small>{o.function_ids.map((f:string)=>name('functions',f)).join(', ')||'Sem função'}{fits?' · função exigida':''}</small>{p?.status==='ocupado'&&<em>Também em: {p.detail}</em>}</span>
       {!realized&&<Badge tone={!p?'muted':p.status==='livre'?'success':'warning'}>{!p?(valid&&editable?'Consultando…':'—'):p.status==='livre'?'Livre':chosen?'Ocupado (escolhido)':'Ocupado'}</Badge>}</label>})}</div>
-    {valid&&!realized&&<small>Colaborador ocupado em outra etapa no mesmo horário é só um aviso: pode ser escolhido e não impede o lançamento.</small>}
+    {valid&&!realized&&<small>Colaborador em outra etapa no mesmo dia é só um aviso: pode ser escolhido e não impede o lançamento.</small>}
    </fieldset>
   </div></fieldset>}
  </article>;
 }
 
-/** Uso de um equipamento na OS sem fluxo: início + horas (fim calculado), sempre dentro da OS, com a
- * agenda do equipamento consultada só para esse período. */
-function EquipmentUse({tag,equipmentId,step:s,planId,stepId,editable,onChange}:{tag:string,equipmentId:string,step:Step,planId:string,stepId?:string,editable:boolean,onChange:(u:Use|null)=>void}){
- const os0=Date.parse(toISO(s.start)||''),os1=Date.parse(toISO(s.end)||'');
- const u=s.uses?.[equipmentId];
- const a0=u&&toISO(u.start)?Date.parse(toISO(u.start)!):os0,a1=u&&toISO(u.end)?Date.parse(toISO(u.end)!):os1;
- // Recorte à janela da OS (mesma regra do envio ao servidor).
- const st=Math.max(a0,os0),en=Math.min(a1,os1),ok=en>st,whole=!u||(st===os0&&en===os1);
- const hours=ok?Math.round((en-st)/36e5*100)/100:0;
+/** Equipamento escolhido: horas de uso por dia (padrão 12 h, o dia todo) e, na OS sem fluxo, os dias de uso
+ * (padrão: a OS inteira). A agenda do equipamento é consultada para esses dias e horas. */
+function EquipmentDay({tag,equipmentId,step:s,free,planId,stepId,editable,onChange}:{tag:string,equipmentId:string,step:Step,free:boolean,planId:string,stepId?:string,editable:boolean,onChange:(p:{use?:Use|null,hours?:string})=>void}){
+ const u=free?s.uses?.[equipmentId]:undefined;
+ const first=u?.start&&!dayIssue(u.start)?(u.start<s.start?s.start:u.start):s.start,last=u?.end&&!dayIssue(u.end)?(u.end>s.end?s.end:u.end):s.end;
+ const ok=!!first&&!!last&&!dayIssue(first)&&!dayIssue(last)&&last>=first,whole=!u||(first===s.start&&last===s.end);
+ const raw=s.hours?.[equipmentId]??'',typed=hoursNum(raw),badH=raw!==''&&(typed==null||typed>EQUIPMENT_DAY_HOURS),h=badH?EQUIPMENT_DAY_HOURS:typed??EQUIPMENT_DAY_HOURS;
  const [status,setStatus]=useState<R|null>(null);
- useEffect(()=>{if(!ok||!editable)return;const t=setTimeout(async()=>{try{const r=await load<R>(`planning/availability?start=${encodeURIComponent(new Date(st).toISOString())}&end=${encodeURIComponent(new Date(en).toISOString())}&planId=${planId}&stepId=${stepId||''}`);setStatus((r.equipment as R[]).find(x=>x.id===equipmentId)||null)}catch{setStatus(null)}},450);return()=>clearTimeout(t)},[ok,st,en,editable,planId,stepId,equipmentId]);
- const set=(a:number,b:number)=>{const x=Math.max(a,os0),y=Math.min(b,os1);if(!(y>x))return;onChange(x===os0&&y===os1?null:{start:toLocal(new Date(x).toISOString()),end:toLocal(new Date(y).toISOString())});};
- const startLocal=toLocal(new Date(ok?st:os0).toISOString());
+ useEffect(()=>{if(!ok||!editable||badH)return;const t=setTimeout(async()=>{try{const r=await load<R>(`planning/availability?start=${first}&end=${last}&hours=${h}&planId=${planId}&stepId=${stepId||''}`);setStatus((r.equipment as R[]).find(x=>x.id===equipmentId)||null)}catch{setStatus(null)}},450);return()=>clearTimeout(t)},[ok,first,last,h,badH,editable,planId,stepId,equipmentId]);
+ const setDays=(a:string,b:string)=>{if(!a||!b||dayIssue(a)||dayIssue(b))return;const x=a<s.start?s.start:a,y=b>s.end?s.end:b;if(y<x)return;onChange({use:x===s.start&&y===s.end?null:{start:x,end:y}});};
+ const hText=(n:number)=>String(n).replace('.',',');
  return <div className="equip-use"><b>{tag}</b>
-  <label><span>Início do uso</span><Input type="datetime-local" min={s.start} max={s.end} value={startLocal} disabled={!editable} onChange={e=>{const x=toISO(e.target.value);if(x)set(Date.parse(x),Date.parse(x)+(en-st))}}/></label>
-  <label><span>Horas de uso</span><Input type="number" min={0.25} step={0.25} inputMode="decimal" value={hours||''} disabled={!editable} onChange={e=>{const h=Number(e.target.value.replace(',','.'));if(h>0)set(st,st+h*36e5)}}/></label>
-  <span className="equip-use-until">{ok?`${fmt(new Date(st).toISOString())} → ${fmt(new Date(en).toISOString())}`:'—'}{!whole&&<small>{hhmm(Math.round((en-st)/60000))} de {hhmm(Math.round((os1-os0)/60000))} da OS</small>}{whole&&<small>OS inteira</small>}</span>
-  <Badge tone={!status?'muted':status.status==='livre'?'success':status.status==='bloqueado'?'danger':'warning'}>{!status?(editable?'Consultando…':'—'):status.status==='livre'?'Livre no período':status.status==='bloqueado'?'Bloqueado':'Conflito no período'}</Badge>
-  {!whole&&editable&&<button type="button" className="text-action" onClick={()=>onChange(null)}>OS inteira</button>}
+  {free&&<><label><span>Primeiro dia de uso</span><Input type="date" min={s.start} max={s.end} value={first} disabled={!editable} onChange={e=>setDays(e.target.value,last<e.target.value?e.target.value:last)}/></label>
+   <label><span>Último dia de uso</span><Input type="date" min={first} max={s.end} value={last} disabled={!editable} onChange={e=>setDays(first,e.target.value)}/></label></>}
+  <label><span>Horas por dia</span><Input type="number" min={0.25} max={EQUIPMENT_DAY_HOURS} step={0.25} inputMode="decimal" placeholder={String(EQUIPMENT_DAY_HOURS)} aria-invalid={badH} value={raw} disabled={!editable} onChange={e=>onChange({hours:e.target.value})}/></label>
+  <span className="equip-use-until">{ok?(first===last?dayText(first):`${dayText(first)} a ${dayText(last)}`):'—'}<small>{badH?`Horas por dia de 0,25 a ${EQUIPMENT_DAY_HOURS}`:`${hText(h)} h por dia${h===EQUIPMENT_DAY_HOURS?' (o dia todo)':''}`}{free&&whole?' · OS inteira':''}</small></span>
+  <Badge tone={!status?'muted':status.status==='livre'||status.status==='parcial'?'success':status.status==='bloqueado'?'danger':'warning'}>{!status?(editable?'Consultando…':'—'):status.status==='livre'?'Livre':status.status==='parcial'?`Cabe · ${hText(Number(status.freeHours))} h livres`:status.status==='bloqueado'?'Bloqueado':'Não cabe'}</Badge>
+  {free&&!whole&&editable&&<button type="button" className="text-action" onClick={()=>onChange({use:null})}>OS inteira</button>}
   {status&&status.status!=='livre'&&<em>{status.detail}</em>}
  </div>;
 }
@@ -349,7 +397,8 @@ export function Orders({refreshKey,planRefs,onPlanRefs,onExec,onRevise}:{refresh
  const [refs,setRefs]=useState<R|null>(null),[rows,setRows]=useState<R|null>(null),[error,setError]=useState(''),[filters,setFilters]=useState<R>(readOrderFilters),[cancel,setCancel]=useState(''),[busy,setBusy]=useState(false);
  // Detalhes da OS (só leitura): a versão exibida e a OS; cancelar pede a justificativa num diálogo.
  const [viewing,setViewing]=useState<{order:R,planId:string}|null>(null),[cancelFor,setCancelFor]=useState<R|null>(null);
- const query=useMemo(()=>new URLSearchParams(Object.entries({...filters,from:filters.from?toISO(filters.from)||'':'',to:filters.to?toISO(filters.to)||'':''}).filter(([,v])=>v) as [string,string][]).toString(),[filters]);
+ // Período por dia (do início do primeiro ao fim do último dia).
+ const query=useMemo(()=>new URLSearchParams(Object.entries({...filters,from:filters.from&&!dayIssue(filters.from)?filters.from:'',to:filters.to&&!dayIssue(filters.to)?filters.to:''}).filter(([,v])=>v) as [string,string][]).toString(),[filters]);
  useEffect(()=>{try{sessionStorage.setItem(ORDER_FILTERS,JSON.stringify(filters))}catch{}},[filters]);
  const refresh=useCallback(async()=>{try{const [r,o]=await Promise.all([load<R>('orders/refs'),load<R>('orders?'+query)]);setRefs(r);setRows(o);setError('')}catch(e){setError((e as Error).message)}},[query]);
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Lista vinda do servidor (mesma fonte para lista e contagens).
@@ -391,8 +440,8 @@ export function Orders({refreshKey,planRefs,onPlanRefs,onExec,onRevise}:{refresh
  const resFilters=listFilterLabels(resExport,{type:Object.fromEntries(refs.activityTypes.map((t:R)=>[t.id,t.code+' · '+t.name])),location:Object.fromEntries(refs.locations.map((l:R)=>[l.id,paths.get(l.id)||l.name])),sol:Object.fromEntries(refs.orgs.map((o:R)=>[o.id,o.acronym||o.name]))});
  return <div className="orders">
   <section className="n-panel"><div className="filters order-filters"><Filter size={16} aria-hidden/>
-   <label className="date-filter"><span>De</span><input type="datetime-local" aria-label="Período: de" value={filters.from} onChange={e=>f('from',e.target.value)}/></label>
-   <label className="date-filter"><span>Até</span><input type="datetime-local" aria-label="Período: até" value={filters.to} onChange={e=>f('to',e.target.value)}/></label>
+   <label className="date-filter"><span>De</span><input type="date" aria-label="Período: de" value={filters.from} onChange={e=>f('from',e.target.value)}/></label>
+   <label className="date-filter"><span>Até</span><input type="date" aria-label="Período: até" min={filters.from||undefined} value={filters.to} onChange={e=>f('to',e.target.value)}/></label>
    <Choice label="Tipo de atividade" value={filters.type||'all'} onChange={v=>f('type',v==='all'?'':v)} options={[{value:'all',label:'Todos os tipos'},...refs.activityTypes.map((t:R)=>({value:t.id,label:t.code+' · '+t.name}))]}/>
    <Choice label="Local" value={filters.location||'all'} onChange={v=>f('location',v==='all'?'':v)} options={[{value:'all',label:'Todos os locais'},...refs.locations.map((l:R)=>({value:l.id,label:paths.get(l.id)||l.name}))]}/>
    <Choice label="Situação" value={filters.status||'padrao'} onChange={v=>f('status',v==='padrao'?'':v)} options={[{value:'padrao',label:'Sem canceladas'},{value:'todas',label:'Todas, inclusive canceladas'},...Object.entries(statusNames).map(([value,[label]])=>({value,label}))]}/>

@@ -16,13 +16,14 @@ import {viewToParams,EMPTY_FILTER} from '@/lib/os-order';
 import {ALL_KINDS,type Alloc,type ResKind} from '@/lib/resource-agenda';
 import {ResourcePick} from './resource-agenda';
 import {keepOpenForPick,openPdf,pickSummary,resourcePdfUrl} from './resource-export';
+import {dayRangeShort} from '@/lib/days';
 
 const dmhmFmt=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
 const dmhm={format:(t:number)=>dmhmFmt.format(t).replace(',','')};
 /** Duração longa legível: "2 d 01:02" a partir de 24 h (o HH:MM puro passa de 48:00 e confunde). */
 const span=(x:number)=>x>=86400000?`${Math.floor(x/86400000)} d ${dur(x%86400000)}`:dur(x);
 /** Período planejado: no mesmo dia "26/10 07:00–17:00"; em dias diferentes, data nas duas pontas. */
-const period=(a:number,b:number)=>{const x=dmhm.format(a),y=dmhm.format(b);return x.slice(0,5)===y.slice(0,5)?`${x}–${y.slice(6)}`:`${x} → ${y}`;};
+const period=(a:number,b:number)=>{const days=dayRangeShort(a,b);if(days)return days;const x=dmhm.format(a),y=dmhm.format(b);return x.slice(0,5)===y.slice(0,5)?`${x}–${y.slice(6)}`:`${x} → ${y}`;};
 const STATUS:Record<string,string>={programada:'Programada',em_andamento:'Em andamento',encerramento_pendente:'Encerramento pendente',concluida:'Concluída',cancelada:'Cancelada'};
 const STEP:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 const COLOR:Record<string,string>={em_andamento:'var(--live)',encerramento_pendente:'var(--imp)',programada:'var(--line)',concluida:'var(--ok)',cancelada:'var(--occ)'};

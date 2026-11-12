@@ -9,7 +9,8 @@ export const RES_KINDS:{id:ResKind,label:string,one:string}[]=[
  {id:'material',label:'Materiais',one:'Material'},
 ];
 export const ALL_KINDS:ResKind[]=RES_KINDS.map(k=>k.id);
-export type Alloc={kind:ResKind,key:string,label:string,sub?:string|null,start:string,end:string,step?:string|null,quantity:number,unit?:string|null,
+/** hoursPerDay: equipamento reservado por dia (horas por dia × dias); sem ele, vale a duração do período. */
+export type Alloc={kind:ResKind,key:string,label:string,sub?:string|null,start:string,end:string,step?:string|null,quantity:number,unit?:string|null,hoursPerDay?:number|null,
  orderId:string,number:number,activity:string,status:string,orgId:string,sector:string|null};
 /** Onde fica o texto da alocação: dentro da barra ou numa etiqueta ao lado dela. */
 export type Side='in'|'right'|'left';
@@ -41,7 +42,7 @@ export function resourceRows(allocs:Alloc[],kinds:ResKind[],picked:string[]=[]):
  const rows=[...by.values()];
  for(const r of rows){
   r.items.sort((p,q)=>p.a-q.a||p.b-q.b||p.number-q.number);
-  r.hours=r.items.reduce((n,i)=>n+(i.b-i.a)/3600_000,0);
+  r.hours=r.items.reduce((n,i)=>n+(i.hoursPerDay?i.hoursPerDay*Math.max(1,Math.round((i.b-i.a)/86_400_000)):(i.b-i.a)/3600_000),0);
   r.total=r.kind==='material'?r.items.reduce((n,i)=>n+Number(i.quantity||0),0):null;
   r.orders=new Set(r.items.map(i=>i.orderId)).size;
  }

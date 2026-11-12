@@ -1,4 +1,5 @@
 'use client';
+import {dayRangeShort,isWholeDays,dayOf,lastDay,dayText} from '@/lib/days';
 // Gantt das OS: uma linha por OS (expansível para as etapas), com as MESMAS OS e a MESMA ordem da
 // lista (grupos de lib/os-order). Barra planejada à frente e barra executada atrás, deslocada para
 // baixo, cada uma nas próprias datas e na mesma escala. Roda do mouse aproxima/afasta mantendo a data
@@ -20,7 +21,7 @@ const statusText:Record<string,string>={programada:'Programada',em_andamento:'Em
 const stepText:Record<string,string>={nao_iniciada:'Não iniciada',em_execucao:'Em execução',bloqueada:'Bloqueada',pausada:'Pausada',concluida:'Concluída',dispensada:'Dispensada',cancelada:'Cancelada'};
 const hm=(ms:number)=>{const d=local(ms);return `${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`};
 /** Período da barra: "07:00–17:00" no mesmo dia; com data nas pontas quando passa de um dia. */
-const when=(a:number,b:number)=>{const x=local(a),y=local(b),d=(z:Date)=>`${String(z.getUTCDate()).padStart(2,'0')}/${String(z.getUTCMonth()+1).padStart(2,'0')}`;return d(x)===d(y)?`${hm(a)}–${hm(b)}`:`${d(x)} ${hm(a)} → ${d(y)} ${hm(b)}`};
+const when=(a:number,b:number)=>{const days=dayRangeShort(a,b);if(days)return days;const x=local(a),y=local(b),d=(z:Date)=>`${String(z.getUTCDate()).padStart(2,'0')}/${String(z.getUTCMonth()+1).padStart(2,'0')}`;return d(x)===d(y)?`${hm(a)}–${hm(b)}`:`${d(x)} ${hm(a)} → ${d(y)} ${hm(b)}`};
 const fmt=(ms:number)=>{const d=local(ms);return `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`};
 
 /** Marcas do cabeçalho conforme a escala: meses (ano), dias (mês) ou horas (dia). */
@@ -52,11 +53,20 @@ export function barsOf(o:R,now:number){
  const ps=num(o.planned_start),pe=num(o.planned_end),as=num(o.actual_start),ae=num(o.actual_end);
  const plan=ps!=null&&pe!=null&&pe>ps?[ps,pe] as const:null;
  const real=as!=null&&(ae==null||ae>=as)&&as<=now+5*60000?[as,ae??Math.max(as,now)] as const:null;
- const lines=[plan?`Planejado: ${fmt(plan[0])} → ${fmt(plan[1])} (${dur(plan[1]-plan[0])})`:ps==null?'Sem início planejado':'Planejado: datas inconsistentes'];
+ // Planejamento por dia: compara o dia real com os dias planejados (a hora fica com a Operação).
+ const byDay=plan?isWholeDays(new Date(plan[0]).toISOString(),new Date(plan[1]).toISOString()):false;
+ const dd=(x:string,y:string)=>Math.round((Date.parse(x+'T12:00:00Z')-Date.parse(y+'T12:00:00Z'))/D);
+ const days=(n:number)=>n===1?'1 dia':`${n} dias`;
+ const lines=[plan?(byDay?`Planejado: ${dayRangeShort(plan[0],plan[1])} (${days(dd(lastDay(new Date(plan[1]).toISOString()),dayOf(plan[0]))+1)})`:`Planejado: ${fmt(plan[0])} → ${fmt(plan[1])} (${dur(plan[1]-plan[0])})`):ps==null?'Sem início planejado':'Planejado: datas inconsistentes'];
  if(real){lines.push(`Real: ${fmt(real[0])} → ${ae!=null?fmt(ae):'em curso (agora '+fmt(now)+')'} (${dur(real[1]-real[0])})`);
+  if(byDay&&plan){const d0=dayOf(real[0]),p0=dayOf(plan[0]),p1=lastDay(new Date(plan[1]).toISOString());
+   lines.push(d0<p0?`Início: ${days(dd(p0,d0))} antes do planejado`:d0>p1?`Início: ${days(dd(d0,p1))} depois do último dia planejado`:'Início: dentro dos dias planejados');
+   if(ae!=null){const d1=dayOf(ae);lines.push(d1>p1?`Término: ${days(dd(d1,p1))} depois do planejado`:'Término: dentro dos dias planejados');}
+   else lines.push(now>plan[1]?`Último dia planejado (${dayText(p1).slice(0,5)}) já passou`:`Último dia planejado: ${dayText(p1).slice(0,5)}`);}
+  else{
   if(ps!=null)lines.push(real[0]===ps?'Início: no horário planejado':`Início: ${dur(real[0]-ps)} ${real[0]>ps?'depois':'antes'} do planejado`);
   if(pe!=null&&ae!=null)lines.push(ae===pe?'Término: no horário planejado':`Término: ${dur(ae-pe)} ${ae>pe?'depois':'antes'} do planejado`);
-  else if(pe!=null&&ae==null)lines.push(now>pe?`Término planejado vencido há ${dur(now-pe)}`:`Faltam ${dur(pe-now)} para o término planejado`);
+  else if(pe!=null&&ae==null)lines.push(now>pe?`Término planejado vencido há ${dur(now-pe)}`:`Faltam ${dur(pe-now)} para o término planejado`);}
  }else if(as==null)lines.push('Sem execução registrada');
  return {plan,real,open:as!=null&&ae==null,lines};
 }

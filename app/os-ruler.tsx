@@ -6,6 +6,7 @@
 // pausa, bloqueio e impacto. OS de vários dias: marcas de 6 em 6 horas e virada de dia destacada.
 import {useCallback,useEffect,useRef,useState,type MouseEvent} from 'react';
 import type {R} from './kit';
+import {dayRangeShort} from '@/lib/days';
 
 const H=3600_000;
 const STOP_BLOCK=new Set(['bloqueio','nc_critica','interrupcao_tecnica']);
@@ -99,6 +100,9 @@ export default function OsRuler({order,steps,intervals,occurrences,now,compact=f
  // Trilha do planejado: barra contornada com as horas de início e fim (quando cabem).
  // Início e fim em dias diferentes levam a data (24/10 09:00), para não ler "09:00 … 09:00".
  const planned=(a?:string,b?:string,big=false)=>{if(!a||!b)return null;const px=width(ms(a),ms(b))*(trackWidth||600)/100;
+  // Planejamento por dia: a barra mostra os dias planejados (sem hora).
+  const days=dayRangeShort(a,b);
+  if(days)return <span className="rplan" style={{left:pct(ms(a))+'%',width:width(ms(a),ms(b))+'%'}} title={`Planejado ${days}`}>{px>=(days.length>5?110:44)?<b>{days}</b>:null}</span>;
   const cross=dm.format(ms(a))!==dm.format(ms(b)),at=(t:number)=>cross?`${dm.format(t)} ${hm.format(t)}`:hm.format(t);
   return <span className="rplan" style={{left:pct(ms(a))+'%',width:width(ms(a),ms(b))+'%'}} title={`Planejado ${dm.format(ms(a))} ${hm.format(ms(a))} → ${dm.format(ms(b))} ${hm.format(ms(b))}`}>
    {px>=(cross?150:big?84:72)?<><b>{at(ms(a))}</b><b>{at(ms(b))}</b></>:px>=(cross?76:big?44:40)?<b>{at(ms(a))}</b>:null}</span>;};

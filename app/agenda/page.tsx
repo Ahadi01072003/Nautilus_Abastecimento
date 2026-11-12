@@ -16,6 +16,7 @@ import {rateLimit} from '@/lib/security';
 import {AppError} from '@/lib/domain';
 import AgendaPrint from './print';
 import {arrangeOrders,viewFromParams,DEFAULT_ARRANGE,EMPTY_FILTER,type Flags,type OsItem} from '@/lib/os-order';
+import {dayRangeShort} from '@/lib/days';
 export const dynamic='force-dynamic';
 
 type Search=Promise<Record<string,string|string[]|undefined>>;
@@ -200,7 +201,7 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
  const orgTotal=Math.max(1,sum.total);
 
  // Período curto: "26/10 07:00–17:00" no mesmo dia; com data nas duas pontas quando passa de um dia.
- const per=(a:string,b:string)=>{const x=Date.parse(a),y=Date.parse(b);return dm.format(x)===dm.format(y)?`${dm.format(x)} ${hm.format(x)}–${hm.format(y)}`:`${dm.format(x)} ${hm.format(x)} → ${dm.format(y)} ${hm.format(y)}`;};
+ const per=(a:string,b:string)=>{const days=dayRangeShort(a,b);if(days)return days;const x=Date.parse(a),y=Date.parse(b);return dm.format(x)===dm.format(y)?`${dm.format(x)} ${hm.format(x)}–${hm.format(y)}`:`${dm.format(x)} ${hm.format(x)} → ${dm.format(y)} ${hm.format(y)}`;};
  const osShort=(n:number)=>osNumber(n).replace('OS ','');
  // Recursos por OS na mesma ordem da organização escolhida.
  const ordered=groups.flatMap(g=>g.rows.map(x=>x.item as Row));
@@ -280,10 +281,11 @@ export default async function Agenda({searchParams}:{searchParams:Search}){
        {hourStep>0&&<div className="hours">{hourTicks.map(t=><i key={t} style={{left:`${pct(t)}%`}}>{String(new Date(t-OFF).getUTCHours()).padStart(2,'0')}h</i>)}</div>}</div></div>
      {slots.map((x,i)=>{if(x.kind==='grp')return groupRow(x,i,'orow grp');const o=x.o;const s0=Date.parse(o.planned_start),e0=Date.parse(o.planned_end),l=pct(s0),wPct=Math.max(.6,pct(e0)-l),wMm=wPct*TIME_W/100;
       const contL=s0<t0,contR=e0>t1,live=['em_andamento','encerramento_pendente'].includes(o.status);
-      const sameDay=dm.format(s0)===dm.format(e0);
-      const when=sameDay?`${dm.format(s0)} ${hm.format(s0)}–${hm.format(e0)}`:`${dm.format(s0)} ${hm.format(s0)} → ${dm.format(e0)} ${hm.format(e0)}`;
-      // Texto da barra: OS de vários dias leva a data no início e no fim (nunca "09:00–09:00").
+      const sameDay=dm.format(s0)===dm.format(e0),dayRng=dayRangeShort(s0,e0);
+      const when=dayRng??(sameDay?`${dm.format(s0)} ${hm.format(s0)}–${hm.format(e0)}`:`${dm.format(s0)} ${hm.format(s0)} → ${dm.format(e0)} ${hm.format(e0)}`);
+      // Texto da barra: OS de vários dias leva a data no início e no fim (nunca "09:00–09:00"). Por dia: só os dias.
       const barText=(mm:number)=>{const a=contL?'◂ ':'',b=contR?' ▸':'';
+       if(dayRng)return mm>=(dayRng.length>5?24:10)?`${a}${dayRng}${b}`:'';
        if(sameDay)return mm>=17?`${a}${hm.format(s0)}–${hm.format(e0)}${b}`:mm>=9?hm.format(s0):'';
        return mm>=36?`${a}${dm.format(s0)} ${hm.format(s0)} → ${dm.format(e0)} ${hm.format(e0)}${b}`:mm>=26?`${a}${hm.format(s0)} → ${dm.format(e0)} ${hm.format(e0)}${b}`:mm>=14?`${a}${dm.format(s0)} ${hm.format(s0)}`:'';};
       const eq=(o.equipment as Row[]).map(e=>e.tag).join(', ');

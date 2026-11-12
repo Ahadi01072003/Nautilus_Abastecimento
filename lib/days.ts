@@ -84,3 +84,12 @@ export function operationWindows(start:string,end:string):[number,number][]{
 }
 /** Horas planejadas de uma reserva: horas/dia × dias (ou a duração, quando tem hora). */
 export const reservedHours=(start:string,end:string,hoursPerDay:number)=>reservationWindows(start,end,hoursPerDay).reduce((s,[a,b])=>s+(b-a)/H_MS,0);
+
+/** Texto curto de um período em dias inteiros: "12/11" ou "12/11 → 14/11" (sem ano); null se tiver hora. */
+export function dayRangeShort(start:string|number|null|undefined,end:string|number|null|undefined){
+ if(start==null||end==null)return null;
+ const a=typeof start==='number'?new Date(start).toISOString():start,b=typeof end==='number'?new Date(end).toISOString():end;
+ if(!isWholeDays(a,b))return null;
+ const x=dayText(dayOf(a)).slice(0,5),y=dayText(lastDay(b)).slice(0,5);
+ return x===y?x:`${x} → ${y}`;
+}

@@ -15,6 +15,7 @@ import {MultiPick,useNow} from './os-arrange';
 import {ticks,MIN_SPAN,MAX_SPAN,type View} from './gantt';
 import {ALL_KINDS,RES_KINDS,packLanes,resourceOptions,resourceRows,type Alloc,type ResKind} from '@/lib/resource-agenda';
 import ResourceExportDialog from './resource-export';
+import {dayRangeShort} from '@/lib/days';
 
 const ICON:Record<ResKind,typeof Truck>={equipamento:Truck,funcao:Users,material:Package};
 const H=3600_000,DAY=24*H,OFF=3*H;
@@ -27,7 +28,7 @@ const STORE='nautilus.orders.resources',VIEW='nautilus.resources.view',WHEEL='na
 /** Largura do texto (dentro da barra ou na etiqueta ao lado). Alturas fixas para alinhar as colunas. */
 const MIN=140,GAP=8,LANE=62,GROUP_H=30;
 const rowH=(lanes:number)=>Math.max(64,lanes*LANE+12);
-const when=(a:number,b:number)=>dm.format(a)===dm.format(b)?`${dm.format(a)} ${hm.format(a)}–${hm.format(b)}`:`${dm.format(a)} ${hm.format(a)} → ${dm.format(b)} ${hm.format(b)}`;
+const when=(a:number,b:number)=>dayRangeShort(a,b)??(dm.format(a)===dm.format(b)?`${dm.format(a)} ${hm.format(a)}–${hm.format(b)}`:`${dm.format(a)} ${hm.format(a)} → ${dm.format(b)} ${hm.format(b)}`);
 const dur=(a:number,b:number)=>{const m=Math.round((b-a)/60000);return m<60?`${m} min`:`${qty(Math.round(m/6)/10)} h`;};
 const range=(t:number)=>{const d=new Date(t-OFF);return `${String(d.getUTCDate()).padStart(2,'0')}/${String(d.getUTCMonth()+1).padStart(2,'0')}/${d.getUTCFullYear()} ${String(d.getUTCHours()).padStart(2,'0')}:${String(d.getUTCMinutes()).padStart(2,'0')}`;};
 const isoDay=(t:number)=>new Date(t-OFF).toISOString().slice(0,10);

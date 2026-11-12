@@ -22,7 +22,7 @@ export const MODULES:Module[]=[
  ]},
  {id:'planejamento',label:'Planejamento',icon:CalendarRange,screens:[
   {id:'plan-fluxos',label:'Cadastro de fluxo',icon:Workflow,subtitle:'Tipos de atividade, etapas, dependências e necessidades padrão, com versões.'},
-  {id:'plan-atividade',label:'Planejamento de atividade',icon:CalendarPlus,subtitle:'Rascunho com horários, recursos e equipe; revise e lance a OS.'},
+  {id:'plan-atividade',label:'Planejamento de atividade',icon:CalendarPlus,subtitle:'Rascunho com dias, recursos (equipamento em horas por dia) e equipe; revise e lance a OS.'},
   {id:'plan-os',label:'Lista de OS programadas',icon:ListOrdered,subtitle:'OS lançadas, com filtros por período, solicitante, local e situação.'},
  ]},
  {id:'operacao',label:'Operação',icon:HardHat,screens:[
