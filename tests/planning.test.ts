@@ -73,7 +73,7 @@ test('rascunho carrega o fluxo, salva incompleto e só reserva com intervalo com
  assert.equal(p.steps.length,4);assert.deepEqual([...p.steps[2].depends_on].sort(),['insp-0001','prep-0001']);
  await save(id,{description:'Só a descrição'});
  assert.equal((await plan(id)).description,'Só a descrição');
- await rejects(save(id,{},{'insp-0001':{equipmentIds:['eq1']}}),400,/informe início e fim antes de alocar/);
+ await rejects(save(id,{},{'insp-0001':{equipmentIds:['eq1']}}),400,/informe os dias de início e fim antes de alocar/);
  await save(id,{},{'prep-0001':{included:false}});
  assert.equal((await plan(id)).steps[0].included,1,'etapa obrigatória continua incluída');
  const v=await validateDraft(planner,id);
@@ -83,26 +83,26 @@ test('rascunho carrega o fluxo, salva incompleto e só reserva com intervalo com
  await rejects(planDetail(planner2,id),404);
 });
 
-test('intertravamento: rascunho não segura equipamento; OS lançada bloqueia; horário adjacente aceito; mesma OS também conflita',async()=>{
+test('intertravamento por dia: rascunho não segura; OS lançada ocupa as horas do dia; dia seguinte livre; mesma OS também soma',async()=>{
  const a=await draft(),b=await draft(planner2);
- await save(a,{},{'insp-0001':{plannedStart:at(14,8),plannedEnd:at(14,10),equipmentIds:['eq1']}});
- // Outro rascunho no mesmo horário: aceito (rascunho não segura o equipamento).
- await save(b,{},{'insp-0001':{plannedStart:at(14,9),plannedEnd:at(14,11),equipmentIds:['eq1']}},planner2);
- const av=await availability(planner2,new URL(`http://x/?start=${encodeURIComponent(at(14,9))}&end=${encodeURIComponent(at(14,11))}`));
+ await save(a,{},{'insp-0001':{plannedStart:'2031-01-14',plannedEnd:'2031-01-14',equipmentIds:['eq1']}});
+ // Outro rascunho no mesmo dia: aceito (rascunho não segura o equipamento).
+ await save(b,{},{'insp-0001':{plannedStart:'2031-01-14',plannedEnd:'2031-01-14',equipmentIds:['eq1']}},planner2);
+ const av=await availability(planner2,new URL('http://x/?start=2031-01-14&end=2031-01-14'));
  assert.equal(av.equipment.find(e=>e.id==='eq1')!.status,'livre');
- // Etapa paralela do mesmo rascunho com o mesmo equipamento: conflita.
- await rejects(save(a,{},{'prep-0001':{plannedStart:at(14,9),plannedEnd:at(14,11),equipmentIds:['eq1']}}),409,/neste rascunho/);
- // Lançada a primeira, ela bloqueia: o outro rascunho fica com pendência e não lança.
- await save(a,complete(14).patch,{...complete(14).steps,'insp-0001':{plannedStart:at(14,8),plannedEnd:at(14,10),equipmentIds:['eq1']}});
+ // Etapa paralela do mesmo rascunho com o mesmo equipamento no mesmo dia: as 12 h já estão usadas.
+ await rejects(save(a,{},{'prep-0001':{plannedStart:'2031-01-14',plannedEnd:'2031-01-14',equipmentIds:['eq1']}}),409,/neste rascunho/);
+ // Lançada a primeira (12 h no dia 14), o outro rascunho fica com pendência e não lança.
+ await save(a,complete(14).patch,{...complete(14).steps,'insp-0001':{plannedStart:'2031-01-14',plannedEnd:'2031-01-14',equipmentIds:['eq1']}});
  await planningMutate('planning/launch',{id:a,version:(await plan(a)).version,launchKey:key()},planner);
  const v=await validateDraft(planner2,b) as Row;
- assert.ok((v.errors as Row[]).some(e=>/EMP-01 indisponível em 14\/01\/2031 das 09h00 às 11h00: reservado para a etapa/.test(e.message)),JSON.stringify(v.errors));
- await rejects(save(b,{},{'insp-0001':{plannedStart:at(14,9),plannedEnd:at(14,12),equipmentIds:['eq1']}},planner2),409,/reservado para a etapa/);
- // Horário adjacente ao da OS lançada: aceito.
- await save(b,{},{'insp-0001':{plannedStart:at(14,10),plannedEnd:at(14,12),equipmentIds:['eq1']}},planner2);
- // O banco recusa sobreposição com OS lançada mesmo sem passar pelo serviço.
+ assert.ok((v.errors as Row[]).some(e=>/EMP-01 sem 12 h livres por dia em 14\/01\/2031: em 14\/01\/2031 já há 12 h de 12 h reservadas: reservado para a etapa/.test(e.message)),JSON.stringify(v.errors));
+ await rejects(save(b,{},{'insp-0001':{plannedStart:'2031-01-14',plannedEnd:'2031-01-14',equipmentIds:['eq1'],equipmentHours:{eq1:2}}},planner2),409,/reservado para a etapa/);
+ // Dia seguinte ao da OS lançada: aceito.
+ await save(b,{},{'insp-0001':{plannedStart:'2031-01-15',plannedEnd:'2031-01-15',equipmentIds:['eq1']}},planner2);
+ // O banco recusa passar das 12 h no dia com OS lançada, mesmo sem passar pelo serviço.
  const pb=await plan(b,planner2);
- await pgRejects(db.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,status,created_at) VALUES('x',?,?,'eq1',?,?,'provisoria',?)",b,pb.steps[1].id,at(14,9),at(14,9,30),new Date().toISOString()),/reservado no período/);
+ await pgRejects(db.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,hours_per_day,status,created_at) VALUES('x',?,?,'eq1',?,?,1,'provisoria',?)",b,pb.steps[1].id,'2031-01-14T03:00:00.000Z','2031-01-15T03:00:00.000Z',new Date().toISOString()),/reservado no período/);
 });
 
 test('corrida: dois rascunhos com o mesmo equipamento e horário; só um lança',async()=>{
@@ -118,9 +118,11 @@ test('lançamento: pendências impedem; lançamento idempotente congela o planej
  const id=await draft();
  await rejects(planningMutate('planning/launch',{id,version:(await plan(id)).version,launchKey:'k1'},planner),409,/pendência/);
  const c=complete(20);
- await save(id,c.patch,{...c.steps,'move-0001':{plannedStart:at(20,9),plannedEnd:at(20,12),operatorIds:[opIds[0]]}});
+ // Preparação vai do dia 20 ao 21: a movimentação (depende dela) não pode começar no dia 20.
+ await save(id,{...c.patch,plannedEnd:at(21,18)},{...c.steps,'prep-0001':{plannedStart:at(20,8),plannedEnd:at(21,10)},'move-0001':{plannedStart:at(20,9),plannedEnd:at(20,12),operatorIds:[opIds[0]]}});
  const v=await validateDraft(planner,id);
- assert.ok(v.errors.some(e=>/começa antes do fim de “Preparação”/.test(e.message)));
+ assert.ok(v.errors.some(e=>/começa antes do último dia de “Preparação”/.test(e.message)),JSON.stringify(v.errors));
+ await save(id,{},{'prep-0001':{plannedStart:at(20,8),plannedEnd:at(20,10)}});
  assert.ok(v.warnings.some(w=>/Conferência.*não foi incluída/.test(w.message))===false,'aviso só para quem depende da opcional');
  await save(id,{},{'move-0001':{plannedStart:at(20,10),plannedEnd:at(20,12),operatorIds:[]}});
  // Falta de colaborador na função: aviso, não pendência (só equipamento bloqueia).

@@ -104,45 +104,46 @@ test('cancelamento: só planejador ou gestor, com justificativa; em andamento en
  assert.ok(d.events.some((e:Row)=>e.kind==='cancelamento'));
  assert.equal((await db.first("SELECT count(*)::int n FROM reservations r JOIN plans p ON p.id=r.plan_id WHERE p.work_order_id=? AND r.status<>'liberada'",wo))!.n,0,'nenhuma reserva da OS cancelada fica ativa');
  await rejects(ops('start',{stepId:(await step(wo,'move-0001')).id}),409,/cancelada/);
- // Outra OS consegue o mesmo equipamento no mesmo horário.
- await launch(1,3,'eq2');
+ // Outra OS consegue o mesmo equipamento no mesmo dia (cancelada em seguida, para não ocupar o dia de hoje nos demais testes).
+ const again=await launch(1,3,'eq2');
+ await cancelOrder({workOrderId:again.wo,reason:'Limpeza do teste'},planner);
 });
 
 test('OS cancelada libera equipamento e equipe: outra OS no mesmo horário não tem conflito',async()=>{
- const a=await launch(110,114,'eq1','',['op1']);
+ const a=await launch(120,124,'eq1','',['op1']);
  // Mesmo horário, mesmo equipamento e a mesma pessoa: com a primeira OS ativa, há disputa.
- await rejects(launch(110,114,'eq1','',['op1']),409,/reservado/);
- const busy=await availability(planner,new URL(`http://x/?start=${at(110)}&end=${at(114)}`));
+ await rejects(launch(120,124,'eq1','',['op1']),409,/reservado/);
+ const busy=await availability(planner,new URL(`http://x/?start=${at(120)}&end=${at(124)}`));
  assert.equal(busy.operators.find((o:Row)=>o.id==='op1')?.status,'ocupado');
  await cancelOrder({workOrderId:a.wo,reason:'Mudança de prioridade'},planner);
- const free=await availability(planner,new URL(`http://x/?start=${at(110)}&end=${at(114)}`));
+ const free=await availability(planner,new URL(`http://x/?start=${at(120)}&end=${at(124)}`));
  assert.equal(free.equipment.find((e:Row)=>e.id==='eq1')?.status,'livre','equipamento da OS cancelada fica livre');
  assert.equal(free.operators.find((o:Row)=>o.id==='op1')?.status,'livre','colaborador da OS cancelada fica livre');
- const b=await launch(110,114,'eq1','',['op1']);
+ const b=await launch(120,124,'eq1','',['op1']);
  const v=await validateDraft(planner,b.plan);
  assert.ok(!v.warnings.some((w:Row)=>w.kind==='paralelismo'),'colaborador da OS cancelada não conta como ocupado');
 });
 
 test('cancelar OS com revisão em aberto libera as reservas da revisão',async()=>{
- const {wo}=await launch(50,54,'eq1');
+ const {wo}=await launch(192,196,'eq1');
  const rev=await revisionMutate('planning/revision/start',{workOrderId:wo},planner) as Row;
  assert.ok(await db.first("SELECT 1 FROM reservations WHERE plan_id=? AND status='provisoria'",rev.id));
  await cancelOrder({workOrderId:wo,reason:'Cliente desistiu'},manager);
  assert.equal((await db.first('SELECT status FROM plans WHERE id=?',rev.id))!.status,'discarded');
- await launch(50,54,'eq1');
+ await launch(192,196,'eq1');
 });
 
 test('término antes do horário reservado libera a reserva; dispensa retira checklist do equipamento não usado',async()=>{
  const ck=await reg('checklists',{code:'CK-EQ',title:'Pré-uso',moment:'pre_uso',mandatory:true,links:{equipmentTypeIds:[type]},questions:[{...q('Freios?'),target:'equipamento',allowNa:false}]});void ck;
  // Dispensa: a etapa com o equipamento é dispensada; a OS encerra sem exigir o pré-uso.
- const a=await launch(60,64,'eq1');
+ const a=await launch(264,268,'eq1');
  const prepA=await step(a.wo,'prep-0001');
  await ops('start',{stepId:prepA.id});
  await operationMutate('ops/dispense',{stepId:(await step(a.wo,'move-0001')).id,reason:'Carga não chegou'},planner);
  await ops('finish',{stepId:prepA.id});
  assert.equal((await db.first('SELECT status FROM work_orders WHERE id=?',a.wo))!.status,'concluida');
- // Término antecipado: etapa do equipamento feita agora, reserva era para daqui a 70 h.
- const b=await launch(68,72,'eq2');
+ // Término antecipado: etapa do equipamento feita hoje, a reserva era para daqui a uns 23 dias.
+ const b=await launch(552,556,'eq2');
  const d=await orderDetail(operator,b.wo);
  const req=d.requirements.find((r:Row)=>r.equipment_id==='eq2')!;
  const inst=await ops('checklist/start',{workOrderId:b.wo,requirementId:req.id});
@@ -151,12 +152,12 @@ test('término antes do horário reservado libera a reserva; dispensa retira che
  await ops('checklist/complete',{instanceId:inst.id});
  for(const k of ['prep-0001','move-0001']){const s=await step(b.wo,k);await ops('start',{stepId:s.id});await ops('finish',{stepId:s.id});}
  assert.equal((await db.first("SELECT count(*)::int n FROM reservations r JOIN plans p ON p.id=r.plan_id WHERE p.work_order_id=? AND r.status<>'liberada'",b.wo))!.n,0);
- await launch(68,72,'eq2');
+ await launch(552,556,'eq2');
 });
 
 test('revisão depois de nova versão do checklist não cria outra exigência',async()=>{
  await reg('checklists',{code:'CK-ATV',title:'Liberação v1',moment:'pre_atividade',mandatory:true,links:{activityTypeIds:[flow]},questions:[q('Área isolada?')]});
- const {wo}=await launch(80,84,'eq1');
+ const {wo}=await launch(336,340,'eq1');
  const d=await orderDetail(operator,wo);
  const req=d.requirements.find((r:Row)=>r.code==='CK-ATV')!;
  const inst=await ops('checklist/start',{workOrderId:wo,requirementId:req.id});
@@ -167,7 +168,7 @@ test('revisão depois de nova versão do checklist não cria outra exigência',a
  await reg('checklists',{id:t!.id,expectedVersion:t!.current_version,updatedAt:t!.updated_at,code:'CK-ATV',title:'Liberação v2',moment:'pre_atividade',mandatory:true,links:{activityTypeIds:[flow]},questions:[q('Área isolada e sinalizada?')]});
  const rev=await revisionMutate('planning/revision/start',{workOrderId:wo},planner) as Row;
  const p=(await planDetail(planner,rev.id)).plan;
- await planningMutate('planning/save',{id:rev.id,version:p.version,orgId:org,locationId:loc,plannedStart:p.planned_start,plannedEnd:at(85),steps:p.steps.map((x:Row)=>({key:x.step_key,included:true,plannedStart:x.planned_start,plannedEnd:x.step_key==='move-0001'?at(85):x.planned_end,needs:[],equipmentIds:x.equipment_ids,operatorIds:[]}))},planner);
+ await planningMutate('planning/save',{id:rev.id,version:p.version,orgId:org,locationId:loc,plannedStart:p.planned_start,plannedEnd:at(365),steps:p.steps.map((x:Row)=>({key:x.step_key,included:true,plannedStart:x.planned_start,plannedEnd:x.step_key==='move-0001'?at(365):x.planned_end,needs:[],equipmentIds:x.equipment_ids,operatorIds:[]}))},planner);
  const v=(await planDetail(planner,rev.id)).plan.version;
  await revisionMutate('planning/revision/launch',{id:rev.id,version:v,launchKey:key(),reason:'Mais tempo'},planner);
  assert.equal((await db.first("SELECT count(*)::int n FROM checklist_requirements r JOIN checklist_versions v ON v.id=r.version_id JOIN checklist_templates t ON t.id=v.template_id WHERE r.work_order_id=? AND t.code='CK-ATV'",wo))!.n,1);
@@ -211,9 +212,9 @@ test('atividade realizada com apontamentos: bloqueio divide o período e descont
 
 test('painel de OS: filtros de período, setor e solicitante; gráfico só com os últimos 30 dias',async()=>{
  await reg('sectors',{code:'PNL-1',name:'Painel'});
- const a=await launch(200,204,'eq1','PNL-1');
+ const a=await launch(408,412,'eq1','PNL-1');
  const day=(h:number)=>new Intl.DateTimeFormat('sv-SE',{timeZone:'America/Sao_Paulo'}).format(new Date(Date.now()+h*H));
- const f=await opsBoard(planner,new URL(`http://x/?group=todas&sector=PNL-1&from=${day(190)}&to=${day(210)}`));
+ const f=await opsBoard(planner,new URL(`http://x/?group=todas&sector=PNL-1&from=${day(400)}&to=${day(420)}`));
  assert.deepEqual(f.orders.map((o:Row)=>o.id),[a.wo]);
  assert.equal((await opsBoard(planner,new URL(`http://x/?group=todas&sector=PNL-1&from=${day(0)}&to=${day(24)}`))).orders.length,0);
  await rejects(opsBoard(planner,new URL('http://x/?from=2026-13-40')),400);
@@ -223,7 +224,7 @@ test('painel de OS: filtros de período, setor e solicitante; gráfico só com o
 });
 
 test('disponibilidade segue a regra do banco: equipamento de etapa em execução fica ocupado até o fim previsto da etapa, não indefinidamente',async()=>{
- const a=await launch(130,134,'eq2');
+ const a=await launch(624,628,'eq2');
  const d=await orderDetail(operator,a.wo);
  for(const req of d.requirements as Row[]){
   const inst=await ops('checklist/start',{workOrderId:a.wo,requirementId:req.id});
@@ -233,14 +234,14 @@ test('disponibilidade segue a regra do banco: equipamento de etapa em execução
  const prep=await step(a.wo,'prep-0001');await ops('start',{stepId:prep.id});await ops('finish',{stepId:prep.id});
  await ops('start',{stepId:(await step(a.wo,'move-0001')).id});
  // Dentro do período previsto da etapa em andamento: ocupado, dizendo até quando.
- const during=await availability(planner,new URL(`http://x/?start=${at(132)}&end=${at(133)}`));
+ const during=await availability(planner,new URL(`http://x/?start=${at(625)}&end=${at(626)}`));
  const e=during.equipment.find((x:Row)=>x.id==='eq2')!;
  assert.equal(e.status,'reservado');assert.match(e.detail,/reservado para a etapa/);
- await rejects(launch(132,133,'eq2'),409);
- // Depois do fim previsto da etapa (134 h), outra OS reserva normalmente (antes, ficava travado para sempre).
- const later=await availability(planner,new URL(`http://x/?start=${at(140)}&end=${at(144)}`));
+ await rejects(launch(625,626,'eq2'),409);
+ // Depois do último dia previsto da etapa, outra OS reserva normalmente (antes, ficava travado para sempre).
+ const later=await availability(planner,new URL(`http://x/?start=${at(672)}&end=${at(676)}`));
  assert.equal(later.equipment.find((x:Row)=>x.id==='eq2')!.status,'livre');
- const b=await launch(140,144,'eq2');assert.ok(b.wo);
+ const b=await launch(672,676,'eq2');assert.ok(b.wo);
 });
 
 test('perfis: módulo principal + acessos adicionais; cancelar OS só Planejador ou Gestão',async()=>{
@@ -249,7 +250,7 @@ test('perfis: módulo principal + acessos adicionais; cancelar OS só Planejador
  const fueler=await set(await addMember(db,'fueler'),['planejamento'],'fueler');
  assert.ok(modules(fueler).includes('plan-os')&&modules(fueler).includes('abastecimentos'));
  assert.ok(!modules(fueler).includes('op-os'),'sem Operação adicional, a Operação não aparece');
- const a=await launch(150,154,'eq1');
+ const a=await launch(480,484,'eq1');
  await rejects(cancelOrder({workOrderId:a.wo,reason:'Teste'},fueler),403,/Planejador ou Gestão/);
  // Planejador sem acessos adicionais: só o Planejamento (sem Abastecimento nem Operação).
  const pl=await set(await addMember(db,'planner'),[],'planner');

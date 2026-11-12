@@ -188,19 +188,19 @@ test('NC crítica de equipamento: bloqueio global imediato, interrupção, sem l
  assert.equal((await step(wo,'insp-0001')).status,'em_execucao');
 });
 
-test('encerramento: pendente sem checklist pós-atividade; automático e único depois; equipamento ocupado até o fim previsto da etapa',async()=>{
+test('encerramento: pendente sem checklist pós-atividade; automático e único depois; equipamento ocupado até o último dia previsto da etapa',async()=>{
  const wo=await launch(13,'eq2');
  const ck=await fill(wo,'CK-ATV',{'Área isolada?':{answer:'C'},'Risco de queda?':{answer:'C'}});await ops('checklist/complete',{instanceId:ck.id});
  const prep=await step(wo,'prep-0001'),insp=await step(wo,'insp-0001'),move=await step(wo,'move-0001');
  await ops('start',{stepId:insp.id});
- // Etapa em execução: o equipamento fica ocupado até o fim previsto da etapa (13/02 10h) — ou até
- // agora, se a etapa passar do previsto —, e não por tempo indeterminado.
+ // Etapa em execução: o equipamento fica ocupado nos dias previstos da etapa (13/02, o dia todo) e
+ // não por tempo indeterminado.
  const other=await planningMutate('planning/create',{activityTypeId:flow},planner) as {id:string};
  const p=(await planDetail(planner,other.id)).plan;
  const save=(a:string,b:string)=>planningMutate('planning/save',{id:other.id,version:p.version,steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:s.step_key==='insp-0001'?a:null,plannedEnd:s.step_key==='insp-0001'?b:null,needs:[],equipmentIds:s.step_key==='insp-0001'?['eq2']:[],operatorIds:[]}))},planner);
  await rejects(save(at(13,9,30),at(13,11)),409);
- const later=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(13,11))}&end=${encodeURIComponent(at(13,12))}`)) as Row;
- assert.equal(later.equipment.find((e:Row)=>e.id==='eq2').status,'livre','depois do fim previsto da etapa, o equipamento pode ser planejado');
+ const later=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(14,8))}&end=${encodeURIComponent(at(14,9))}`)) as Row;
+ assert.equal(later.equipment.find((e:Row)=>e.id==='eq2').status,'livre','depois do último dia previsto da etapa, o equipamento pode ser planejado');
  await ops('start',{stepId:prep.id});
  await ops('finish',{stepId:prep.id});await ops('finish',{stepId:insp.id});
  await ops('start',{stepId:move.id});

@@ -254,7 +254,7 @@ test('planejar OS preenche os dados da solicitação (sem fluxo: título e recur
  const planId=await plan(id);
  const p=(await planDetail(fin,planId)).plan;
  assert.equal(p.status,'draft');assert.equal(p.org_id,org);assert.equal(p.requester_person_id,person);
- assert.equal(p.planned_start,day(10,8));assert.equal(p.planned_end,day(10,17));assert.equal(p.title,'Içamento planejado');
+ assert.equal(p.planned_start,day(10,0),'planejamento por dia: 00h do dia 10');assert.equal(p.planned_end,day(11,0));assert.equal(p.title,'Içamento planejado');
  assert.deepEqual(p.steps[0].needs.map((n:Row)=>[n.function_id,n.material_id,n.quantity,n.amount,n.unit]).sort(),[[fn,null,2,null,null],[null,mat,null,12.5,'m']].sort());
  assert.equal((await requestDetail(fin,id)).request.plan_id,planId);
  // Planejar de novo abre o mesmo rascunho.

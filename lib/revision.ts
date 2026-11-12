@@ -42,7 +42,7 @@ async function start(tx:Executor,a:Actor,workOrderId:string){
   for(const n of s.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit) VALUES(?,?,?,?,?,?,?,?,?)',id(),pid,sid,n.equipment_type_id,n.function_id,n.material_id,n.quantity,n.amount,n.unit);
   for(const o of s.operator_ids)await tx.run('INSERT INTO plan_step_people(plan_id,plan_step_id,operator_id) VALUES(?,?,?)',pid,sid,o);
   // Mesma reserva, agora também no rascunho: o banco a reconhece como transportada (não é compromisso novo).
-  for(const r of s.reservations)await tx.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,status,created_at) VALUES(?,?,?,?,?,?,'provisoria',?)",id(),pid,sid,r.equipment_id,r.start_at,r.end_at,t);
+  for(const r of s.reservations)await tx.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,hours_per_day,status,created_at) VALUES(?,?,?,?,?,?,?,'provisoria',?)",id(),pid,sid,r.equipment_id,r.start_at,r.end_at,r.hours_per_day,t);
  }
  await audit(tx,a,'Planejamento: revisão da OS iniciada',wo.id,{number:wo.number,revision:wo.revision+1,draft:pid});
  return {id:pid,message:`Revisão ${wo.revision+1} da ${osNumber(wo.number)} aberta em rascunho. A OS segue valendo como está até a revisão ser lançada.`};

@@ -62,16 +62,19 @@ async function launch(start:number,end:number,steps:Record<string,[number,number
  const p=(await planDetail(planner,id)).plan;
  await planningMutate('planning/save',{id,version:p.version,orgId:org,locationId:loc,plannedStart:at(start),plannedEnd:at(end),description:'',
   steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:at(steps[s.step_key][0]),plannedEnd:at(steps[s.step_key][1]),
-   needs:s.needs.map((n:Row)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:[steps[s.step_key][2]],operatorIds:[]}))},planner);
+   needs:s.needs.map((n:Row)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:[steps[s.step_key][2]],operatorIds:[],
+   // Planejamento por dia: as duas etapas no mesmo dia dividem as 12 h do equipamento.
+   equipmentHours:{[steps[s.step_key][2]]:6}}))},planner);
  const v=(await planDetail(planner,id)).plan.version;
  return (await planningMutate('planning/launch',{id,version:v,launchKey:key()},planner) as {workOrderId:string}).workOrderId;
 }
 const stepOf=async(wo:string,k:string)=>(await orderDetail(operator,wo)).steps.find((s:Row)=>s.step_key===k)!;
-async function freeOrder(orgId:string,start:string,end:string,eq:string){
+/** OS sem fluxo: dias da OS e horas por dia do equipamento (pequenas por padrão, para dividir o dia). */
+async function freeOrder(orgId:string,start:string,end:string,eq:string,hours=2){
  const {id}=await planningMutate('planning/create-free',{},planner) as {id:string};
  const p=(await planDetail(planner,id)).plan;
  await planningMutate('planning/save',{id,version:p.version,title:'Içamento com plataforma',orgId,locationId:loc,plannedStart:start,plannedEnd:end,description:'',
-  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:[eq],operatorIds:[]}))},planner);
+  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:[eq],operatorIds:[],equipmentHours:{[eq]:hours}}))},planner);
  const v=(await planDetail(planner,id)).plan.version;
  return (await planningMutate('planning/launch',{id,version:v,launchKey:key()},planner) as {workOrderId:string}).workOrderId;
 }
@@ -181,12 +184,12 @@ test('painel: uso a conferir de outro mês aparece onde gera diária; diária mo
  assert.ok(det.dailies.some((d:Row)=>d.orderNumbers?.includes(n)));
 });
 
-/** Agosto/2026 (Brasília): OS A 10/08 08–20 h e OS B 20–21 h do cliente com tarifa; OS C 11/08 09–12 h de
- * outro cliente, sem tarifa para o equipamento. */
+/** Agosto/2026 (Brasília), planejamento por dia: OS A em 10/08 com 11 h e OS B em 10/08 com 1 h do cliente
+ * com tarifa (o previsto conta a partir das 08h); OS C em 11/08 com 3 h, de outro cliente, sem tarifa. */
 async function forecastScenario(){
- const a=await freeOrder(org,'2026-08-10T11:00:00.000Z','2026-08-10T23:00:00.000Z','eq9');
- const b=await freeOrder(org,'2026-08-10T23:00:00.000Z','2026-08-11T00:00:00.000Z','eq9');
- const c=await freeOrder(other,'2026-08-11T12:00:00.000Z','2026-08-11T15:00:00.000Z','eq9');
+ const a=await freeOrder(org,'2026-08-10','2026-08-10','eq9',11);
+ const b=await freeOrder(org,'2026-08-10','2026-08-10','eq9',1);
+ const c=await freeOrder(other,'2026-08-11','2026-08-11','eq9',3);
  const num=async(id:string)=>Number((await db.first('SELECT number FROM work_orders WHERE id=?',id))!.number);
  return {a,b,c,na:await num(a),nb:await num(b),nc:await num(c)};
 }
@@ -200,9 +203,10 @@ test('painel: previsto mostra de onde vem (por OS) e as OS do equipamento que n�
  const det=p.detail['eq9|'+org];
  const by=(n:number)=>(det.forecast as Row[]).find(o=>o.number===n)!;
  assert.equal(det.forecast.length,2);
- assert.deepEqual([by(scene.na).hours,by(scene.na).dailies,by(scene.na).valueCents,by(scene.na).counted],[12,2,800000,true]);
- assert.deepEqual([by(scene.nb).hours,by(scene.nb).dailies,by(scene.nb).valueCents],[1,0,0]);
- assert.deepEqual(by(scene.nb).attendedIn,[scene.na],'B é atendida dentro da 2ª diária de A');
+ // Por dia, as duas começam às 08h: B (1 h) abre a 1ª diária e A, que segue até as 19h, abre a 2ª.
+ assert.deepEqual([by(scene.na).hours,by(scene.na).dailies,by(scene.na).valueCents,by(scene.na).counted],[11,1,400000,true]);
+ assert.deepEqual([by(scene.nb).hours,by(scene.nb).dailies,by(scene.nb).valueCents],[1,1,400000]);
+ assert.deepEqual(by(scene.na).attendedIn,[scene.nb],'A também é atendida na diária aberta por B');
  assert.equal((det.forecast as Row[]).reduce((s,o)=>s+o.valueCents,0),row.plannedCents,'a soma do bloco fecha com a linha');
  assert.deepEqual((det.others as Row[]).map(o=>[o.number,o.orgName,o.hours,o.reason]),[[scene.nc,'Outro Cliente',3,'cliente sem tarifa']]);
  // Quem só vê o cliente com tarifa não vê OS de outro cliente.
@@ -217,7 +221,7 @@ test('exportação: Recobráveis: previsto, uma linha por OS com o motivo de ent
  const os=(n:number)=>'"OS '+String(n).padStart(6,'0')+'"';
  const line=(n:number)=>lines.find(l=>l.includes(os(n)))!;
  assert.equal(lines.length-1,3);
- assert.match(line(scene.na),/;12;2;8000;"Sim";/);
- assert.match(line(scene.nb),new RegExp(`;1;0;0;"Sim";"Atendida na diária da OS ${String(scene.na).padStart(6,'0')}"$`));
+ assert.match(line(scene.na),new RegExp(`;11;1;4000;"Sim";"Atendida na diária da OS ${String(scene.nb).padStart(6,'0')}"$`));
+ assert.match(line(scene.nb),/;1;1;4000;"Sim";/);
  assert.match(line(scene.nc),/"Outro Cliente".*;3;0;0;"Não";"Cliente sem tarifa"$/);
 });

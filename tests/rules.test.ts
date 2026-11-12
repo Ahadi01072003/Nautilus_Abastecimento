@@ -10,6 +10,7 @@ import {planningMutate,planDetail,validateDraft,availability} from '../lib/plann
 import {revisionMutate} from '../lib/revision';
 import {orderDetail,operationMutate,startCheck} from '../lib/operation';
 import {cancelOrder} from '../lib/cancel';
+import {dayOf,dayStart,dayAfter} from '../lib/days';
 import type {Member} from '../lib/permissions';
 import type {Database,Row} from '../lib/db';
 
@@ -18,6 +19,8 @@ let manager:Member,planner:Member,operator:Member;
 let org:string,loc:string,type:string;
 const H=3600_000,T=Date.now();
 const at=(h:number)=>new Date(T+h*H).toISOString();
+/** Planejamento por dia: o dia (Brasília) a k dias de hoje, e o início/fim exclusivo dele. */
+const day=(k:number)=>dayOf(T+k*24*H);
 const key=()=>crypto.randomUUID();
 const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects(p,(e:{status?:number;message:string})=>{if(status)assert.equal(e.status,status,e.message);if(pattern)assert.match(e.message,pattern);return true;});
 const set=async(who:Member,caps:string[],profile:string)=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
@@ -38,11 +41,11 @@ before(async()=>{
 after(async()=>{await ctx.drop();});
 
 /** OS sem fluxo lançada: período da OS e, opcionalmente, horas de uso de um equipamento. */
-async function freeOs(start:string,end:string,eq:string,win?:{start:string,end:string}){
+async function freeOs(start:string,end:string,eq:string,win?:{start:string,end:string},hours?:number){
  const {id}=await planningMutate('planning/create-free',{},planner) as {id:string};
  const p=(await planDetail(planner,id)).plan;
  await planningMutate('planning/save',{id,version:p.version,title:'Uso de '+eq,orgId:org,locationId:loc,plannedStart:start,plannedEnd:end,
-  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:[eq],operatorIds:[],...(win?{equipmentWindows:{[eq]:win}}:{})}))},planner);
+  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:[eq],operatorIds:[],...(win?{equipmentWindows:{[eq]:win}}:{}),...(hours?{equipmentHours:{[eq]:hours}}:{})}))},planner);
  const v=(await planDetail(planner,id)).plan.version;
  const r=await planningMutate('planning/launch',{id,version:v,launchKey:key()},planner) as Row;
  const wo=r.workOrderId as string;
@@ -67,15 +70,16 @@ test('horas de uso valem mesmo com a OS em andamento: o restante da OS fica livr
  await rejects(freeOs(at(24*3),at(24*5),'eq1'),409,/indisponível/);
 });
 
-test('OS inteira em andamento depois do previsto: o equipamento libera no fim previsto, mesmo sem finalizar',async()=>{
- const c=await freeOs(at(1),at(3),'eq2');
+test('OS inteira em andamento depois do último dia previsto: o equipamento libera no dia seguinte, mesmo sem finalizar',async()=>{
+ const c=await freeOs(day(1),day(3),'eq2');
  await ops('start',{stepId:c.step});
- await shift(c.plan,at(-5),at(-1));
- assert.equal((await avail(at(-0.5),at(0.5),'eq2')).status,'livre','passou do fim previsto: livre');
- // Outra OS agora, com a anterior ainda em andamento: lança sem pendência nem aviso e pode começar.
+ // A OS era para ontem e segue em andamento hoje.
+ await shift(c.plan,dayStart(day(-1)),dayAfter(day(-1)));
+ assert.equal((await avail(day(0),day(0),'eq2')).status,'livre','passou do último dia previsto: livre');
+ // Outra OS hoje, com a anterior ainda em andamento: lança sem pendência nem aviso e pode começar.
  const {id}=await planningMutate('planning/create-free',{},planner) as {id:string};
  const p=(await planDetail(planner,id)).plan;
- await planningMutate('planning/save',{id,version:p.version,title:'Depois',orgId:org,locationId:loc,plannedStart:at(-0.5),plannedEnd:at(2),steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:['eq2'],operatorIds:[]}))},planner);
+ await planningMutate('planning/save',{id,version:p.version,title:'Depois',orgId:org,locationId:loc,plannedStart:day(0),plannedEnd:day(2),steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:['eq2'],operatorIds:[]}))},planner);
  const review=await validateDraft(planner,id) as Row;
  assert.equal(review.errors.length,0,JSON.stringify(review.errors));
  assert.ok(!review.warnings.some((w:Row)=>/EMP-02/.test(w.message)),JSON.stringify(review.warnings));
@@ -86,17 +90,21 @@ test('OS inteira em andamento depois do previsto: o equipamento libera no fim pr
  await ops('finish',{stepId:c.step});
 });
 
-test('início de etapa: equipamento reservado agora por outra OS barra o início antecipado; horas de uso futuras não barram',async()=>{
- // H tem a plataforma reservada para agora (não iniciada).
- const h=await freeOs(at(24*30),at(24*31),'eq1');
- await shift(h.plan,at(-1),at(5));
- // J quer começar agora, antes do horário dela: barrado com o motivo e os dois horários.
- const j=await freeOs(at(24*32),at(24*33),'eq1');
+test('início de etapa: outra OS com as 12 h de hoje barra o início antecipado; se as horas couberem, começa; dias de uso futuros não barram',async()=>{
+ // H tem a plataforma reservada para hoje, o dia todo (não iniciada).
+ const h=await freeOs(day(30),day(31),'eq1');
+ await shift(h.plan,dayStart(day(0)),dayAfter(day(0)));
+ // J quer começar hoje, antes dos dias dela: barrada com o motivo e os dois períodos.
+ const j=await freeOs(day(32),day(33),'eq1');
  const blockers=(await startCheck(operator,j.step)).blockers as string[];
- assert.ok(blockers.some(b=>/EMP-01 está reservado agora para a etapa .* Inicie no horário da sua reserva/.test(b)),JSON.stringify(blockers));
+ assert.ok(blockers.some(b=>/EMP-01 está reservado hoje para a etapa .*12 h de 12 h no dia.* Inicie nos dias da sua reserva/.test(b)),JSON.stringify(blockers));
  await rejects(ops('start',{stepId:j.step}),409);
- // K usa a plataforma só mais tarde (horas de uso): começar agora não depende dela.
- const k=await freeOs(at(24*35),at(24*36),'eq1',{start:at(24*35+5),end:at(24*35+6)});
+ // Com H usando só 6 h hoje, uma OS de 6 h por dia começa antes (as horas cabem).
+ await db.tx(async tx=>{await tx.run('SET LOCAL session_replication_role=replica');await tx.run("UPDATE reservations SET hours_per_day=6 WHERE plan_id=? AND status<>'liberada'",h.plan);});
+ const j6=await freeOs(day(34),day(34),'eq1',undefined,6);
+ assert.ok(!((await startCheck(operator,j6.step)).blockers as string[]).some(b=>/EMP-01/.test(b)));
+ // K usa a plataforma só no segundo dia da OS: começar hoje não depende dela.
+ const k=await freeOs(day(35),day(36),'eq1',{start:day(36),end:day(36)});
  assert.ok(!((await startCheck(operator,k.step)).blockers as string[]).some(b=>/EMP-01/.test(b)));
  await ops('start',{stepId:k.step});
 });
@@ -134,25 +142,25 @@ test('inativar equipamento com reservas a partir de agora é recusado; sem reser
 test('aviso: OS nova com início previsto no passado',async()=>{
  const {id}=await planningMutate('planning/create-free',{},planner) as {id:string};
  const p=(await planDetail(planner,id)).plan;
- await planningMutate('planning/save',{id,version:p.version,title:'Atrasada',orgId:org,locationId:loc,plannedStart:at(-3),plannedEnd:at(2),steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:[],operatorIds:[]}))},planner);
+ await planningMutate('planning/save',{id,version:p.version,title:'Atrasada',orgId:org,locationId:loc,plannedStart:day(-2),plannedEnd:day(2),steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:[],operatorIds:[]}))},planner);
  const review=await validateDraft(planner,id) as Row;
- assert.ok(review.warnings.some((w:Row)=>/início previsto .* já passou/.test(w.message)));
+ assert.ok(review.warnings.some((w:Row)=>/início previsto .* já passou/.test(w.message)),JSON.stringify(review.warnings));
  assert.equal(review.errors.length,0,'é aviso, não pendência');
 });
 
-test('revisão que estende as horas de uso sobre outra OS: recusada na gravação, com o motivo',async()=>{
- // M usa a plataforma do dia 50 ao 51 (horas de uso dentro de uma OS de 50 a 55); N usa nos dias 52-53.
- const m=await freeOs(at(24*50),at(24*55),'eq1',{start:at(24*50),end:at(24*51)});
- const n=await freeOs(at(24*52),at(24*53),'eq1');assert.ok(n.wo);
+test('revisão que estende os dias de uso sobre outra OS: recusada na gravação, com o motivo',async()=>{
+ // M usa a plataforma no dia 50 (dias de uso dentro de uma OS de 50 a 55); N usa nos dias 52-53.
+ const m=await freeOs(day(50),day(55),'eq1',{start:day(50),end:day(50)});
+ const n=await freeOs(day(52),day(53),'eq1');assert.ok(n.wo);
  const r=await revisionMutate('planning/revision/start',{workOrderId:m.wo},planner) as Row;
  const p=(await planDetail(planner,r.id)).plan;
  const save=(win:{start:string,end:string})=>planningMutate('planning/save',{id:r.id,version:p.version,title:p.title,orgId:org,locationId:loc,plannedStart:p.planned_start,plannedEnd:p.planned_end,
   steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:['eq1'],operatorIds:[],equipmentWindows:{eq1:win}}))},planner);
- await rejects(save({start:at(24*50),end:at(24*53)}),409,/EMP-01 indisponível/);
+ await rejects(save({start:day(50),end:day(53)}),409,/EMP-01 indisponível/);
  // Estender até antes da outra OS é aceito; a OS só muda quando a revisão for lançada.
- await save({start:at(24*50),end:at(24*52)});
+ await save({start:day(50),end:day(51)});
  const before=(await db.first("SELECT end_at FROM reservations WHERE plan_id=? AND status<>'liberada'",m.plan))!.end_at;
- assert.equal(before,at(24*51),'a versão vigente continua com as horas de uso originais');
+ assert.equal(before,dayAfter(day(50)),'a versão vigente continua com os dias de uso originais');
 });
 
 test('versões anteriores e acesso de consulta: só leitura, sem abrir revisão',async()=>{

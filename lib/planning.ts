@@ -1,6 +1,7 @@
 // Planejamento › Planejamento de atividade, Rascunhos e Lista de OS; Operação › Ordens de serviço.
-// Rascunho persistido com reservas provisórias exclusivas, revisão pelo próprio planejador,
-// lançamento idempotente e cancelamento. O banco garante o intertravamento (reservation_guard).
+// Rascunho persistido com reservas provisórias, revisão pelo próprio planejador, lançamento idempotente e
+// cancelamento. Planejamento por dia (P0): dia de início e dia de fim; equipamento em horas por dia (até
+// 12 h somando as OS). O banco garante o intertravamento (reservation_guard). Atividade realizada mantém hora.
 import {db,type Executor,type Row} from './db';
 import {AppError,required,text} from './domain';
 import {type Member,isManager,has,requireAny,canSeeOrders,canCancelOrders} from './permissions';
@@ -9,6 +10,7 @@ import {preventiveRows} from './maintenance';
 import {filterSectors} from './board';
 import {onPlanLaunched,onPlanReplaced} from './recovery-link';
 import {recNumber} from './recovery-quote';
+import {dayRange,dayPeriod,isWholeDays,dayOf,daysOf,dayHours,dayText,DAY_MS,EQUIPMENT_DAY_HOURS} from './days';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -30,9 +32,7 @@ const BR=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-di
 const HM=new Intl.DateTimeFormat('pt-BR',{timeZone:'America/Sao_Paulo',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
 const hm=(v:string)=>HM.format(new Date(v)).replace(':','h');
 /** “14/10/2026 das 08h00 às 10h00” (ou com as duas datas quando atravessa dias). */
-/** Data e hora curtas (Brasília): "03/11/2026 12h00". */
-const fmtDate=(v:string|Date)=>{const d=new Date(v);return `${BR.format(d)} ${hm(d.toISOString())}`;};
-export function period(start:string,end:string){const a=BR.format(new Date(start)),b=BR.format(new Date(end));return a===b?`${a} das ${hm(start)} às ${hm(end)}`:`${a} ${hm(start)} a ${b} ${hm(end)}`;}
+export function period(start:string,end:string){if(isWholeDays(start,end))return dayPeriod(start,end);const a=BR.format(new Date(start)),b=BR.format(new Date(end));return a===b?`${a} das ${hm(start)} às ${hm(end)}`:`${a} ${hm(start)} a ${b} ${hm(end)}`;}
 export const osNumber=(n:number)=>'OS '+String(n).padStart(6,'0');
 
 /** Escopo de organizações: null = todas. O gestor sempre vê todas. */
@@ -80,27 +80,44 @@ function canView(a:Actor,plan:Row){
 function canEdit(a:Actor,plan:Row){return plan.status==='draft'&&(plan.author_id===a.id||isManager(a));}
 
 /** Conflitos de agenda de um equipamento num intervalo, com descrição segura para quem pergunta. */
-async function conflicts(a:Actor,equipmentId:string,start:string,end:string,ignore:{planId?:string,stepId?:string,workOrderId?:string|null}={}){
- return (await conflictsMany(a,[equipmentId],start,end,ignore)).get(equipmentId)||[];
+type Ignore={planId?:string,stepId?:string,workOrderId?:string|null};
+const hText=(h:number)=>`${Number(h).toLocaleString('pt-BR',{maximumFractionDigits:2})} h`;
+/** Reservas que disputam um equipamento nos dias pedidos, quando as horas desejadas não cabem nas 12 h do dia. */
+async function conflicts(a:Actor,equipmentId:string,start:string,end:string,hours:number,ignore:Ignore={}){
+ return (await conflictsMany(a,[equipmentId],start,end,hours,ignore)).get(equipmentId)||[];
 }
-/** Reservas que disputam o intervalo, de vários equipamentos numa consulta só (por equipamento). */
-async function conflictsMany(a:Actor,equipmentIds:string[],start:string,end:string,ignore:{planId?:string,stepId?:string,workOrderId?:string|null}={}){
- const out=new Map<string,Row[]>();
+/** Uso de cada equipamento por dia no período: horas já reservadas por quem disputa (mesma regra do
+ *  banco: só OS lançada disputa, rascunho não segura; dentro do mesmo planejamento todas contam). */
+async function equipmentLoad(a:Actor,equipmentIds:string[],start:string,end:string,ignore:Ignore={}){
+ const out=new Map<string,Map<string,{used:number,rows:Row[]}>>();
  if(!equipmentIds.length)return out;
- const rows=await all(`SELECT r.id,r.equipment_id,r.start_at,r.end_at,r.status,r.plan_id,r.plan_step_id,p.status plan_status,p.author_id,p.author_name,p.org_id,p.work_order_id,s.name step_name,w.number
+ const rows=await all(`SELECT r.id,r.equipment_id,r.start_at,r.end_at,r.hours_per_day,r.status,r.plan_id,r.plan_step_id,p.status plan_status,p.author_id,p.author_name,p.org_id,p.work_order_id,s.name step_name,w.number
   FROM reservations r JOIN plans p ON p.id=r.plan_id JOIN plan_steps s ON s.id=r.plan_step_id LEFT JOIN work_orders w ON w.id=p.work_order_id
   WHERE r.equipment_id = ANY(?::text[]) AND r.status<>'liberada' AND p.mode<>'realizada' AND (r.status='confirmada' OR r.plan_id=?::text)
    AND r.start_at::timestamptz < ?::timestamptz AND r.end_at::timestamptz > ?::timestamptz ORDER BY r.start_at`,equipmentIds,ignore.planId||null,end,start);
- // Mesma regra do banco (reservation_guard): só OS lançada disputa (rascunho não segura o equipamento)
- // e a reserva vale até o fim previsto, mesmo com a etapa em andamento.
- for(const r of labelled(a,rows,ignore)){const l=out.get(r.equipment_id)||[];l.push(r);out.set(r.equipment_id,l);}
+ const wanted=new Set(daysOf(start,end));
+ for(const r of labelled(a,rows,ignore)){
+  const byDay=out.get(r.equipment_id)||new Map();out.set(r.equipment_id,byDay);
+  for(const d of daysOf(r.start_at,r.end_at)){if(!wanted.has(d))continue;const x=byDay.get(d)||{used:0,rows:[]};x.used+=Number(r.hours_per_day);x.rows.push(r);byDay.set(d,x);}
+ }
+ return out;
+}
+/** Por equipamento: reservas dos dias em que as horas pedidas estouram as 12 h (com o dia e o uso no rótulo). */
+async function conflictsMany(a:Actor,equipmentIds:string[],start:string,end:string,hours:number,ignore:Ignore={}){
+ const out=new Map<string,Row[]>();
+ for(const [eq,byDay] of await equipmentLoad(a,equipmentIds,start,end,ignore)){
+  const full=[...byDay.entries()].filter(([,x])=>x.used+hours>EQUIPMENT_DAY_HOURS+1e-9).sort(([x],[y])=>x<y?-1:1);
+  if(!full.length)continue;
+  const [day,x]=full[0];
+  out.set(eq,x.rows.map((r,i)=>({...r,label:`${i===0?`em ${dayText(day)} já há ${hText(x.used)} de ${EQUIPMENT_DAY_HOURS} h reservadas: `:''}${r.label}`})));
+ }
  return out;
 }
 function labelled(a:Actor,rows:Row[],ignore:{planId?:string,stepId?:string,workOrderId?:string|null}):Row[]{
  // A revisão de uma OS não disputa com o planejamento vigente da própria OS (a troca é atômica no lançamento).
  return rows.filter(r=>!(ignore.stepId&&r.plan_step_id===ignore.stepId)&&!(ignore.workOrderId&&r.plan_id!==ignore.planId&&r.work_order_id===ignore.workOrderId)).map(r=>{
   const own=r.author_id===a.id||isManager(a);
-  const when=period(r.start_at,r.end_at);
+  const when=`${period(r.start_at,r.end_at)}${r.hours_per_day!=null&&isWholeDays(r.start_at,r.end_at)?` (${hText(Number(r.hours_per_day))}/dia)`:''}`;
   const label=r.plan_status==='draft'
    ?(own?`reserva provisória de planejamento (${r.plan_id===ignore.planId?'neste rascunho, ':''}etapa “${r.step_name}”, responsável ${r.author_name}), em ${when}`:`reserva provisória de planejamento em ${when}`)
    :(inScope(a,r.org_id)?`reservado para a etapa “${r.step_name}” da ${osNumber(r.number)}, em ${when}`:`reservado para outra OS em ${when}`);
@@ -143,23 +160,32 @@ export async function revisionHistory(workOrderId:string){
 /** Situação de cada equipamento ativo no intervalo pedido (seletor da etapa). */
 export async function availability(member:Member,url:URL){
  const a=await requireAny(member,['planejamento','operacao']);
- const start=instant(url.searchParams.get('start'),'Início'),end=instant(url.searchParams.get('end'),'Fim');
- if(!start||!end||ms(end)<=ms(start))throw new AppError('Informe um intervalo válido.');
  const stepId=url.searchParams.get('stepId')||undefined,planId=url.searchParams.get('planId')||undefined;
- const [equipment,impediments,operators]=await Promise.all([all('SELECT id,tag FROM equipment WHERE active=1 ORDER BY tag'),all('SELECT equipment_id,reason FROM equipment_impediments WHERE released_at IS NULL AND opened_at::timestamptz < ?::timestamptz',end),all('SELECT id FROM operators WHERE active=1')]);
  const plan=planId?await first('SELECT p.work_order_id,p.base_plan_id,p.mode,s.step_key FROM plans p LEFT JOIN plan_steps s ON s.id=? AND s.plan_id=p.id WHERE p.id=?',stepId||'',planId):null;
  // Atividade realizada: registro do que já foi feito, sem agenda a respeitar (tudo livre, sem aviso).
- if(plan?.mode==='realizada')return {equipment:equipment.map(e=>({id:e.id,status:'livre',detail:''})),operators:operators.map(o=>({id:o.id,status:'livre',detail:''}))};
+ if(plan?.mode==='realizada'){const [eqs,ops]=await Promise.all([all('SELECT id FROM equipment WHERE active=1'),all('SELECT id FROM operators WHERE active=1')]);
+  return {equipment:eqs.map(e=>({id:e.id,status:'livre',detail:''})),operators:ops.map(o=>({id:o.id,status:'livre',detail:''}))};}
+ // Planejamento por dia: o período pedido vira dias inteiros; "hours" são as horas por dia desejadas (padrão 12).
+ const [start,end]=dayRange(url.searchParams.get('start'),url.searchParams.get('end'),['Início','Fim']);
+ if(!start||!end)throw new AppError('Informe um intervalo válido.');
+ const hours=dayHours(url.searchParams.get('hours'),'Horas por dia');
+ const [equipment,impediments,operators]=await Promise.all([all('SELECT id,tag FROM equipment WHERE active=1 ORDER BY tag'),all('SELECT equipment_id,reason FROM equipment_impediments WHERE released_at IS NULL AND opened_at::timestamptz < ?::timestamptz',end),all('SELECT id FROM operators WHERE active=1')]);
  const workOrderId=plan?.work_order_id||null,stepKey=plan?.step_key;
  // Revisão: equipamento já reservado na versão vigente para a mesma etapa continua aceito (é a mesma reserva).
  const carried=plan?.base_plan_id&&stepKey?await baseReservations(plan.base_plan_id):null;
  const out:Row[]=[];
- const taken=await conflictsMany(a,equipment.map(e=>e.id),start,end,{planId,stepId,workOrderId});
+ const load=await equipmentLoad(a,equipment.map(e=>e.id),start,end,{planId,stepId,workOrderId});
  for(const e of equipment){
   const blocked=impediments.filter(i=>i.equipment_id===e.id);
-  const busy=taken.get(e.id)||[];
   const kept=blocked.length&&carried?.some(r=>r.equipment_id===e.id&&r.step_key===stepKey);
-  out.push({id:e.id,status:blocked.length?'bloqueado':busy.length?'reservado':'livre',detail:blocked.length?`Bloqueado por impedimento técnico: ${blocked.map(b=>b.reason).join('; ')}${kept?' (mantido da versão vigente)':''}`:busy.map(b=>b.label).join(' · ')});
+  const byDay=[...(load.get(e.id)||new Map<string,{used:number,rows:Row[]}>()).entries()].sort(([x],[y])=>x<y?-1:1);
+  const peak=byDay.reduce((m,[,x])=>Math.max(m,x.used),0),free=Math.max(0,EQUIPMENT_DAY_HOURS-peak);
+  const worst=byDay.find(([,x])=>x.used===peak);
+  const uses=worst?`em ${dayText(worst[0])}, ${hText(peak)} de ${EQUIPMENT_DAY_HOURS} h reservadas: ${[...new Set(worst[1].rows.map((r:Row)=>r.label))].join(' · ')}`:'';
+  if(blocked.length)out.push({id:e.id,status:'bloqueado',freeHours:0,detail:`Bloqueado por impedimento técnico: ${blocked.map(b=>b.reason).join('; ')}${kept?' (mantido da versão vigente)':''}`});
+  else if(peak+hours>EQUIPMENT_DAY_HOURS+1e-9)out.push({id:e.id,status:'reservado',freeHours:free,detail:`Sem ${hText(hours)} livres por dia: ${uses}.`});
+  else if(peak>0)out.push({id:e.id,status:'parcial',freeHours:free,detail:`${hText(free)} livres por dia (${uses}).`});
+  else out.push({id:e.id,status:'livre',freeHours:EQUIPMENT_DAY_HOURS,detail:''});
  }
  // Colaboradores: só informativo (não há reserva exclusiva de pessoas e não impede o lançamento).
  // Conta etapas incluídas de OS lançadas (sem as canceladas, concluídas e etapas já encerradas) e rascunhos.
@@ -209,7 +235,9 @@ export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impe
   for(const d of s.depends_on as string[]){
    const p=plan.steps.find(x=>x.step_key===d);if(!p)continue;
    if(!p.included){warnings.push({step:s.step_key,message:`${name} dependia de “${p.name}”, que não foi incluída: a dependência foi ignorada.`});continue;}
-   if(p.planned_end&&ms(s.planned_start)<ms(p.planned_end))errors.push({step:s.step_key,message:`${name}: começa antes do fim de “${p.name}” (dependência término → início).`});
+   // Por dia: a seguinte pode começar no mesmo dia em que a anterior termina (a ordem no dia é do líder).
+   const limit=p.planned_end?(isWholeDays(p.planned_start,p.planned_end)?ms(p.planned_end)-DAY_MS:ms(p.planned_end)):NaN;
+   if(p.planned_end&&ms(s.planned_start)<limit)errors.push({step:s.step_key,message:`${name}: começa antes do último dia de “${p.name}” (dependência término → início).`});
   }
   if(!resources)continue;
   for(const n of s.needs as Row[]){
@@ -237,7 +265,7 @@ export function validatePlan(plan:Plan,ctx:{equipment:Row[],operators:Row[],impe
 
 /** Reservas ativas da versão vigente (para reconhecer o que a revisão apenas mantém). */
 async function baseReservations(basePlanId:string){
- return all("SELECT r.equipment_id,r.start_at,r.end_at,s.step_key FROM reservations r JOIN plan_steps s ON s.id=r.plan_step_id WHERE r.plan_id=? AND r.status='confirmada'",basePlanId);
+ return all("SELECT r.equipment_id,r.start_at,r.end_at,r.hours_per_day,s.step_key FROM reservations r JOIN plan_steps s ON s.id=r.plan_step_id WHERE r.plan_id=? AND r.status='confirmada'",basePlanId);
 }
 /** Contexto de uma revisão em rascunho: situação das etapas da OS e o que é mantido da versão vigente. */
 export async function revisionContext(plan:Plan){
@@ -269,16 +297,16 @@ export async function validation(plan:Plan,a:Actor){
  // Equipamento é o único recurso que bloqueia: reserva do rascunho que hoje se sobrepõe a outra
  // (ex.: etapa de outra OS em uso além do fim reservado) é pendência e aparece antes de lançar,
  // com a mesma regra do banco (reservation_guard).
- const mine=await all(`SELECT r.equipment_id,r.start_at,r.end_at,s.id step_id,s.step_key,s.name step_name,e.tag FROM reservations r JOIN plan_steps s ON s.id=r.plan_step_id JOIN equipment e ON e.id=r.equipment_id
+ const mine=await all(`SELECT r.equipment_id,r.start_at,r.end_at,r.hours_per_day,s.id step_id,s.step_key,s.name step_name,e.tag FROM reservations r JOIN plan_steps s ON s.id=r.plan_step_id JOIN equipment e ON e.id=r.equipment_id
   WHERE r.plan_id=? AND r.status<>'liberada' AND s.included=1`,plan.id);
  for(const r of mine){
   if(revision?.frozen.has(r.step_key)||revision?.carried(r.step_key,r.equipment_id))continue;
-  const busy=await conflicts(a,r.equipment_id,r.start_at,r.end_at,{planId:plan.id,stepId:r.step_id,workOrderId:plan.work_order_id});
-  if(busy.length)result.errors.push({step:r.step_key,message:`Etapa “${r.step_name}”: equipamento ${r.tag} indisponível em ${period(r.start_at,r.end_at)}: ${busy[0].label}. Escolha outro equipamento ou ajuste o horário.`});
+  const busy=await conflicts(a,r.equipment_id,r.start_at,r.end_at,Number(r.hours_per_day),{planId:plan.id,stepId:r.step_id,workOrderId:plan.work_order_id});
+  if(busy.length)result.errors.push({step:r.step_key,message:`Etapa “${r.step_name}”: equipamento ${r.tag} sem ${hText(Number(r.hours_per_day))} livres por dia em ${period(r.start_at,r.end_at)}: ${busy[0].label}. Escolha outro equipamento, reduza as horas ou mude os dias.`});
  }
  // Início previsto no passado (OS nova planejada): aviso, a OS nasce com início vencido.
- if(plan.mode!=='realizada'&&!plan.work_order_id&&plan.planned_start&&ms(plan.planned_start)<Date.now()-5*60000)
-  result.warnings.push({message:`O início previsto (${fmtDate(plan.planned_start)}) já passou: a OS será lançada com início vencido. Ajuste as datas se ela ainda não começou.`});
+ if(plan.mode!=='realizada'&&!plan.work_order_id&&plan.planned_start&&dayOf(plan.planned_start)<dayOf(Date.now()))
+  result.warnings.push({message:`O dia de início previsto (${dayText(dayOf(plan.planned_start))}) já passou: a OS será lançada com início vencido. Ajuste as datas se ela ainda não começou.`});
  // Colaborador em etapas sobrepostas: aviso (não há reserva exclusiva de pessoas).
  for(const s of plan.steps.filter(x=>x.included&&x.planned_start&&x.planned_end&&x.operator_ids.length&&!revision?.frozen.has(x.step_key))){
   const clash=await all(`SELECT DISTINCT o.name,st.name step_name,st.planned_start,st.planned_end,w.number FROM plan_step_people pp JOIN plan_steps st ON st.id=pp.plan_step_id JOIN plans p ON p.id=pp.plan_id JOIN operators o ON o.id=pp.operator_id LEFT JOIN work_orders w ON w.id=p.work_order_id
@@ -432,6 +460,8 @@ export async function createDraftFrom(tx:Executor,a:Member,activityTypeId:string
  const deps=await tx.all('SELECT s.step_key,p.step_key depends_on FROM flow_dependencies d JOIN flow_steps s ON s.id=d.step_id JOIN flow_steps p ON p.id=d.depends_on_id WHERE d.flow_version_id=?',type.flow_version_id);
  const needs=await tx.all('SELECT * FROM flow_step_needs WHERE flow_version_id=?',type.flow_version_id);
  const pid=id(),t=now();
+ // Dados trazidos (troca de tipo, solicitação de recobrável): o planejamento é por dia.
+ if(header.planned_start&&header.planned_end){const [hs,he]=dayRange(header.planned_start,header.planned_end,['Início previsto','Fim previsto']);header={...header,planned_start:hs,planned_end:he};}
  await tx.run('INSERT INTO plans(id,status,activity_type_id,flow_version_id,description,org_id,requester_person_id,location_id,planned_start,planned_end,author_id,author_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',pid,'draft',type.id,type.flow_version_id,header.description||'',header.org_id||null,header.requester_person_id||null,header.location_id||null,header.planned_start||null,header.planned_end||null,a.id,a.name,t,t);
  for(const s of steps){
   const sid=id();
@@ -692,7 +722,9 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
  const person=await activeOr('requester_people',b.requesterPersonId,'Pessoa solicitante',plan.requester_person_id);
  if(person&&person.org_id!==org?.id)throw new AppError('A pessoa solicitante deve pertencer à organização escolhida.');
  const location=await activeOr('locations',b.locationId,'Local',plan.location_id);
- const start=instant(b.plannedStart,'Início previsto'),end=instant(b.plannedEnd,'Fim previsto');
+ // Planejamento: dia de início e dia de fim (dia inteiro). Atividade realizada: data e hora reais.
+ const realized=plan.mode==='realizada';
+ const [start,end]=realized?[instant(b.plannedStart,'Início previsto'),instant(b.plannedEnd,'Fim previsto')]:dayRange(b.plannedStart,b.plannedEnd,['Início previsto','Fim previsto']);
  if(start&&end&&ms(end)<=ms(start))throw new AppError('O fim previsto deve ser depois do início.');
  if(!Array.isArray(b.steps)||b.steps.length!==plan.steps.length)throw new AppError('Etapas inválidas. Atualize a tela.');
  const [equipment,operators,types,functions,materials]=await Promise.all([all('SELECT id,tag,active,type_id FROM equipment'),all('SELECT id,active FROM operators'),all('SELECT id,active FROM equipment_types'),all('SELECT id,active FROM job_functions'),all('SELECT id,active FROM materials')]);
@@ -704,9 +736,11 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
   const label=`Etapa “${s.name}”`;
   const os=revision?.osSteps.find(o=>o.step_key===s.step_key);
   // Revisão: etapa concluída ou dispensada fica como está (o que vier da tela é ignorado).
-  if(os&&revision!.frozen.has(s.step_key))return {s,included:s.included,ps:s.planned_start,pe:s.planned_end,loc:s.location_id,equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,needs:(s.needs as Row[]).map(n=>({et:n.equipment_type_id,fn:n.function_id,mt:n.material_id,q:n.quantity,amount:n.amount,unit:n.unit})),label,frozen:true,win:(e:string):[string|null,string|null]=>{const r=(s.reservations as Row[]).find(x=>x.equipment_id===e);return r?[r.start_at,r.end_at]:[s.planned_start,s.planned_end];}};
+  if(os&&revision!.frozen.has(s.step_key))return {s,included:s.included,ps:s.planned_start,pe:s.planned_end,loc:s.location_id,equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,needs:(s.needs as Row[]).map(n=>({et:n.equipment_type_id,fn:n.function_id,mt:n.material_id,q:n.quantity,amount:n.amount,unit:n.unit})),label,frozen:true,
+   win:(e:string):[string|null,string|null]=>{const r=(s.reservations as Row[]).find(x=>x.equipment_id===e);return r?[r.start_at,r.end_at]:[s.planned_start,s.planned_end];},
+   hrs:(e:string)=>Number((s.reservations as Row[]).find(x=>x.equipment_id===e)?.hours_per_day??EQUIPMENT_DAY_HOURS)};
   const included=s.required?1:raw.included===false?0:1;
-  const ps=plan.free?start:instant(raw.plannedStart,`${label} · início`),pe=plan.free?end:instant(raw.plannedEnd,`${label} · fim`);
+  const [ps,pe]=plan.free?[start,end]:realized?[instant(raw.plannedStart,`${label} · início`),instant(raw.plannedEnd,`${label} · fim`)]:dayRange(raw.plannedStart,raw.plannedEnd,[`${label} · início`,`${label} · fim`]);
   if(os&&os.status!=='nao_iniciada'){
    if(!included)throw new AppError(`${label}: etapa já iniciada não pode ser retirada da OS.`);
    if(ps!==revision!.baseStart(s.step_key))throw new AppError(`${label}: etapa já iniciada mantém o início previsto (é a referência do desvio).`);
@@ -717,7 +751,10 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
   const operatorIds=included?idList(raw.operatorIds,`${label} · colaboradores`,60):[];
   for(const e of equipmentIds){const r=equipment.find(x=>x.id===e);if(!r||(!r.active&&!s.equipment_ids.includes(e)))throw new AppError(`${label}: equipamento inativo ou inexistente.`);}
   for(const o of operatorIds){const r=operators.find(x=>x.id===o);if(!r||(!r.active&&!s.operator_ids.includes(o)))throw new AppError(`${label}: colaborador inativo ou inexistente.`);}
-  if(equipmentIds.length&&(!ps||!pe))throw new AppError(`${label}: informe início e fim antes de alocar equipamento identificado (é o intervalo que fica reservado).`);
+  if(equipmentIds.length&&(!ps||!pe))throw new AppError(`${label}: informe os dias de início e fim antes de alocar equipamento identificado (são os dias que ficam reservados).`);
+  // Horas de uso por dia de cada equipamento (padrão: o dia todo, 12 h). A soma no dia, entre as OS, não passa de 12 h.
+  if(raw.equipmentHours!=null&&(typeof raw.equipmentHours!=='object'||Array.isArray(raw.equipmentHours)))throw new AppError(`${label}: horas de uso inválidas.`);
+  const hoursOf=new Map(equipmentIds.map(e=>[e,realized?EQUIPMENT_DAY_HOURS:dayHours((raw.equipmentHours as Row|undefined)?.[e],`Equipamento ${equipment.find(y=>y.id===e)?.tag||''}`)]));
   if(raw.needs!=null&&(!Array.isArray(raw.needs)||raw.needs.length>30))throw new AppError(`${label}: necessidades inválidas.`);
   const needs=((raw.needs||[]) as Row[]).map(n=>{
    const et=n?.equipmentTypeId?idOf(n.equipmentTypeId,'Tipo'):null,fn=n?.functionId?idOf(n.functionId,'Função'):null,mt=n?.materialId?idOf(n.materialId,'Material'):null;
@@ -736,20 +773,20 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
    return {et,fn,mt:null,q,amount:null,unit:null};
   });
   if(new Set(needs.map(n=>(n.et||'')+'|'+(n.fn||'')+'|'+(n.mt||''))).size!==needs.length)throw new AppError(`${label}: recurso repetido.`);
-  // OS sem fluxo: cada equipamento pode ter o próprio período de uso (dentro do início e fim da OS);
-  // sem período informado, a reserva cobre a OS inteira. Nas OS com fluxo, vale o horário da etapa.
+  // OS sem fluxo: cada equipamento pode ter os próprios dias de uso (dentro dos dias da OS); sem dias
+  // informados, a reserva cobre a OS inteira. Nas OS com fluxo, valem os dias da etapa.
   const windows=new Map<string,[string,string]>();
-  if(plan.free&&raw.equipmentWindows!=null){
+  if(plan.free&&raw.equipmentWindows!=null&&!realized){
    if(typeof raw.equipmentWindows!=='object'||Array.isArray(raw.equipmentWindows))throw new AppError(`${label}: períodos de uso inválidos.`);
    for(const e of equipmentIds){const w=(raw.equipmentWindows as Row)[e];if(!w)continue;
-    const tg=equipment.find(y=>y.id===e)!.tag,ws=instant(w.start,`Equipamento ${tg} · início do uso`),we=instant(w.end,`Equipamento ${tg} · fim do uso`);
+    const tg=equipment.find(y=>y.id===e)!.tag,[ws,we]=dayRange(w.start,w.end,[`Equipamento ${tg} · primeiro dia de uso`,`Equipamento ${tg} · último dia de uso`]);
     if(!ws||!we)continue;
-    if(ms(we)<=ms(ws))throw new AppError(`Equipamento ${tg}: o fim do uso deve ser depois do início.`);
-    if(!ps||!pe||ms(ws)<ms(ps)||ms(we)>ms(pe))throw new AppError(`Equipamento ${tg}: o período de uso deve ficar entre o início e o fim da OS.`);
+    if(!ps||!pe||ms(ws)<ms(ps)||ms(we)>ms(pe))throw new AppError(`Equipamento ${tg}: os dias de uso devem ficar dentro dos dias da OS.`);
     if(ws!==ps||we!==pe)windows.set(e,[ws,we]);}
   }
   const win=(e:string):[string|null,string|null]=>windows.get(e)||[ps,pe];
-  return {s,included,ps,pe,loc,equipmentIds,operatorIds,needs,label,frozen:false,win};
+  const hrs=(e:string)=>hoursOf.get(e)??EQUIPMENT_DAY_HOURS;
+  return {s,included,ps,pe,loc,equipmentIds,operatorIds,needs,label,frozen:false,win,hrs};
  });
  if(steps.some(x=>x.loc)){const locs=await all('SELECT id,active FROM locations WHERE id = ANY(?::text[])',steps.map(x=>x.loc).filter(Boolean));for(const x of steps)if(x.loc){const l=locs.find(y=>y.id===x.loc);if(!l||(!l.active&&x.loc!==x.s.location_id))throw new AppError(`${x.label}: local inativo ou inexistente.`);}}
  // Atividade realizada: horas de uso por equipamento. O período ocupado na agenda vai do primeiro
@@ -760,18 +797,18 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
  // Confere a agenda antes de gravar, para devolver o motivo detalhado (o banco garante na gravação).
  for(const x of steps)for(const e of x.equipmentIds){
   const current=x.s.reservations.find((r:Row)=>r.equipment_id===e);
-  const [ws,we]=x.win(e);
-  if(x.frozen||(current&&current.start_at===ws&&current.end_at===we))continue;
-  // Revisão: manter o equipamento da versão vigente dentro do mesmo intervalo não é reserva nova.
-  if(revision?.base.some(r=>r.step_key===x.s.step_key&&r.equipment_id===e&&ms(r.start_at)<=ms(ws)&&ms(r.end_at)>=ms(we)))continue;
+  const [ws,we]=x.win(e),h=x.hrs(e);
+  if(x.frozen||(current&&current.start_at===ws&&current.end_at===we&&Number(current.hours_per_day)===h))continue;
+  // Revisão: manter o equipamento da versão vigente dentro dos mesmos dias e horas não é reserva nova.
+  if(revision?.base.some(r=>r.step_key===x.s.step_key&&r.equipment_id===e&&ms(r.start_at)<=ms(ws)&&ms(r.end_at)>=ms(we)&&Number(r.hours_per_day)>=h))continue;
   // Atividade realizada: registro do que já foi feito, sem intertravamento.
   if(plan.mode==='realizada')continue;
   const tag=equipment.find(y=>y.id===e)!.tag;
   // Impedimento aberto depois do fim do período não afeta o período.
   const block=await first('SELECT reason FROM equipment_impediments WHERE equipment_id=? AND released_at IS NULL AND opened_at::timestamptz < ?::timestamptz LIMIT 1',e,we);
   if(block)throw new AppError(`Equipamento ${tag} bloqueado por impedimento técnico: ${block.reason}. Escolha outro equipamento.`,409);
-  const busy=(await conflicts(a,e,ws!,we!,{planId:plan.id,stepId:x.s.id,workOrderId:plan.work_order_id}));
-  if(busy.length)throw new AppError(`Equipamento ${tag} indisponível: ${busy[0].label}. O período solicitado, ${period(ws!,we!)}, possui sobreposição.`,409);
+  const busy=(await conflicts(a,e,ws!,we!,h,{planId:plan.id,stepId:x.s.id,workOrderId:plan.work_order_id}));
+  if(busy.length)throw new AppError(`Equipamento ${tag} indisponível para ${hText(h)} por dia em ${period(ws!,we!)}: ${busy[0].label}. Reduza as horas, mude os dias ou escolha outro equipamento.`,409);
  }
  const notes=plan.mode==='realizada'&&b.notes!==undefined?await realizedNotes(b.notes,start,end):null;
  const t=now();let reservationChanges=0;
@@ -791,16 +828,16 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
     // Reservas: retira as que saíram, ajusta intervalo das que ficaram e cria as novas.
     for(const r of x.s.reservations as Row[]){
      if(!x.equipmentIds.includes(r.equipment_id)){await tx.run("UPDATE reservations SET status='liberada',released_at=?,release_reason=? WHERE id=?",t,'Retirada do rascunho',r.id);reservationChanges++;}
-     else{const [ws,we]=x.win(r.equipment_id);if(r.start_at!==ws||r.end_at!==we){await tx.run('UPDATE reservations SET start_at=?,end_at=? WHERE id=?',ws,we,r.id);reservationChanges++;}}
+     else{const [ws,we]=x.win(r.equipment_id),h=x.hrs(r.equipment_id);if(r.start_at!==ws||r.end_at!==we||Number(r.hours_per_day)!==h){await tx.run('UPDATE reservations SET start_at=?,end_at=?,hours_per_day=? WHERE id=?',ws,we,h,r.id);reservationChanges++;}}
     }
-    for(const e of x.equipmentIds.filter(e=>!x.s.equipment_ids.includes(e))){const [ws,we]=x.win(e);await tx.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,status,created_at) VALUES(?,?,?,?,?,?,'provisoria',?)",id(),plan.id,x.s.id,e,ws,we,t);reservationChanges++;}
+    for(const e of x.equipmentIds.filter(e=>!x.s.equipment_ids.includes(e))){const [ws,we]=x.win(e);await tx.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,hours_per_day,status,created_at) VALUES(?,?,?,?,?,?,?,'provisoria',?)",id(),plan.id,x.s.id,e,ws,we,x.hrs(e),t);reservationChanges++;}
    }
-   if(reservationChanges)await audit(tx,a,`${tag(a)}: reservas provisórias atualizadas`,plan.id,{reservations:steps.flatMap(x=>x.equipmentIds.map(e=>({step:x.s.step_key,equipment:equipment.find(y=>y.id===e)?.tag,start:x.win(e)[0],end:x.win(e)[1]})))});
+   if(reservationChanges)await audit(tx,a,`${tag(a)}: reservas provisórias atualizadas`,plan.id,{reservations:steps.flatMap(x=>x.equipmentIds.map(e=>({step:x.s.step_key,equipment:equipment.find(y=>y.id===e)?.tag,start:x.win(e)[0],end:x.win(e)[1],hoursPerDay:x.hrs(e)})))});
   });
  }catch(e){
   // Corrida com outra reserva ou bloqueio: o banco recusou; a mensagem orienta a atualizar.
   const msg=(e as {message?:string}).message||'';
-  if(/Equipamento reservado no período/.test(msg))throw new AppError('Outro planejamento reservou um dos equipamentos agora há pouco. Atualize a disponibilidade e escolha outro equipamento ou horário.',409);
+  if(/Equipamento reservado no período/.test(msg))throw new AppError('Outro planejamento reservou horas de um dos equipamentos agora há pouco. Atualize a disponibilidade e reduza as horas, mude os dias ou escolha outro equipamento.',409);
   if(/impedimento técnico/.test(msg))throw new AppError('Um dos equipamentos acabou de ser bloqueado por impedimento técnico. Escolha outro equipamento.',409);
   throw e;
  }

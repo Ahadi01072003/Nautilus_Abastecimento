@@ -85,13 +85,15 @@ export const DATASETS:Record<string,Def>={
   columns:['OS','Etapa','Tipo','Bloqueia','Categoria','Descrição','Severidade','Ocorrido em','Registrado em','Lançamento tardio','Autor','Impacto: início','Impacto: fim','Situação','Resolução','Resolvido por','Resolvido em','ID da OS'],
   map:r=>[osNumber(r.number),r.step_name,KIND[r.kind],r.blocking?'Sim':'Não',r.category_name,r.description,r.severity,d(r.occurred_at),d(r.registered_at),r.late?'Sim':'Não',r.author_name,d(r.impact_start),d(r.impact_end),r.status==='resolvido'?'Resolvido':'Aberto',r.resolution,r.resolved_by_name,d(r.resolved_at),r.work_order_id]},
  // Uma exportação só de equipamentos: uma linha por OS × etapa × equipamento planejado (OS
- // canceladas ficam de fora), com a data do uso e as horas planejadas da reserva.
+ // canceladas ficam de fora), com o primeiro dia do uso e as horas planejadas da reserva (horas/dia × dias).
  equipamentos:{label:'Equipamentos por OS',group:'operacao',
-  from:`FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id JOIN activity_types t ON t.id=w.activity_type_id
+  from:`FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id JOIN plans pl ON pl.id=r.plan_id JOIN activity_types t ON t.id=w.activity_type_id
    JOIN plan_steps ps ON ps.id=r.plan_step_id JOIN equipment e ON e.id=r.equipment_id LEFT JOIN equipment_types et ON et.id=e.type_id`,
   order:'r.start_at::timestamptz,w.number,ps.position,e.tag',
   select:`r.start_at,e.tag,et.name type_name,ps.name step_name,t.system free,w.number,coalesce(nullif(w.title,''),t.name) activity_name,
-   extract(epoch FROM (r.end_at::timestamptz-r.start_at::timestamptz))::float8 planned_s`,
+   -- Planejamento por dia: horas por dia × dias reservados; atividade realizada: a duração registrada.
+   CASE WHEN pl.mode='realizada' THEN extract(epoch FROM (r.end_at::timestamptz-r.start_at::timestamptz))
+    ELSE r.hours_per_day*3600*greatest(1,round(extract(epoch FROM (r.end_at::timestamptz-r.start_at::timestamptz))/86400)) END::float8 planned_s`,
   where:(f,v)=>{const [w,x]=osWhere(f,v);return [[...w,"w.status<>'cancelada'"],x];},
   columns:['OS','Data','Atividade','Etapa','Tipo de equipamento','TAG do equipamento','Horas planejadas'],
   map:r=>[osNumber(r.number),day(r.start_at),r.activity_name,r.free?null:r.step_name,r.type_name,r.tag,hours(r.planned_s)]},

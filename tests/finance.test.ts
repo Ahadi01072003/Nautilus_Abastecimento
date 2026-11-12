@@ -38,12 +38,13 @@ before(async()=>{
 });
 after(async()=>{await ctx.drop();});
 
-/** OS sem fluxo lançada para o cliente, com os equipamentos reservados no período inteiro. */
-async function launchFree(orgId:string,start:string,end:string,eq:string[]=['eq1']){
+/** OS sem fluxo lançada para o cliente, com os equipamentos reservados nos dias da OS (planejamento por
+ *  dia). Horas por dia pequenas por padrão, para que OS de testes diferentes possam dividir o mesmo dia. */
+async function launchFree(orgId:string,start:string,end:string,eq:string[]=['eq1'],hours=2){
  const {id}=await planningMutate('planning/create-free',{},planner) as {id:string};
  const p=(await planDetail(planner,id)).plan;
  await planningMutate('planning/save',{id,version:p.version,title:'Içamento com plataforma',orgId,locationId:loc,plannedStart:start,plannedEnd:end,description:'',
-  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:eq,operatorIds:[]}))},planner);
+  steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:null,plannedEnd:null,needs:[],equipmentIds:eq,operatorIds:[],equipmentHours:Object.fromEntries(eq.map(e=>[e,hours]))}))},planner);
  const v=(await planDetail(planner,id)).plan.version;
  return (await planningMutate('planning/launch',{id,version:v,launchKey:key()},planner) as {workOrderId:string}).workOrderId;
 }
@@ -133,11 +134,12 @@ test('uso retroativo: início sem fim antes de um uso já registrado pede o fim 
  await rejects(fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq1',startedAt:ago(19.5)},operator),409,/informe também o fim/);
 });
 
-test('uso: fora do reservado por mais de 30 min fica a conferir; dentro fica normal',async()=>{
- const w=await launchFree(org,ago(100),ago(96),['eq1']);
- const inside=await fm('uses/start',{operationKey:key(),workOrderId:w,equipmentId:'eq1',startedAt:ago(99.9),endedAt:ago(96.2)},operator);
+test('uso: fora dos dias reservados (janela das 08h às 20h) por mais de 30 min fica a conferir; dentro fica normal',async()=>{
+ const L=(d:string,h:string)=>new Date(`${d}T${h}:00-03:00`).toISOString();
+ const w=await launchFree(org,'2026-08-20','2026-08-20',['eq1']);
+ const inside=await fm('uses/start',{operationKey:key(),workOrderId:w,equipmentId:'eq1',startedAt:L('2026-08-20','09:00'),endedAt:L('2026-08-20','17:00')},operator);
  assert.equal((await db.first('SELECT review FROM equipment_uses WHERE id=?',inside.id))!.review,'normal');
- const out=await fm('uses/start',{operationKey:key(),workOrderId:w,equipmentId:'eq1',startedAt:ago(96),endedAt:ago(95)},operator);
+ const out=await fm('uses/start',{operationKey:key(),workOrderId:w,equipmentId:'eq1',startedAt:L('2026-08-20','20:00'),endedAt:L('2026-08-20','21:00')},operator);
  assert.equal((await db.first('SELECT review FROM equipment_uses WHERE id=?',out.id))!.review,'a_conferir');
 });
 
@@ -176,26 +178,27 @@ test('datas: futuro e antes de 2020 recusados',async()=>{
 // ---- Tarefa 6: painel ----
 test('painel: previsto pelas reservas e realizado pelos usos, no período',async()=>{
  const L=(d:string,h:string)=>new Date(`${d}T${h}:00-03:00`).toISOString();
- // OS programada em 10/09 (08–18) e OS concluída de 11/09 08:00 a 12/09 12:00, ambas com a eq1.
- const P=await launchFree(org,L('2026-09-10','08:00'),L('2026-09-10','18:00'),['eq1']);
- const C=await launchFree(org,L('2026-09-11','08:00'),L('2026-09-12','12:00'),['eq1']);
+ // OS programada em 10/09 (10 h no dia) e OS concluída em 11 e 12/09 (12 h por dia), ambas com a eq1.
+ const P=await launchFree(org,'2026-09-10','2026-09-10',['eq1'],10);
+ const C=await launchFree(org,'2026-09-11','2026-09-12',['eq1'],12);
  await db.run("UPDATE work_orders SET status='concluida' WHERE id=?",C);
  const reg=(wo:string,a:string,b:string)=>fm('uses/start',{operationKey:key(),workOrderId:wo,equipmentId:'eq1',startedAt:a,endedAt:b,confirm:true},fin);
- await reg(P,L('2026-09-10','22:00'),L('2026-09-11','01:00')); // fora do reservado: a conferir; diária começa em 10/09
+ await reg(P,L('2026-09-10','22:00'),L('2026-09-11','01:00')); // depois das 20h: a conferir; diária começa em 10/09
  await reg(C,L('2026-09-11','08:00'),L('2026-09-11','10:00')); // dentro: conferida
  await reg(C,L('2026-09-12','09:00'),L('2026-09-12','10:00'));
- await reg(C,L('2026-09-12','11:00'),L('2026-09-12','13:00')); // passa 60 min do reservado: a conferir
+ await reg(C,L('2026-09-12','19:30'),L('2026-09-12','21:00')); // passa 60 min das 20h: a conferir
  const panel=(q:string)=>financePanel(fin,new URL('http://x/?'+q));
  const all=(await panel(`from=2026-09-10&to=2026-09-12&org=${org}`)).rows.find(r=>r.equipmentId==='eq1')!;
- assert.deepEqual([all.requests,all.scheduled,all.plannedHours],[2,1,38]);
- // Reservas: 10/09 08–18 (2 diárias) + 11/09 08:00 a 12/09 12:00 (4 diárias).
+ // Previsto: horas por dia × dias (10 + 12 + 12 = 34 h), a partir das 08h de cada dia.
+ assert.deepEqual([all.requests,all.scheduled,all.plannedHours],[2,1,34]);
+ // Reservas: 10/09 08–18 (2 diárias) + 11/09 08–20 (2) + 12/09 08–20 (2).
  assert.deepEqual([all.plannedDailies,all.plannedCents,all.avgPerOrderCents],[6,2400000,1200000]);
- assert.deepEqual([all.dailies,all.confirmedCents,all.pendingCents],[3,400000,800000]);
+ assert.deepEqual([all.dailies,all.confirmedCents,all.pendingCents],[4,800000,800000]);
  // Período só com 11 e 12/09: a OS de 10/09 e a diária que começou em 10/09 ficam de fora.
  const part=(await panel(`from=2026-09-11&to=2026-09-12&org=${org}`)).rows.find(r=>r.equipmentId==='eq1')!;
- assert.deepEqual([part.requests,part.scheduled,part.dailies,part.confirmedCents,part.pendingCents],[1,0,2,400000,400000]);
+ assert.deepEqual([part.requests,part.scheduled,part.dailies,part.confirmedCents,part.pendingCents],[1,0,3,800000,400000]);
  const det=(await panel(`from=2026-09-11&to=2026-09-12&org=${org}`)).detail[`eq1|${org}`];
- assert.equal(det.dailies.length,2);assert.equal(det.pending.length,1);
+ assert.equal(det.dailies.length,3);assert.equal(det.pending.length,1);
  await rejects(panel('from=2026-09-12&to=2026-09-11'),400);
  await rejects(financePanel(operator,new URL('http://x/')),403);
 });
@@ -206,7 +209,7 @@ test('exportação: diárias e usos com as colunas e valores; sem acesso Finance
  const lines=async(sets:string,who:Member=fin)=>(await (await exportData(who,url(sets))).text()).replace(/^\uFEFF/,'').trim().split(/\r?\n/);
  const d=await lines('recobraveis_diarias');
  assert.equal(d[0],['Equipamento','Cliente','Início da diária','Fim da diária','OS que abriu','OS atendidas','Horas por diária','Valor por hora (R$)','Valor da diária (R$)','Situação'].map(c=>'"'+c+'"').join(';'));
- assert.equal(d.length-1,3,'três diárias de 10 a 12/09');
+ assert.equal(d.length-1,4,'quatro diárias de 10 a 12/09');
  assert.ok(d.slice(1).every(l=>l.includes('"EMP-01"')&&l.includes('"Cliente Teste"')&&l.includes(';8;500;4000;')));
  assert.equal(d.slice(1).filter(l=>l.endsWith('"A conferir"')).length,2);
  const u=await lines('recobraveis_usos');

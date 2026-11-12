@@ -9,6 +9,7 @@ import {type Member,isManager,has,requireAny,loadAccess} from './permissions';
 import {audit} from './registry';
 import {instant,osNumber} from './planning';
 import {dailies,rateAt,minutesOutside,type Rate,type Interval,type Daily} from './recoverables';
+import {reservationWindows,operationWindows} from './days';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -46,9 +47,12 @@ const ratesOf=(ex:Executor,equipmentId?:string,orgId?:string)=>ex.all(`SELECT * 
 const usesNear=(ex:Executor,equipmentId:string,orgId:string,from:number,to:number)=>ex.all(`SELECT u.*,w.number FROM equipment_uses u JOIN work_orders w ON w.id=u.work_order_id
  WHERE u.equipment_id=? AND u.org_id=? AND u.started_at::timestamptz < ?::timestamptz AND coalesce(u.ended_at::timestamptz,'infinity') > ?::timestamptz ORDER BY u.started_at::timestamptz`,
  equipmentId,orgId,new Date(to).toISOString(),new Date(from-8*DAY).toISOString());
-/** Períodos reservados do equipamento na versão vigente da OS. */
+/** Períodos reservados do equipamento na versão vigente da OS. Reserva por dia: a janela de operação
+ *  (08h às 20h) de cada dia reservado. */
 const reservedWindows=async(ex:Executor,wo:Row,equipmentId:string)=>(await ex.all('SELECT start_at,end_at FROM reservations WHERE plan_id=? AND equipment_id=?',wo.current_plan_id,equipmentId))
- .map(r=>[ms(r.start_at),ms(r.end_at)] as [number,number]);
+ .flatMap(r=>operationWindows(r.start_at,r.end_at));
+/** Reserva por dia vira trechos de tempo com as horas por dia (a partir das 08h) para o previsto. */
+const asWindows=(rows:Row[]):Row[]=>rows.flatMap(x=>reservationWindows(x.start_at,x.end_at,Number(x.hours_per_day??12)).map(([s0,e0])=>({...x,start_at:iso(s0),end_at:iso(e0)})));
 
 // ---- Consultas ----
 
@@ -112,15 +116,15 @@ function byOrder(list:Row[],t0:number,t1:number,base:(x:Row)=>Row):Row[]{
 async function forecast(p:{equipmentId:string,orgId:string},rates:Rate[],t0:number,t1:number,see:(orgId:string)=>boolean){
  const mine=rates.filter(r=>r.equipmentId===p.equipmentId&&r.orgId===p.orgId);
  const [res,others]=await Promise.all([
-  db().all(`SELECT r.start_at,r.end_at,r.status,w.id order_id,w.number,w.status order_status,
+  db().all(`SELECT r.start_at,r.end_at,r.hours_per_day,r.status,w.id order_id,w.number,w.status order_status,
     EXISTS (SELECT 1 FROM equipment_uses u WHERE u.work_order_id=w.id AND u.equipment_id=r.equipment_id) used
    FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id
    WHERE r.equipment_id=? AND w.org_id=? AND r.start_at::timestamptz < ?::timestamptz AND r.end_at::timestamptz > ?::timestamptz`,p.equipmentId,p.orgId,iso(t1+8*DAY),iso(t0-8*DAY)),
-  db().all(`SELECT r.start_at,r.end_at,w.id order_id,w.number,w.status order_status,w.org_id,o.name org_name
+  db().all(`SELECT r.start_at,r.end_at,r.hours_per_day,w.id order_id,w.number,w.status order_status,w.org_id,o.name org_name
    FROM reservations r JOIN work_orders w ON w.current_plan_id=r.plan_id JOIN requester_orgs o ON o.id=w.org_id
    WHERE r.equipment_id=? AND w.org_id<>? AND r.status<>'liberada' AND w.status<>'cancelada'
     AND r.start_at::timestamptz < ?::timestamptz AND r.end_at::timestamptz > ?::timestamptz`,p.equipmentId,p.orgId,iso(t1),iso(t0)),
- ]);
+ ]).then(([x,y])=>[asWindows(x),asWindows(y)]);
  const inPeriod=(x:Row)=>ms(x.start_at)<t1&&ms(x.end_at)>t0;
  const requested=res.filter(x=>inPeriod(x)&&(x.order_status!=='cancelada'||x.used));
  const counts=(x:Row)=>x.status==='confirmada'&&x.order_status!=='cancelada';

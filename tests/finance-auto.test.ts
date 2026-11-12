@@ -50,7 +50,9 @@ async function launch(start:number,end:number,eq:string,steps?:Record<string,[nu
  const p=(await planDetail(planner,id)).plan;
  await planningMutate('planning/save',{id,version:p.version,title:p.free?'Içamento':undefined,orgId:org,locationId:loc,plannedStart:at(start),plannedEnd:at(end),description:'',
   steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,plannedStart:steps?at(steps[s.step_key][0]):null,plannedEnd:steps?at(steps[s.step_key][1]):null,
-   needs:s.needs.map((n:Row)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:[eq],operatorIds:[]}))},planner);
+   needs:s.needs.map((n:Row)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:[eq],operatorIds:[],
+   // Planejamento por dia: duas etapas da mesma OS no mesmo dia dividem as 12 h do equipamento.
+   ...(steps?{equipmentHours:{[eq]:6}}:{})}))},planner);
  const v=(await planDetail(planner,id)).plan.version;
  return (await planningMutate('planning/launch',{id,version:v,launchKey:key()},planner) as {workOrderId:string}).workOrderId;
 }

@@ -79,8 +79,8 @@ test('revisão de OS programada: mesmo número, troca atômica de reservas, etap
  // Mesmo número de rascunho na reabertura; outra pessoa não abre uma segunda revisão.
  assert.equal((await revise('start',{workOrderId:wo})).id,id);
  await rejects(revise('start',{workOrderId:wo},planner2),409,/revisão em rascunho/);
- // Troca o equipamento da Inspeção e adia a Movimentação.
- await save(draft,{'insp-0001':{equipmentIds:['eq2']},'move-0001':{plannedStart:at(3,11),plannedEnd:at(3,13)},'limp-0001':{plannedStart:at(3,13),plannedEnd:at(3,14)}});
+ // Troca o equipamento da Inspeção e adia a Movimentação para o dia seguinte (planejamento por dia).
+ await save(draft,{'insp-0001':{equipmentIds:['eq2']},'move-0001':{plannedStart:at(4,8),plannedEnd:at(4,10)},'limp-0001':{plannedStart:at(4,10),plannedEnd:at(4,11)}},{plannedEnd:at(4,18)});
  const v=await validateDraft(planner,id) as Row;
  assert.deepEqual(v.errors,[]);
  assert.ok(v.changes.some((c:string)=>/Inspeção.*incluído.*EMP-02/.test(c)),v.changes.join(' | '));
@@ -112,7 +112,7 @@ test('revisão de OS programada: mesmo número, troca atômica de reservas, etap
  assert.match(JSON.stringify(audit!.detail),/EMP-02/);
  // O Gantt lê a nova versão.
  const g=await ordersSteps(viewer,new URL('http://x/?ids='+wo));
- assert.equal(g.steps.find((s:Row)=>s.step_key==='move-0001')!.planned_start,at(3,11));
+ assert.equal(g.steps.find((s:Row)=>s.step_key==='move-0001')!.planned_start,at(4,0),'00h do dia 4 (Brasília)');
  // Lançar de novo com outra chave: recusado; com a mesma: idempotente.
  await rejects(revise('launch',{id,version:0,launchKey:key(),reason:'x'}),409,/já foi lançada/);
 });
@@ -147,12 +147,12 @@ test('etapas iniciadas e concluídas: o que pode e o que não pode mudar; retira
  const detail=await planDetail(planner,id);
  assert.deepEqual(Object.fromEntries(detail.osSteps!.map((o:Row)=>[o.step_key,o.status])),{'prep-0001':'concluida','insp-0001':'em_execucao','move-0001':'nao_iniciada','limp-0001':'nao_iniciada'});
  // Etapa iniciada: não sai da OS e mantém o início previsto.
- await rejects(save(draft,{'insp-0001':{plannedStart:at(7,8,15)}}),400,/mantém o início previsto/);
- // Etapa concluída: mudanças vindas da tela são ignoradas.
- await save(draft,{'prep-0001':{plannedEnd:at(7,11)},'insp-0001':{plannedEnd:at(7,11)},'move-0001':{plannedStart:at(7,11),plannedEnd:at(7,13)},'limp-0001':{included:false}});
+ await rejects(save(draft,{'insp-0001':{plannedStart:at(6,8)}}),400,/mantém o início previsto/);
+ // Etapa concluída: mudanças vindas da tela são ignoradas. A Inspeção (em execução) passa a ir até o dia 8.
+ await save(draft,{'prep-0001':{plannedEnd:at(8,11)},'insp-0001':{plannedEnd:at(8,11)},'move-0001':{plannedStart:at(8,11),plannedEnd:at(8,13)},'limp-0001':{included:false}},{plannedEnd:at(8,18)});
  draft=await draftOf(id);
- assert.equal(draft.steps.find((s:Row)=>s.step_key==='prep-0001')!.planned_end,at(7,10));
- assert.equal(draft.steps.find((s:Row)=>s.step_key==='insp-0001')!.planned_end,at(7,11));
+ assert.equal(draft.steps.find((s:Row)=>s.step_key==='prep-0001')!.planned_end,at(8,0),'concluída: continua só no dia 7');
+ assert.equal(draft.steps.find((s:Row)=>s.step_key==='insp-0001')!.planned_end,at(9,0),'até o fim do dia 8');
  const r=await launchRevision(id,'Inspeção mais longa');
  assert.equal(r.revision,1);
  const d=await orderDetail(operator,wo);
@@ -176,7 +176,7 @@ test('corrida: etapa iniciada depois de a revisão mudar o início é recusada n
  const wo=await launch(9);
  const {id}=await revise('start',{workOrderId:wo});
  const draft=await draftOf(id);
- await save(draft,{'prep-0001':{plannedStart:at(9,8,30)}});
+ await save(draft,{'prep-0001':{plannedStart:at(8,8)}},{plannedStart:at(8,7)});
  const prep=(await orderDetail(operator,wo)).steps.find((s:Row)=>s.step_key==='prep-0001')!;
  await ops('start',{stepId:prep.id});
  await rejects(launchRevision(id),409,/início previsto dela não pode mudar/);
@@ -191,12 +191,12 @@ test('equipamento bloqueado mantido na revisão é aviso; incluí-lo de novo é 
  const wo=await launch(11);
  await conditionMutate('condition/open',{equipmentId:'eq1',reason:'Vazamento'},manager);
  const {id}=await revise('start',{workOrderId:wo});
- await save(await draftOf(id),{'move-0001':{plannedEnd:at(11,12,30)},'limp-0001':{plannedStart:at(11,12,30),plannedEnd:at(11,13,30)}});
+ await save(await draftOf(id),{'move-0001':{plannedEnd:at(12,12)},'limp-0001':{plannedStart:at(12,12),plannedEnd:at(12,13)}},{plannedEnd:at(12,18)});
  const v=await validateDraft(planner,id) as Row;
  assert.deepEqual(v.errors,[]);
  assert.ok(v.warnings.some((w:Row)=>/EMP-01 continua bloqueado/.test(w.message)));
  // Estender a reserva bloqueada além do intervalo vigente é reserva nova: recusada.
- await rejects(save(await draftOf(id),{'insp-0001':{plannedEnd:at(11,10,30)}}),409,/bloqueado/);
+ await rejects(save(await draftOf(id),{'insp-0001':{plannedEnd:at(12,10)}}),409,/bloqueado/);
  await launchRevision(id);
  assert.equal((await order(wo)).revision,1);
  const imp=await db.first("SELECT id FROM equipment_impediments WHERE equipment_id='eq1' AND released_at IS NULL");

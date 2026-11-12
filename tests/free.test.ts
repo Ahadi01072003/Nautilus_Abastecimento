@@ -15,6 +15,9 @@ let manager:Member,planner:Member,operator:Member;
 let org:string,loc:string;
 const rejects=(p:Promise<unknown>,status:number,pattern?:RegExp)=>assert.rejects(p,(e:{status?:number;message:string})=>{if(status)assert.equal(e.status,status,e.message);if(pattern)assert.match(e.message,pattern);return true;});
 const at=(day:number,h:number)=>new Date(Date.UTC(2033,4,day,h+3)).toISOString();
+/** Planejamento por dia: 00h de Brasília do dia e do dia seguinte (fim exclusivo). */
+const d0=(day:number)=>at(day,0),d1=(day:number)=>at(day+1,0);
+const ymd=(day:number)=>`2033-05-${String(day).padStart(2,'0')}`;
 const key=()=>crypto.randomUUID();
 const set=async(who:Member,caps:string[],profile='fueler')=>{const m=await db.first('SELECT * FROM members WHERE id=?',who.id);await mutate('members',{id:who.id,username:m!.username,name:m!.name,role:profile,capabilities:caps},manager);return {...who,profile,capabilities:caps} as Member;};
 
@@ -63,10 +66,10 @@ test('OS sem fluxo: título, início e fim pelas datas macro, recursos com mater
   needs:[{equipmentTypeId:type,quantity:1},{functionId:fn.id,quantity:1},{materialId:mat.id,amount:12.5,unit:'un'}]}),planner);
  p=(await planDetail(planner,id)).plan;
  assert.equal(p.activity_name,'Remoção de sucata');
- assert.equal(p.steps[0].planned_start,at(3,8));assert.equal(p.steps[0].planned_end,at(3,17));
+ assert.equal(p.steps[0].planned_start,d0(3));assert.equal(p.steps[0].planned_end,d1(3),'por dia: o dia 3 inteiro');
  assert.deepEqual(p.steps[0].needs.find((n:Row)=>n.material_id)!.amount,12.5);
  const r=await db.first("SELECT start_at,end_at,status FROM reservations WHERE plan_id=? AND status<>'liberada'",id);
- assert.deepEqual(r,{start_at:at(3,8),end_at:at(3,17),status:'provisoria'});
+ assert.deepEqual(r,{start_at:d0(3),end_at:d1(3),status:'provisoria'});
  const v=await validateDraft(planner,id) as Row;
  assert.deepEqual(v.errors.map((e:Row)=>e.message),[],JSON.stringify(v.errors));
  // Não troca de tipo e é lançada com o título.
@@ -93,13 +96,13 @@ test('revisão de OS sem fluxo leva o título e os materiais',async()=>{
  const rev=await revisionMutate('planning/revision/start',{workOrderId},planner) as Row;
  let d=(await planDetail(planner,rev.id)).plan;
  assert.equal(d.title,'Arrumação do pátio');assert.equal(d.steps[0].needs[0].amount,3);
- await planningMutate('planning/save',body(d,{title:'Arrumação dos pátios 2 e 3',plannedEnd:at(6,14)},{needs:[{materialId:mat,amount:5,unit:'un'}]}),planner);
+ await planningMutate('planning/save',body(d,{title:'Arrumação dos pátios 2 e 3',plannedEnd:at(7,14)},{needs:[{materialId:mat,amount:5,unit:'un'}]}),planner);
  const changes=(await validateDraft(planner,rev.id) as Row).changes as string[];
  assert.ok(changes.some(c=>/Título/.test(c)));assert.ok(changes.some(c=>/necessidades/.test(c)));
  d=(await planDetail(planner,rev.id)).plan;
  await revisionMutate('planning/revision/launch',{id:rev.id,version:d.version,launchKey:key(),reason:'Escopo ampliado'},planner);
  const w=await db.first('SELECT title,planned_end FROM work_orders WHERE id=?',workOrderId);
- assert.deepEqual(w,{title:'Arrumação dos pátios 2 e 3',planned_end:at(6,14)});
+ assert.deepEqual(w,{title:'Arrumação dos pátios 2 e 3',planned_end:d1(7)});
 });
 
 test('materiais em Cadastros gerais e códigos de sistema reservados',async()=>{
@@ -112,41 +115,41 @@ test('materiais em Cadastros gerais e códigos de sistema reservados',async()=>{
  await rejects(flowsMutate('flows/status',{id:free!.id,updatedAt:free!.updated_at,active:false},manager),404);
 });
 
-test('OS sem fluxo: período de uso por equipamento reserva só o trecho informado; ano fora da faixa é recusado',async()=>{
+test('OS sem fluxo: dias e horas de uso por equipamento; outra OS divide o dia até 12 h; ano fora da faixa é recusado',async()=>{
  const make=async()=>{const {id}=await planningMutate('planning/create-free',{},planner) as {id:string};return id;};
  const a=await make(),b=await make();
  let p=(await planDetail(planner,a)).plan;
  // Ano 0026 (digitado errado) não é gravado: mensagem clara, nada muda.
  await rejects(planningMutate('planning/save',body(p,{title:'Uso parcial',orgId:org,locationId:loc,plannedStart:'0026-05-20T11:00:00.000Z',plannedEnd:at(20,17)}),planner),400,/ano 26 fora da faixa/);
- // OS de 08:00 às 17:00; a empilhadeira só das 09:00 às 11:30.
- await planningMutate('planning/save',body(p,{title:'Uso parcial',orgId:org,locationId:loc,plannedStart:at(20,8),plannedEnd:at(20,17)},{equipmentIds:['eq1'],equipmentWindows:{eq1:{start:at(20,9),end:new Date(Date.parse(at(20,11))+30*60000).toISOString()}}}),planner);
- const r=(await db.first("SELECT start_at,end_at FROM reservations WHERE plan_id=? AND status<>'liberada'",a))!;
- assert.equal(r.start_at,at(20,9));assert.equal(Date.parse(r.end_at)-Date.parse(r.start_at),2.5*3600_000);
- // Outra OS usa a mesma empilhadeira na tarde do mesmo dia: livre, sem conflito.
+ // OS de 20 a 22; a empilhadeira só no dia 20, 4 h.
+ await planningMutate('planning/save',body(p,{title:'Uso parcial',orgId:org,locationId:loc,plannedStart:ymd(20),plannedEnd:ymd(22)},{equipmentIds:['eq1'],equipmentWindows:{eq1:{start:ymd(20),end:ymd(20)}},equipmentHours:{eq1:4}}),planner);
+ const r=(await db.first("SELECT start_at,end_at,hours_per_day FROM reservations WHERE plan_id=? AND status<>'liberada'",a))!;
+ assert.deepEqual([r.start_at,r.end_at,Number(r.hours_per_day)],[d0(20),d1(20),4]);
+ // Outra OS usa a mesma empilhadeira nos dias 21 e 22: livre, sem conflito.
  let q=(await planDetail(planner,b)).plan;
- const avail=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(20,13))}&end=${encodeURIComponent(at(20,16))}&planId=${b}`)) as Row;
+ const avail=await availability(planner,new URL(`http://x/?start=${ymd(21)}&end=${ymd(22)}&planId=${b}`)) as Row;
  assert.equal(avail.equipment.find((e:Row)=>e.id==='eq1').status,'livre');
- await planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,13),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner);
- // Rascunho não segura o equipamento: sobrepor o trecho de outro rascunho é aceito (volta para a tarde).
+ await planningMutate('planning/save',body(q,{title:'Depois',orgId:org,locationId:loc,plannedStart:ymd(21),plannedEnd:ymd(22)},{equipmentIds:['eq1']}),planner);
+ // Rascunho não segura o equipamento: o dia 20 inteiro em outro rascunho é aceito (depois volta).
  q=(await planDetail(planner,b)).plan;
- await planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,10),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner);
+ await planningMutate('planning/save',body(q,{title:'Depois',orgId:org,locationId:loc,plannedStart:ymd(20),plannedEnd:ymd(22)},{equipmentIds:['eq1']}),planner);
  q=(await planDetail(planner,b)).plan;
- await planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,13),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner);
- // Período fora da OS é recusado; sem período, a reserva volta a cobrir a OS inteira.
+ await planningMutate('planning/save',body(q,{title:'Depois',orgId:org,locationId:loc,plannedStart:ymd(21),plannedEnd:ymd(22)},{equipmentIds:['eq1']}),planner);
+ // Dias fora da OS são recusados.
  p=(await planDetail(planner,a)).plan;
- await rejects(planningMutate('planning/save',body(p,{},{equipmentIds:['eq1'],equipmentWindows:{eq1:{start:at(20,7),end:at(20,9)}}}),planner),400,/entre o início e o fim da OS/);
- assert.equal((p.steps[0].reservations as Row[])[0].start_at,at(20,9),'o rascunho carrega o período salvo');
- // Ao lançar, a reserva confirmada mantém o trecho.
- await planningMutate('planning/save',body(p,{},{equipmentIds:['eq1'],equipmentWindows:{eq1:{start:at(20,9),end:at(20,10)}}}),planner);
- p=(await planDetail(planner,a)).plan;
+ await rejects(planningMutate('planning/save',body(p,{},{equipmentIds:['eq1'],equipmentWindows:{eq1:{start:ymd(19),end:ymd(20)}},equipmentHours:{eq1:4}}),planner),400,/dentro dos dias da OS/);
+ assert.equal((p.steps[0].reservations as Row[])[0].start_at,d0(20),'o rascunho carrega os dias salvos');
  await planningMutate('planning/launch',{id:a,version:p.version,launchKey:key()},planner);
- const c=(await db.first("SELECT start_at,end_at,status FROM reservations WHERE plan_id=? AND status<>'liberada'",a))!;
- assert.deepEqual([c.status,c.start_at,c.end_at],['confirmada',at(20,9),at(20,10)]);
- // Lançada A, sobrepor o trecho dela é recusado com o motivo; fora dele, aceito.
+ const c=(await db.first("SELECT start_at,end_at,status,hours_per_day FROM reservations WHERE plan_id=? AND status<>'liberada'",a))!;
+ assert.deepEqual([c.status,c.start_at,c.end_at,Number(c.hours_per_day)],['confirmada',d0(20),d1(20),4]);
+ // Lançada A (4 h no dia 20): B com o dia 20 inteiro é recusada com o motivo; com 8 h cabe (4 + 8 = 12).
  q=(await planDetail(planner,b)).plan;
- await rejects(planningMutate('planning/save',body(q,{title:'Tarde',orgId:org,locationId:loc,plannedStart:at(20,9),plannedEnd:at(20,16)},{equipmentIds:['eq1']}),planner),409,/indisponível/);
- // A entra em execução: as horas de uso (09–10) continuam valendo como planejadas. O rascunho B
- // (13–16) não tem pendência; a OS inteira só segura o equipamento quando não há horas de uso.
+ await rejects(planningMutate('planning/save',body(q,{title:'Depois',orgId:org,locationId:loc,plannedStart:ymd(20),plannedEnd:ymd(22)},{equipmentIds:['eq1']}),planner),409,/indisponível.*já há 4 h de 12 h/);
+ assert.equal((await availability(planner,new URL(`http://x/?start=${ymd(20)}&end=${ymd(20)}&hours=8&planId=${b}`)) as Row).equipment.find((e:Row)=>e.id==='eq1').status,'parcial');
+ await planningMutate('planning/save',body(q,{title:'Depois',orgId:org,locationId:loc,plannedStart:ymd(20),plannedEnd:ymd(22)},{equipmentIds:['eq1'],equipmentHours:{eq1:8}}),planner);
+ q=(await planDetail(planner,b)).plan;
+ await planningMutate('planning/save',body(q,{title:'Depois',orgId:org,locationId:loc,plannedStart:ymd(21),plannedEnd:ymd(22)},{equipmentIds:['eq1']}),planner);
+ // A entra em execução: B (21 e 22) segue sem pendência; no dia 20 o equipamento continua com 4 h de A.
  const ops=(path:string,x:Row)=>operationMutate('ops/'+path,{operationKey:key(),...x},operator) as Promise<Row>;
  const wo=(await db.first('SELECT work_order_id FROM plans WHERE id=?',a))!.work_order_id;
  for(const req of (await orderDetail(operator,wo)).requirements as Row[]){
@@ -157,14 +160,11 @@ test('OS sem fluxo: período de uso por equipamento reserva só o trecho informa
  await ops('start',{stepId:(await orderDetail(operator,wo)).steps[0].id});
  const review=await validateDraft(planner,b) as Row;
  assert.equal(review.errors.length,0,JSON.stringify(review.errors));
- const during=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(20,9))}&end=${encodeURIComponent(new Date(Date.parse(at(20,9))+30*60000).toISOString())}`)) as Row;
- assert.equal(during.equipment.find((e:Row)=>e.id==='eq1').status,'reservado','dentro das horas de uso segue reservado');
- // Revisão de B na mesma faixa da OS inteira de outro equipamento não muda nada aqui; OS inteira:
- // sem horas de uso, a reserva acompanha a OS toda (13–16) e termina no fim previsto, mesmo em andamento.
+ assert.equal(((await availability(planner,new URL(`http://x/?start=${ymd(20)}&end=${ymd(20)}`))) as Row).equipment.find((e:Row)=>e.id==='eq1').status,'reservado','12 h não cabem no dia 20');
  q=(await planDetail(planner,b)).plan;
  await planningMutate('planning/launch',{id:b,version:q.version,launchKey:key()},planner);
  const bWo=(await db.first('SELECT work_order_id FROM plans WHERE id=?',b))!.work_order_id;
  await ops('start',{stepId:(await orderDetail(operator,bWo)).steps[0].id});
- const busy=await availability(planner,new URL(`http://x/?start=${encodeURIComponent(at(20,14))}&end=${encodeURIComponent(at(20,15))}`)) as Row;
- assert.match(busy.equipment.find((e:Row)=>e.id==='eq1').detail,/reservado para a etapa .* das 13h00 às 16h00/);
+ const busy=await availability(planner,new URL(`http://x/?start=${ymd(21)}&end=${ymd(21)}`)) as Row;
+ assert.match(busy.equipment.find((e:Row)=>e.id==='eq1').detail,/reservado para a etapa .* em 21\/05\/2033 a 22\/05\/2033 \(12 h\/dia\)/);
 });

@@ -8,6 +8,7 @@ import {audit} from './registry';
 import {loadPlan,instant,osNumber,period} from './planning';
 import {closeOpenUses} from './finance';
 import {onOrderClosed} from './recovery-link';
+import {dayOf,dayAfter,daysOf,isWholeDays,EQUIPMENT_DAY_HOURS} from './days';
 
 const id=()=>crypto.randomUUID();
 const now=()=>new Date().toISOString();
@@ -86,7 +87,7 @@ export async function event(tx:Executor,a:Member,wo:Row,stepId:string|null,kind:
 }
 async function openInterval(tx:Executor,stepId:string,kind:'ativo'|'interrompido',eventId:string,at:string){await tx.run('INSERT INTO step_intervals(id,os_step_id,kind,start_at,start_event_id) VALUES(?,?,?,?,?)',id(),stepId,kind,at,eventId);}
 async function closeInterval(tx:Executor,stepId:string,eventId:string,at:string){await tx.run('UPDATE step_intervals SET end_at=?,end_event_id=? WHERE os_step_id=? AND end_at IS NULL',at,eventId,stepId);}
-const stepEquipment=(tx:Executor,s:Row)=>tx.all(`SELECT r.equipment_id,e.tag,r.start_at,r.end_at,
+const stepEquipment=(tx:Executor,s:Row)=>tx.all(`SELECT r.equipment_id,e.tag,r.start_at,r.end_at,r.hours_per_day,
  (r.start_at::timestamptz <= now() OR r.start_at::timestamptz <= p.planned_start::timestamptz) used_now
  FROM reservations r JOIN equipment e ON e.id=r.equipment_id JOIN plan_steps p ON p.id=r.plan_step_id WHERE r.plan_step_id=? AND r.status<>'liberada'`,s.plan_step_id);
 const openBlocks=(tx:Executor,stepId:string)=>tx.all("SELECT * FROM occurrences WHERE os_step_id=? AND blocking=1 AND status='aberto'",stepId);
@@ -146,18 +147,19 @@ async function startBlockers(tx:Executor,wo:Row,s:Row,lock=true){
   // Horas de uso que começam depois (OS sem fluxo): o equipamento não é usado agora, então não
   // impede o início; a reserva dele já garante o período planejado.
   if(!e.used_now)continue;
-  // Em uso em outra etapa aberta dentro do período reservado dela. Passado o fim previsto (ou as horas
-  // de uso), o equipamento fica livre, mesmo com aquela etapa ainda em andamento (regra da reserva).
-  const busy=await tx.first(`SELECT w.number,p.name FROM reservations r JOIN os_steps o ON o.plan_step_id=r.plan_step_id JOIN plan_steps p ON p.id=o.plan_step_id JOIN work_orders w ON w.id=o.work_order_id
-   WHERE r.equipment_id=? AND r.status<>'liberada' AND o.status = ANY(?::text[]) AND o.id<>?
-    AND r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now() LIMIT 1`,e.equipment_id,ACTIVE,s.id);
-  if(busy){out.push(`Equipamento ${e.tag} ainda em uso na etapa “${busy.name}” da ${osNumber(busy.number)}.`);continue;}
-  // Início fora do horário reservado (antecipado ou atrasado): outra OS com o equipamento reservado
-  // agora impede o início; a reserva desta etapa não cobre o momento atual.
-  const held=await tx.first(`SELECT w.number,p.name,r.start_at,r.end_at FROM reservations r JOIN plans pl ON pl.id=r.plan_id JOIN work_orders w ON w.id=pl.work_order_id JOIN plan_steps p ON p.id=r.plan_step_id
+  // Por dia: se a reserva desta etapa cobre hoje, a capacidade do dia já foi conferida no planejamento
+  // (as OS dividem as 12 h do equipamento; a ordem dentro do dia é do líder).
+  const today=dayOf(Date.now());
+  const mineToday=isWholeDays(e.start_at,e.end_at)?daysOf(e.start_at,e.end_at).includes(today):Date.parse(e.start_at)<=Date.now()&&Date.parse(e.end_at)>Date.now();
+  if(mineToday)continue;
+  // Início fora dos dias reservados (antecipado ou atrasado): só se as horas desta etapa couberem no que
+  // as outras OS já reservaram para hoje.
+  const held=await tx.all(`SELECT w.number,p.name,r.start_at,r.end_at,r.hours_per_day FROM reservations r JOIN plans pl ON pl.id=r.plan_id JOIN work_orders w ON w.id=pl.work_order_id JOIN plan_steps p ON p.id=r.plan_step_id
    WHERE r.equipment_id=? AND r.status='confirmada' AND w.id<>? AND pl.mode<>'realizada' AND w.status IN ('programada','em_andamento','encerramento_pendente')
-    AND r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now() LIMIT 1`,e.equipment_id,wo.id);
-  if(held)out.push(`Equipamento ${e.tag} está reservado agora para a etapa “${held.name}” da ${osNumber(held.number)} (${period(held.start_at,held.end_at)}). Inicie no horário da sua reserva (${period(e.start_at,e.end_at)}) ou peça ao Planejamento para ajustar.`);
+    AND r.start_at::timestamptz <= now() AND r.end_at::timestamptz > now() ORDER BY r.start_at`,e.equipment_id,wo.id);
+  const usedToday=held.reduce((sum,h)=>sum+(isWholeDays(h.start_at,h.end_at)?Number(h.hours_per_day):EQUIPMENT_DAY_HOURS),0);
+  if(held.length&&usedToday+Number(e.hours_per_day??EQUIPMENT_DAY_HOURS)>EQUIPMENT_DAY_HOURS)
+   out.push(`Equipamento ${e.tag} está reservado hoje para a etapa “${held[0].name}” da ${osNumber(held[0].number)} (${period(held[0].start_at,held[0].end_at)}; ${usedToday} h de ${EQUIPMENT_DAY_HOURS} h no dia). Inicie nos dias da sua reserva (${period(e.start_at,e.end_at)}) ou peça ao Planejamento para ajustar.`);
  }
  if((await openBlocks(tx,s.id)).length)out.push('Há bloqueio aberto registrado nesta etapa.');
  return out;
@@ -282,10 +284,12 @@ export async function operationMutate(path:string,b:Row,member:Member){
    const ev=await event(tx,a,wo,s.id,'termino',key,{resolution:b.resolution||null});
    await closeInterval(tx,s.id,ev,t);
    await tx.run("UPDATE os_steps SET status='concluida',actual_end=? WHERE id=?",t,s.id);
-   // O equipamento fica livre a partir do término real (se antes do previsto).
-   await tx.run("UPDATE reservations SET end_at=? WHERE plan_step_id=? AND status='confirmada' AND end_at::timestamptz > ?::timestamptz AND start_at::timestamptz < ?::timestamptz",t,s.plan_step_id,t,t);
-   // Terminou antes mesmo do horário reservado começar: o horário inteiro volta a ficar livre.
-   await tx.run("UPDATE reservations SET status='liberada',released_at=?,release_reason='Etapa concluída antes do horário reservado' WHERE plan_step_id=? AND status='confirmada' AND start_at::timestamptz >= ?::timestamptz",t,s.plan_step_id,t);
+   // O equipamento fica livre a partir do dia seguinte ao término real (se antes do previsto): o dia do
+   // término continua com as horas reservadas (a reserva é por dia).
+   const cut=dayAfter(dayOf(t));
+   await tx.run("UPDATE reservations SET end_at=? WHERE plan_step_id=? AND status='confirmada' AND end_at::timestamptz > ?::timestamptz AND start_at::timestamptz < ?::timestamptz",cut,s.plan_step_id,cut,cut);
+   // Terminou antes mesmo do primeiro dia reservado: os dias reservados voltam a ficar livres.
+   await tx.run("UPDATE reservations SET status='liberada',released_at=?,release_reason='Etapa concluída antes dos dias reservados' WHERE plan_step_id=? AND status='confirmada' AND start_at::timestamptz >= ?::timestamptz",t,s.plan_step_id,cut);
    await audit(tx,a,'Operação: etapa concluída',wo.id,{number:wo.number,step:s.step_key});
    // Uso de equipamento recobrável esquecido em aberto: termina com a última etapa que o usa.
    await closeOpenUses(tx,a,wo.id,t,'etapa',await lastUseOf(tx,wo,s));
