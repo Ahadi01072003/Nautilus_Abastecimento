@@ -66,3 +66,14 @@ Nenhum bloqueio de dados: a Gestão configura no sistema a **barra de cada colab
 
 ## 10. Limites
 Não substitui ponto ou folha; não decide jornada nem direito trabalhista; não move atividade publicada sem confirmação; esticar acima do teto não é possível; se o HH por atividade ou a marcação por barra estiverem errados, as barras mentem.
+
+## 11. P0 implementado (12/11/2026, no ambiente de teste)
+
+Decisões do usuário em 12/11: a etapa seguinte **pode começar no mesmo dia** em que a anterior termina; equipamento entra com **12 h/dia e o planejador ajusta**; reservas antigas viram as **horas reais** que ocupavam no dia; **atividade realizada mantém data e hora reais**.
+
+- Datas do planejamento gravadas como dia inteiro de Brasília (00h do primeiro dia até 00h do dia seguinte ao último). A hora antiga ficou em `*_old`.
+- Reserva de equipamento em **horas por dia** (`reservations.hours_per_day`, de 0,25 a 12). A soma das OS lançadas no dia não passa de 12 h. Rascunho não segura. Duas etapas da mesma OS no mesmo dia também somam, então o planejador divide as horas (ex.: 6 h + 6 h).
+- Conversão das OS existentes: horas do dia mais carregado, arredondadas para cima ao quarto de hora. Dias que já passavam de 12 h com reservas antigas ficam como estão (a trava vale para reservas novas ou alteradas).
+- **Operação:** a etapa começa em qualquer hora dos dias reservados. Fora deles, só começa se as horas couberem no que outras OS reservaram para o dia. Término antecipado libera o equipamento a partir do dia seguinte.
+- **Financeiro:** o previsto usa as horas por dia a partir das 08h de cada dia. O uso fora do reservado é conferido pela janela de operação (08h às 20h) dos dias reservados. Como no dia não se sabe a ordem, a OS com menos horas pode "abrir" a diária. O total não muda.
+- Telas: o planejamento tem campos de dia, "Sugerir dias" e horas por dia de cada equipamento. Lista de OS, Gantt, régua, TV, agenda em PDF, agenda de recursos e painel mostram dias.
