@@ -131,3 +131,13 @@ Veja `.env.example`. Em produção ficam na Vercel (as sensíveis como *Sensitiv
 * Não há recuperação de senha por e-mail: quem esquecer pede ao gestor para redefinir.
 * Busca e filtros do histórico de abastecimentos valem para a página carregada (100 registros); a exportação cobre o período inteiro (até 10.000 linhas por conjunto).
 * O relatório da OS é gerado pelo navegador (Imprimir › Salvar como PDF). Cada abertura do relatório, cada planilha e cada exportação ficam na auditoria (`Exportação: …`).
+
+## Ambiente de teste
+
+Para validar funcionalidades grandes (ex.: o novo Planejamento) antes da produção:
+
+- **Link:** https://nautilus-abastecimentos-git-teste-thiagoathaide6-8092.vercel.app (ramo `teste` do GitHub; cada envio ao ramo atualiza o link).
+- **Banco:** schema `nautilus_teste` no mesmo projeto Supabase, com o usuário `nautilus_teste_app`, que só enxerga esse schema. Começou como cópia da produção de 12/11/2026 (mesmos usuários e senhas).
+- **Vercel (só no ramo `teste`):** `DATABASE_USER`, `DATABASE_PASSWORD` (troca o usuário do endereço do banco), `NAUTILUS_AMBIENTE=teste` (faixa amarela na tela e trava que recusa conectar sem usuário próprio), `EMAIL_ENABLED=false` e `APP_URL`.
+- **Migrações no teste:** aplique com `SET search_path TO nautilus_teste` e passe as tabelas novas para o dono `nautilus_teste_app`.
+- Depois de validado, o que estiver no ramo `teste` vai para `main` por PR e a migração é aplicada na produção.
