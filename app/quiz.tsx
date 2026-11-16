@@ -137,6 +137,8 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
    consentText:q.consentText,retentionMonths:q.retentionMonths==null?'none':String(q.retentionMonths),pdfTitle:q.pdfTitle,pdfBody:q.pdfBody,pdfFooter:q.pdfFooter});setChanged(false);
  },[]);
  const fetchDetail=useCallback(async(qid:string)=>apply(await load<R>('quiz/detail?id='+encodeURIComponent(qid))),[apply]);
+ /** Logotipo, situação e link mudam só o cadastro: atualiza a versão e o estado sem descartar o que está sendo editado. */
+ const refreshMeta=useCallback(async(qid:string)=>{const d=await load<R>('quiz/detail?id='+encodeURIComponent(qid));setMeta(d.quiz);setVersions(d.versions);},[]);
  useEffect(()=>{if(id)load<R>('quiz/detail?id='+encodeURIComponent(id)).then(apply,e=>setLoadError((e as Error).message));},[id,apply]);
  const set=(patch:R)=>{setF(x=>({...x,...patch}));setChanged(true);};
  const setQ=(i:number,patch:R)=>set({questions:(f.questions as R[]).map((q,j)=>j===i?{...q,...patch}:q)});
@@ -183,7 +185,7 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
     <Field label="Título *" wide><Input maxLength={120} value={f.pdfTitle} onChange={e=>set({pdfTitle:e.target.value})}/></Field>
     <Field label="Texto" wide><Textarea maxLength={2000} rows={3} value={f.pdfBody} onChange={e=>set({pdfBody:e.target.value})}/></Field>
     <Field label="Rodapé" wide hint="Opcional. Ex.: endereço da base, responsável, observações."><Input maxLength={300} value={f.pdfFooter} onChange={e=>set({pdfFooter:e.target.value})}/></Field>
-    {meta?<LogoField quiz={meta} disabled={readOnly} onDone={()=>void fetchDetail(meta.id)}/>:<p className="qa-note wide">Salve o questionário para enviar um logotipo próprio. Sem logotipo, o comprovante usa o da OceanPact LOG.</p>}
+    {meta?<LogoField quiz={meta} disabled={readOnly} onDone={()=>void refreshMeta(meta.id).catch(()=>{})}/>:<p className="qa-note wide">Salve o questionário para enviar um logotipo próprio. Sem logotipo, o comprovante usa o da OceanPact LOG.</p>}
    </div></section>
   <section className="n-panel qa-section"><div className="panel-heading"><div><h2>Perguntas ({questions.length})</h2><p>Marque a resposta certa de cada pergunta que vale nota. A resposta certa nunca vai para a página do visitante.</p></div></div>
    <ol className="qa-questions">{questions.map((q,i)=><li key={q.id} className="qa-question">
@@ -207,13 +209,13 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
    <Button variant="outline" disabled={!!busy||(!changed&&!!quizId)} onClick={()=>void run('save',async()=>{await save();})}>{busy==='save'?<LoaderCircle className="spin" size={15}/>:<Save size={15}/>} Salvar rascunho</Button>
    <Button disabled={!!busy} onClick={()=>void publish()}>{busy==='publish'?<LoaderCircle className="spin" size={15}/>:<Send size={15}/>} {meta?.publishedVersion?'Publicar nova versão':'Publicar'}</Button>
    {meta&&meta.publishedVersion>0&&<Button variant="ghost" onClick={()=>onQr(meta)}><QrCode size={15}/> QR code</Button>}
-   {meta&&<StatusActions quiz={meta} onDone={()=>void fetchDetail(meta.id)}/>}
+   {meta&&<StatusActions quiz={meta} onDone={()=>void refreshMeta(meta.id).catch(()=>{})}/>}
   </div>}
   {versions.length>0&&<section className="n-panel qa-section"><div className="panel-heading"><div><h2>Versões publicadas</h2><p>Cada resposta guarda a versão que foi respondida.</p></div></div>
    <ul className="qa-versions">{versions.map(v=><li key={v.version}><b>v{v.version}</b><span>{v.title}</span><small>{fmt(v.publishedAt)} · {v.publishedBy} · {v.attempts} resposta{v.attempts!==1?'s':''}</small></li>)}</ul></section>}
   {preview&&<Dialog open onOpenChange={v=>{if(!v)setPreview(false)}}><DialogContent className="qa-preview"><DialogHeader className="sr-only"><DialogTitle>Pré-visualização</DialogTitle><DialogDescription>Como o visitante vê. Nada é gravado.</DialogDescription></DialogHeader>
    <QuizRunner quiz={previewQuiz} preview={{resultDetail:f.resultDetail,dailyLimit:Number(f.dailyLimit)||1}}/></DialogContent></Dialog>}
-  {qr&&<QrDialog quiz={qr} onClose={closeQr} onChanged={()=>{if(quizId)void fetchDetail(quizId);}}/>}
+  {qr&&<QrDialog quiz={qr} onClose={closeQr} onChanged={()=>{if(quizId)void refreshMeta(quizId).catch(()=>{});}}/>}
  </div>;
 }
 
@@ -264,7 +266,7 @@ export function QuizAnswers({refreshKey}:{refreshKey?:number}){
    <div className="panel-heading"><div><h2>{data.total} resposta{data.total!==1?'s':''}</h2><p>{data.passed} aprovada{data.passed!==1?'s':''} · {data.total-data.passed} reprovada{data.total-data.passed!==1?'s':''}. CPF mascarado na lista; o completo aparece no detalhe (fica na auditoria).</p></div></div>
    {data.rows.length?<>
     <div className="qa-table"><table><thead><tr><th>Data</th><th>Nome</th><th>Empresa</th><th>CPF</th><th>Questionário</th><th className="num">Nota</th><th>Resultado</th><th>Válida até</th></tr></thead>
-     <tbody>{(data.rows as R[]).map(r=><tr key={r.id} onClick={()=>setOpen(r.id)} tabIndex={0} onKeyDown={e=>{if(e.key==='Enter')setOpen(r.id)}}><td>{fmt(r.createdAt)}</td><td><b>{r.name}</b>{r.anonymizedAt&&<> <Badge>Anonimizado</Badge></>}</td><td>{r.company}</td><td className="mono">{r.cpf}</td><td>{r.quizTitle} <small>v{r.version}</small></td><td className="num mono">{pct(r.score)}</td><td>{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}</td><td>{dayText(r.validUntil)}</td></tr>)}</tbody></table></div>
+     <tbody>{(data.rows as R[]).map(r=><tr key={r.id} onClick={()=>setOpen(r.id)} tabIndex={0} onKeyDown={e=>{if(e.key==='Enter')setOpen(r.id)}}><td>{fmt(r.createdAt)}</td><td><b className={r.anonymizedAt?'pending-text':''}>{r.name}</b></td><td>{r.company}</td><td className="mono">{r.cpf}</td><td>{r.quizTitle} <small>v{r.version}</small></td><td className="num mono">{pct(r.score)}</td><td>{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}</td><td>{dayText(r.validUntil)}</td></tr>)}</tbody></table></div>
     <ul className="qa-mcards">{(data.rows as R[]).map(r=><li key={r.id}><button type="button" onClick={()=>setOpen(r.id)}><div><b>{r.name}</b><small>{r.company} · {r.cpf}</small><small>{r.quizTitle} · {fmt(r.createdAt)}</small></div><div className="qa-mres">{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}<b>{pct(r.score)}</b></div></button></li>)}</ul>
     {data.pages>1&&<div className="tl-pager qa-pager"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Anterior</Button><span>Página {data.page} de {data.pages}</span><Button variant="outline" size="sm" disabled={page>=data.pages} onClick={()=>setPage(p=>p+1)}>Próxima</Button></div>}
    </>:<Empty icon={ClipboardCheck} title="Nenhuma resposta encontrada" description="Ajuste os filtros ou aguarde as primeiras respostas pelo QR code."/>}
