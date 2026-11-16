@@ -77,3 +77,14 @@ Decisões do usuário em 12/11: a etapa seguinte **pode começar no mesmo dia** 
 - **Operação:** a etapa começa em qualquer hora dos dias reservados. Fora deles, só começa se as horas couberem no que outras OS reservaram para o dia. Término antecipado libera o equipamento a partir do dia seguinte.
 - **Financeiro:** o previsto usa as horas por dia a partir das 08h de cada dia. O uso fora do reservado é conferido pela janela de operação (08h às 20h) dos dias reservados. Como no dia não se sabe a ordem, a OS com menos horas pode "abrir" a diária. O total não muda.
 - Telas: o planejamento tem campos de dia, "Sugerir dias" e horas por dia de cada equipamento. Lista de OS, Gantt, régua, TV, agenda em PDF, agenda de recursos e painel mostram dias.
+
+## 12. P2 implementado (16/11/2026, no ambiente de teste)
+
+Decisões do usuário em 16/11: horas da função sem preenchimento = **jornada da barra** (Equinor 12 h, OCP 9 h, ajustável na configuração da barra); prioridade por **arrastar na pilha**; adiar OS lançada = **revisão automática** com motivo; zona esticada = **planejador informa quem validou**.
+
+- **HH da OS no dia** = Σ pessoas × horas por dia das funções das etapas daquele dia (etapas concluídas ou dispensadas não contam). Opção por OS: **não trabalha aos domingos**.
+- **Pilha**: OS lançadas (programadas ou em andamento) e rascunhos da barra; ordem pela prioridade gravada na OS (vale em todos os dias dela; a trava da OS lançada aceita só esse campo), depois pelo início e pelo número.
+- **Linha de corte** estrita: cai na primeira OS em que alguma função passaria do teto; dali para baixo nada entra no dia (mesmo que caiba). Função sem equipe no dia = acima do teto.
+- **Zona esticada** (100% < carga ≤ teto): aviso até registrar quem validou (nome, observação, quem registrou). Acima do teto, o cartão fica abaixo da linha (cadeado).
+- **Adiar** (+1, +2, +3 ou +7 dias): prévia por dia com a carga de cada função antes → depois e as horas de equipamento (alerta acima de 12 h). Rascunho muda as datas direto; OS lançada gera e lança a revisão (mesmo processo da revisão manual), com o motivo; se não der para lançar, a revisão é descartada. OS já iniciada não se adia pelo D+1.
+- Por enquanto o D+1 **mostra e organiza**; a trava de publicação (nada acima do teto, esticado validado) entra na P3, com a reunião das 16:00.

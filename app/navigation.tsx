@@ -2,7 +2,7 @@
 // Configuração central de módulos e telas. Uma tela só aparece quando existe e quando o
 // servidor a libera em actor.modules; o servidor revalida cada consulta e comando.
 import {useEffect,useState} from 'react';
-import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign,FileSpreadsheet,Settings2,Hammer,Boxes,ArrowLeftRight,LayoutList,Handshake} from 'lucide-react';
+import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign,FileSpreadsheet,Settings2,Hammer,Boxes,ArrowLeftRight,LayoutList,Handshake,Layers} from 'lucide-react';
 import {Sidebar,SidebarContent,SidebarHeader,SidebarFooter,SidebarGroup,SidebarGroupLabel,SidebarMenu,SidebarMenuItem,SidebarMenuButton,SidebarMenuSub,SidebarMenuSubItem,SidebarMenuSubButton,useSidebar} from '@/components/ui/sidebar';
 import {signOut} from './login';
 import Bathy from './bathy';
@@ -24,6 +24,7 @@ export const MODULES:Module[]=[
   {id:'plan-fluxos',label:'Cadastro de fluxo',icon:Workflow,subtitle:'Tipos de atividade, etapas, dependências e necessidades padrão, com versões.'},
   {id:'plan-atividade',label:'Planejamento de atividade',icon:CalendarPlus,subtitle:'Rascunho com dias, recursos (equipamento em horas por dia) e equipe; revise e lance a OS.'},
   {id:'plan-os',label:'Lista de OS programadas',icon:ListOrdered,subtitle:'OS lançadas, com filtros por período, solicitante, local e situação.'},
+  {id:'plan-d1',label:'D+1',icon:Layers,subtitle:'Pilha do dia por barra: HH por função contra a capacidade, linha de corte, zonas e adiar com prévia.'},
   {id:'plan-capacidade',label:'Capacidade',icon:Gauge,subtitle:'HH por dia e por função das barras OCP e Equinor: equipes, escala 2x2, ausências e zonas.'},
  ]},
  {id:'operacao',label:'Operação',icon:HardHat,screens:[
