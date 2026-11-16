@@ -1,6 +1,6 @@
 # Avaliações por QR code · especificação
 
-Data: 16/11/2026 · Status: **proposta, aguardando validação do usuário**. Implementação em duas fases (A: núcleo; B: PDF, LGPD e exportação).
+Data: 16/11/2026 · Status: **aprovada pelo usuário em 16/11/2026**; implementação em duas fases (A: núcleo; B: PDF, LGPD e exportação). **Fase A entregue** (migração 0031). Ajustes da implementação na seção 12.
 
 ## 1. Objetivo
 Visitantes da base respondem um questionário pelo celular, lendo um QR code, **sem login**. O Nautilus corrige na hora, mostra o resultado e guarda tudo para consulta, exportação e comprovante em PDF. O responsável pelo módulo cria e mantém os questionários.
@@ -77,3 +77,11 @@ Visitantes da base respondem um questionário pelo celular, lendo um QR code, **
 
 ## 11. Fora do escopo
 - Pergunta com mais de uma resposta certa, peso por pergunta, banco de perguntas sorteadas, foto do visitante, assinatura na tela, envio do comprovante por e-mail ou WhatsApp. Podem entrar depois.
+
+## 12. Ajustes na implementação da fase A
+- **Limites por endereço de rede, por minuto** (o limitador do Nautilus trabalha em janelas de 1 minuto): abrir o questionário 240, etapa do CPF 60 e envio 60 por minuto por IP. Um grupo grande no mesmo Wi-Fi cabe com folga.
+- **Etapa do CPF sem auditoria por consulta:** o visitante não tem cadastro e a auditoria do Nautilus exige um usuário. A etapa entrega um bilhete de uso único (válido por 6 h, exige 5 s até o envio) e cada envio fica registrado na tentativa. Na tela interna, a busca por CPF completo e a abertura do detalhe entram na auditoria.
+- **Pergunta que vale nota é sempre obrigatória** (múltipla escolha e sim/não); "opcional" vale só para texto livre.
+- **Regras (validade, nota mínima, limite diário, detalhe, embaralhar) valem ao salvar**, sem nova versão; título, abertura e perguntas mudam só ao publicar.
+- O comprovante tem 8 caracteres (sem 0/O e 1/I para não confundir).
+
