@@ -7,7 +7,7 @@ import {cpfDigits,validCpf,typingCpf} from '@/lib/cpf';
 import './quiz-public.css';
 
 export type RunnerQuestion={id:string,type:'multipla'|'simnao'|'texto',text:string,required:boolean,options:{id:string,text:string}[],correct?:string|null};
-export type RunnerQuiz={title:string,intro:string,version:number,questions:RunnerQuestion[],minScore:number,validity:{amount:number,unit:string},companies:string[]};
+export type RunnerQuiz={title:string,intro:string,version:number,questions:RunnerQuestion[],minScore:number,validity:{amount:number,unit:string},companies:string[],consent:{version:number,text:string}};
 export type PreviewRules={resultDetail:'resultado'|'nota'|'erradas',dailyLimit:number};
 type Result={status:string,passed?:boolean,score?:number|null,wrong?:string[]|null,validUntil?:string|null,code?:string,remainingToday?:number};
 type Block={kind:'valida'|'limite'|'indisponivel'|'erro',message:string,validUntil?:string};
@@ -32,7 +32,7 @@ function localGrade(q:RunnerQuiz,answers:Record<string,string>,rules:PreviewRule
 
 export default function QuizRunner({token,quiz,preview}:{token?:string,quiz:RunnerQuiz,preview?:PreviewRules}){
  const [step,setStep]=useState<1|2|3>(1);
- const [person,setPerson]=useState({name:'',company:'',cpf:''}),[trap,setTrap]=useState('');
+ const [person,setPerson]=useState({name:'',company:'',cpf:''}),[trap,setTrap]=useState(''),[agreed,setAgreed]=useState(false);
  const [touched,setTouched]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const [block,setBlock]=useState<Block|null>(null);
  const [ticket,setTicket]=useState(''),[answers,setAnswers]=useState<Record<string,string>>({});
@@ -40,7 +40,8 @@ export default function QuizRunner({token,quiz,preview}:{token?:string,quiz:Runn
  const submitKey=useRef(newKey()),top=useRef<HTMLDivElement>(null);
  const cpf=cpfDigits(person.cpf);
  const issues={name:!/\S\s+\S/.test(person.name.trim())||person.name.trim().length<3?'Informe nome e sobrenome.':'',
-  company:!person.company.trim()?'Informe a empresa.':'',cpf:cpf.length<11?'Informe os 11 números do CPF.':!validCpf(cpf)?'CPF inválido. Confira os números.':''};
+  company:!person.company.trim()?'Informe a empresa.':'',cpf:cpf.length<11?'Informe os 11 números do CPF.':!validCpf(cpf)?'CPF inválido. Confira os números.':'',
+  consent:agreed?'':'Para continuar, marque que leu e aceita o termo.'};
  const answered=useMemo(()=>quiz.questions.filter(q=>(answers[q.id]||'').trim()).length,[answers,quiz.questions]);
  const scrollTop=()=>top.current?.scrollIntoView({behavior:'smooth',block:'start'});
 
@@ -54,10 +55,10 @@ export default function QuizRunner({token,quiz,preview}:{token?:string,quiz:Runn
  }
  async function start(e?:FormEvent){
   e?.preventDefault();setTouched(true);setError('');
-  if(issues.name||issues.company||issues.cpf)return;
+  if(issues.name||issues.company||issues.cpf||issues.consent)return;
   setBusy(true);
   try{
-   if(!preview){const r=await send('public/quiz/check',{token,...person,cpf});setTicket(r.ticket);}
+   if(!preview){const r=await send('public/quiz/check',{token,...person,cpf,consent:agreed,consentVersion:quiz.consent.version});setTicket(r.ticket);}
    submitKey.current=newKey();setAnswers({});setMissing([]);setResult(null);setStep(2);scrollTop();
   }catch(err){fail(err)}finally{setBusy(false)}
  }
@@ -68,7 +69,7 @@ export default function QuizRunner({token,quiz,preview}:{token?:string,quiz:Runn
   if(lack.length){document.getElementById('q-'+lack[0])?.scrollIntoView({behavior:'smooth',block:'center'});setError(`Falta${lack.length>1?'m':''} ${lack.length} pergunta${lack.length>1?'s':''} obrigatória${lack.length>1?'s':''}.`);return;}
   setBusy(true);
   try{
-   const r:Result=preview?localGrade(quiz,answers,preview):await send('public/quiz/submit',{token,...person,cpf,ticket,submitKey:submitKey.current,version:quiz.version,answers,website:trap});
+   const r:Result=preview?localGrade(quiz,answers,preview):await send('public/quiz/submit',{token,...person,cpf,consent:agreed,consentVersion:quiz.consent.version,ticket,submitKey:submitKey.current,version:quiz.version,answers,website:trap});
    setResult(r);setStep(3);scrollTop();
   }catch(err){fail(err)}finally{setBusy(false)}
  }
@@ -104,11 +105,13 @@ export default function QuizRunner({token,quiz,preview}:{token?:string,quiz:Runn
      <label className="qz-field"><span>CPF</span>
       <input inputMode="numeric" autoComplete="off" placeholder="000.000.000-00" value={person.cpf} onChange={e=>setPerson(p=>({...p,cpf:typingCpf(e.target.value)}))} aria-invalid={touched&&!!issues.cpf}/>
       {touched&&issues.cpf&&<small role="alert">{issues.cpf}</small>}</label>
+     <div className="qz-consent"><p className="qz-consent-title">Uso dos seus dados</p><div className="qz-consent-text" tabIndex={0}>{quiz.consent.text}</div>
+      <label className={`qz-check ${touched&&issues.consent?'bad':''}`}><input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)} aria-invalid={touched&&!!issues.consent}/><span>Li e aceito o uso dos meus dados para esta avaliação.</span></label>
+      {touched&&issues.consent&&<small role="alert">{issues.consent}</small>}</div>
      {/* Campo-armadilha: invisível para pessoas; robôs preenchem. */}
      <div className="qz-trap" aria-hidden="true"><label>Site<input tabIndex={-1} autoComplete="off" value={trap} onChange={e=>setTrap(e.target.value)} name="website"/></label></div>
      {error&&<p className="qz-error" role="alert">{error}</p>}
      <button type="submit" className="qz-btn" disabled={busy}>{busy&&<LoaderCircle className="qz-spin" size={18}/>} Começar</button>
-     <p className="qz-hint">Seus dados servem só para registrar esta avaliação.</p>
     </form>
 
    :step===2?<div className="qz-questions">

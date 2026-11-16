@@ -64,3 +64,11 @@
 .qz-closed p{margin:0;color:#4b5f66}
 @media (min-width:640px){.qz-card{padding:22px 24px}}
 @media (prefers-reduced-motion:reduce){.qz-spin{animation:none}}
+.qz-consent{display:grid;gap:8px}
+.qz-consent-title{margin:0;font-weight:700;font-size:15px}
+.qz-consent-text{max-height:150px;overflow:auto;padding:10px 12px;border:1px solid #c7d0ce;border-radius:10px;background:#f7f9f8;font-size:14px;line-height:1.5;white-space:pre-line;color:#24414b}
+.qz-consent-text:focus-visible{outline:3px solid color-mix(in srgb,#087f77 35%,transparent)}
+.qz-check{display:flex;gap:12px;align-items:flex-start;min-height:48px;padding:10px 12px;border:1.5px solid #c7d0ce;border-radius:12px;cursor:pointer;font-size:15px;font-weight:600}
+.qz-check input{width:22px;height:22px;accent-color:#087f77;flex:none;margin:0}
+.qz-check.bad{border-color:#b42318}
+.qz-consent small{color:#b42318;font-weight:600}

@@ -20,7 +20,7 @@ import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
 import {tvData} from '@/lib/tv';
-import {quizGet,quizMutate,publicQuiz,publicCheck,publicSubmit} from '@/lib/quiz';
+import {quizGet,quizMutate,publicQuiz,publicCheck,publicSubmit,anonymizeExpired,quizExport,quizPdf,quizPdfSample,quizPdfZip,quizLogo,uploadQuizLogo,MAX_LOGO} from '@/lib/quiz';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -78,6 +78,7 @@ export async function GET(req:Request){try{
   await db().run('DELETE FROM sessions WHERE expires_at<?',new Date().toISOString());
   await db().run('DELETE FROM rate_limits WHERE window_start<?',Math.floor(Date.now()/60000)-10);
   await db().run('DELETE FROM quiz_tickets WHERE issued_at<?',new Date(Date.now()-24*3600_000).toISOString());
+  await anonymizeExpired();
   await flushNotifications(env().APP_URL||url.origin);
   return json({ok:true});
  }
@@ -121,6 +122,11 @@ export async function GET(req:Request){try{
  if(path==='finance/attachment'){await rateLimit(member.id,'read');return await downloadAttachment(member,url.searchParams.get('id')||'');}
  if(path==='tools/loan-file'){await rateLimit(member.id,'read');return await downloadLoanFile(member,url.searchParams.get('id')||'');}
  if(path.startsWith('tools/')){await rateLimit(member.id,'read');return json(await loansGet(path,url,member)??await toolsGet(path,url,member));}
+ if(path==='quiz/export'){await rateLimit(member.id,'export');return await quizExport(member,url);}
+ if(path==='quiz/pdf-zip'){await rateLimit(member.id,'export');return await quizPdfZip(member,url);}
+ if(path==='quiz/pdf'){await rateLimit(member.id,'read');return await quizPdf(member,url.searchParams.get('id')||'');}
+ if(path==='quiz/pdf-sample'){await rateLimit(member.id,'read');return await quizPdfSample(member,url.searchParams.get('id')||'');}
+ if(path==='quiz/logo'){await rateLimit(member.id,'read');return await quizLogo(member,url.searchParams.get('id')||'');}
  if(path.startsWith('quiz/')){await rateLimit(member.id,'read');return json(await quizGet(path,url,member));}
  if(path==='finance/order-uses'){await rateLimit(member.id,'read');return json(await orderUses(member,url.searchParams.get('os')||''));}
  return json({error:'Página não encontrada.'},404);
@@ -156,6 +162,7 @@ export async function POST(req:Request){try{
  await rateLimit(member.id,'write');if(path==='emails/test')await rateLimit(member.id,'email_test');
  // Anexo do Financeiro: corpo binário (até 4 MB), lido antes e no lugar do JSON.
  if(path==='finance/attachments')return json(await uploadAttachment(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
+ if(path==='quiz/logo'){const body=await readAttachmentBody(req);if(body.byteLength>MAX_LOGO)throw new AppError('Logotipo acima de 512 KB. Use uma imagem menor.',413);return json(await uploadQuizLogo(member,new URL(req.url).searchParams,body));}
  if(path==='tools/loan-file')return json(await uploadLoanFile(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
  // Fluxos e checklists levam várias etapas/perguntas por envio.
  // Empréstimo, assinatura e devolução levam as duas assinaturas feitas na tela (até 400 KB cada).
