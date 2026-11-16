@@ -126,7 +126,7 @@ export async function publicQuiz(token:string){
  const companies=await db().all("SELECT min(trim(company)) company FROM quiz_attempts WHERE quiz_id=? GROUP BY lower(trim(company)) ORDER BY count(*) DESC LIMIT 100",q.id);
  let questions=(v.questions as Question[]).map(x=>({id:x.id,type:x.type,text:x.text,required:x.required,options:x.type==='multipla'&&Number(q.shuffle)===1?shuffled(x.options):x.options}));
  if(Number(q.shuffle)===1)questions=shuffled(questions);
- return {status:'ok',quiz:{title:v.title,intro:v.intro,version:Number(v.version),questions,minScore:Number(q.min_score),
+ return {status:'ok',quiz:{title:v.title,intro:v.intro,syllabus:v.syllabus as string,version:Number(v.version),questions,minScore:Number(q.min_score),
   validity:{amount:Number(q.validity_amount),unit:q.validity_unit},companies:companies.map(c=>c.company as string),
   consent:{version:Number(q.consent_version),text:q.consent_text as string}}};
 }
@@ -225,7 +225,7 @@ const quizRow=(q:Row)=>({id:q.id,token:q.token,path:'/q/'+q.token,status:q.statu
  publishedVersion:Number(q.published_version),validityAmount:Number(q.validity_amount),validityUnit:q.validity_unit,minScore:Number(q.min_score),
  dailyLimit:Number(q.daily_limit),resultDetail:q.result_detail,shuffle:Number(q.shuffle)===1,closedMessage:q.closed_message,rev:Number(q.rev),updatedAt:q.updated_at,
  consentText:q.consent_text,consentVersion:Number(q.consent_version),retentionMonths:q.retention_months==null?null:Number(q.retention_months),
- pdfTitle:q.pdf_title,pdfBody:q.pdf_body,pdfFooter:q.pdf_footer,hasLogo:!!q.pdf_logo_type});
+ pdfTitle:q.pdf_title,pdfBody:q.pdf_body,pdfFooter:q.pdf_footer,hasLogo:!!q.pdf_logo_type,syllabus:q.syllabus});
 async function getQuiz(ex:Executor,qid:unknown,lock=false){
  const q=await ex.first(`SELECT * FROM quizzes WHERE id=?${lock?' FOR UPDATE':''}`,text(qid,64));
  if(!q)throw new AppError('Questionário não encontrado.',404);
@@ -247,7 +247,7 @@ export async function quizDetail(member:Member,qid:string){
  await access(member);
  const q=await getQuiz(db(),qid);
  const versions=await db().all('SELECT v.version,v.title,v.published_at,m.name published_by_name,(SELECT count(*)::int FROM quiz_attempts a WHERE a.quiz_id=v.quiz_id AND a.version=v.version) attempts FROM quiz_versions v JOIN members m ON m.id=v.published_by WHERE v.quiz_id=? ORDER BY v.version DESC',q.id);
- const last=await db().first('SELECT (title=? AND intro=? AND questions=?::text::jsonb) same FROM quiz_versions WHERE quiz_id=? AND version=?',q.title,q.intro,JSON.stringify(q.questions),q.id,q.published_version);
+ const last=await db().first('SELECT (title=? AND intro=? AND syllabus=? AND questions=?::text::jsonb) same FROM quiz_versions WHERE quiz_id=? AND version=?',q.title,q.intro,q.syllabus,JSON.stringify(q.questions),q.id,q.published_version);
  return {quiz:{...quizRow(q),dirty:Number(q.published_version)===0||!last?.same},
   versions:versions.map(v=>({version:Number(v.version),title:v.title,publishedAt:v.published_at,publishedBy:v.published_by_name,attempts:Number(v.attempts)}))};
 }
@@ -261,6 +261,7 @@ async function saveQuiz(a:Member,b:Row){
   const pick=(k:string,col:string,fallback:unknown)=>b[k]!==undefined?b[k]:old?old[col]:fallback;
   const title=required(pick('title','title',''),'Título',120);
   const intro=text(pick('intro','intro',''),2000);
+  const syllabus=text(pick('syllabus','syllabus',''),4000);
   const questions=normQuestions(pick('questions','questions',[]));
   const unit=pick('validityUnit','validity_unit','meses');
   if(unit!=='dias'&&unit!=='meses')throw new AppError('Unidade da validade inválida.');
@@ -278,10 +279,10 @@ async function saveQuiz(a:Member,b:Row){
   const pdfTitle=required(pick('pdfTitle','pdf_title','Comprovante de avaliação'),'Título do comprovante',120);
   const pdfBody=text(pick('pdfBody','pdf_body',DEFAULT_PDF_BODY),2000);
   const pdfFooter=text(pick('pdfFooter','pdf_footer',''),300);
-  const t=now(),values=[title,intro,JSON.stringify(questions),amount,unit,minScore,dailyLimit,detail,shuffleFlag,closed,retention,pdfTitle,pdfBody,pdfFooter];
+  const t=now(),values=[title,intro,JSON.stringify(questions),amount,unit,minScore,dailyLimit,detail,shuffleFlag,closed,retention,pdfTitle,pdfBody,pdfFooter,syllabus];
   if(old){
    const r=await tx.first(`UPDATE quizzes SET title=?,intro=?,questions=?::text::jsonb,validity_amount=?,validity_unit=?,min_score=?,daily_limit=?,result_detail=?,shuffle=?,closed_message=?,
-     retention_months=?,pdf_title=?,pdf_body=?,pdf_footer=?,rev=rev+1,updated_at=? WHERE id=? RETURNING rev`,...values,t,old.id);
+     retention_months=?,pdf_title=?,pdf_body=?,pdf_footer=?,syllabus=?,rev=rev+1,updated_at=? WHERE id=? RETURNING rev`,...values,t,old.id);
    // Termo com texto novo vira nova versão (as tentativas guardam a versão aceita).
    if(consentText!=null&&consentText!==old.consent_text){
     const v=await tx.first('UPDATE quizzes SET consent_text=?,consent_version=consent_version+1 WHERE id=? RETURNING consent_version',consentText,old.id);
@@ -292,8 +293,8 @@ async function saveQuiz(a:Member,b:Row){
    return {id:old.id as string,rev:Number(r!.rev),message:'Questionário salvo.'};
   }
   const qid=id();
-  await tx.run(`INSERT INTO quizzes(id,token,title,intro,questions,validity_amount,validity_unit,min_score,daily_limit,result_detail,shuffle,closed_message,retention_months,pdf_title,pdf_body,pdf_footer,create_key,created_by,created_at,updated_at${consentText?',consent_text':''})
-   VALUES(?,?,?,?,?::text::jsonb,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?${consentText?',?':''})`,qid,newToken(),...values,opKey,a.id,t,t,...(consentText?[consentText]:[]));
+  await tx.run(`INSERT INTO quizzes(id,token,title,intro,questions,validity_amount,validity_unit,min_score,daily_limit,result_detail,shuffle,closed_message,retention_months,pdf_title,pdf_body,pdf_footer,syllabus,create_key,created_by,created_at,updated_at${consentText?',consent_text':''})
+   VALUES(?,?,?,?,?::text::jsonb,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?${consentText?',?':''})`,qid,newToken(),...values,opKey,a.id,t,t,...(consentText?[consentText]:[]));
   await tx.run('INSERT INTO quiz_consents(quiz_id,version,text,created_at,created_by) SELECT id,consent_version,consent_text,?,? FROM quizzes WHERE id=?',t,a.id,qid);
   await audit(tx,a,'Avaliações: questionário criado',qid,{title});
   return {id:qid,rev:1,message:'Questionário criado. Publique para liberar o link.'};
@@ -306,11 +307,11 @@ async function publishQuiz(a:Member,b:Row){
   if(q.status==='encerrado')throw new AppError('Questionário encerrado não pode ser publicado.',409);
   const issue=publishIssue(q.questions as Question[]);if(issue)throw new AppError(issue,400,'INCOMPLETE');
   if(Number(q.published_version)>0){
-   const last=await tx.first('SELECT (title=? AND intro=? AND questions=?::text::jsonb) same FROM quiz_versions WHERE quiz_id=? AND version=?',q.title,q.intro,JSON.stringify(q.questions),q.id,q.published_version);
+   const last=await tx.first('SELECT (title=? AND intro=? AND syllabus=? AND questions=?::text::jsonb) same FROM quiz_versions WHERE quiz_id=? AND version=?',q.title,q.intro,q.syllabus,JSON.stringify(q.questions),q.id,q.published_version);
    if(last?.same)throw new AppError('Não há alterações para publicar.',400,'NOTHING');
   }
   const version=Number(q.published_version)+1,t=now();
-  await tx.run('INSERT INTO quiz_versions(quiz_id,version,title,intro,questions,published_at,published_by) VALUES(?,?,?,?,?::text::jsonb,?,?)',q.id,version,q.title,q.intro,JSON.stringify(q.questions),t,a.id);
+  await tx.run('INSERT INTO quiz_versions(quiz_id,version,title,intro,syllabus,questions,published_at,published_by) VALUES(?,?,?,?,?,?::text::jsonb,?,?)',q.id,version,q.title,q.intro,q.syllabus,JSON.stringify(q.questions),t,a.id);
   const r=await tx.first("UPDATE quizzes SET published_version=?,status=CASE WHEN status='rascunho' THEN 'publicado' ELSE status END,rev=rev+1,updated_at=? WHERE id=? RETURNING rev,status",version,t,q.id);
   await audit(tx,a,'Avaliações: versão publicada',q.id as string,{title:q.title,version});
   return {id:q.id,rev:Number(r!.rev),version,status:r!.status,message:version===1?'Questionário publicado. O link já funciona.':`Versão ${version} publicada. O link e o QR code continuam os mesmos.`};
@@ -423,9 +424,9 @@ export async function quizExport(member:Member,url:URL){
  const format=url.searchParams.get('format')==='csv'?'csv':'xlsx',withAnswers=url.searchParams.get('answers')==='1';
  const n=Number((await db().first(`SELECT count(*)::int n FROM quiz_attempts a ${f.sql}`,...f.args))!.n);
  if(n>EXPORT_LIMIT)throw new AppError(`${n.toLocaleString('pt-BR')} respostas. Filtre por período ou questionário (limite de ${EXPORT_LIMIT.toLocaleString('pt-BR')}).`,413);
- const rows=await db().all(`SELECT a.*,q.title quiz_title FROM quiz_attempts a JOIN quizzes q ON q.id=a.quiz_id ${f.sql} ORDER BY a.created_at,a.id`,...f.args);
- const sheets:Sheet[]=[{name:'Tentativas',columns:['Data','Questionário','Versão','Nome','Empresa','CPF','Nota (%)','Acertos','Perguntas com nota','Nota mínima (%)','Resultado','Válida até','Comprovante','Termo aceito (versão)','Anonimizado em'],
-  rows:rows.map(r=>[new Date(r.created_at),r.quiz_title,Number(r.version),r.name,r.company,r.cpf?formatCpf(r.cpf):'',Number(r.score),Number(r.correct_count),Number(r.graded_count),Number(r.min_score),
+ const rows=await db().all(`SELECT a.*,q.title quiz_title,v.syllabus version_syllabus FROM quiz_attempts a JOIN quizzes q ON q.id=a.quiz_id JOIN quiz_versions v ON v.quiz_id=a.quiz_id AND v.version=a.version ${f.sql} ORDER BY a.created_at,a.id`,...f.args);
+ const sheets:Sheet[]=[{name:'Tentativas',columns:['Data','Questionário','Versão','Conteúdo programático','Nome','Empresa','CPF','Nota (%)','Acertos','Perguntas com nota','Nota mínima (%)','Resultado','Válida até','Comprovante','Termo aceito (versão)','Anonimizado em'],
+  rows:rows.map(r=>[new Date(r.created_at),r.quiz_title,Number(r.version),r.version_syllabus||'',r.name,r.company,r.cpf?formatCpf(r.cpf):'',Number(r.score),Number(r.correct_count),Number(r.graded_count),Number(r.min_score),
    Number(r.passed)===1?'Aprovado':'Reprovado',r.valid_until?dayText(r.valid_until):'',r.code,r.consent_version==null?'':Number(r.consent_version),r.anonymized_at?new Date(r.anonymized_at):''])}];
  if(withAnswers)sheets.push({name:'Respostas',columns:['Comprovante','Data','Questionário','Versão','Nome','CPF','Nº','Pergunta','Tipo','Resposta','Resposta certa','Acertou'],
   rows:rows.flatMap(r=>(r.answers as Row[]).map((x,i)=>[r.code,new Date(r.created_at),r.quiz_title,Number(r.version),r.name,r.cpf?formatCpf(r.cpf):'',i+1,x.text,
@@ -447,9 +448,10 @@ function certificateData(q:Row,r:Row,versionTitle:string,withAnswers=false):Cert
   facts:[['Nome',r.name],['Empresa',r.company],['CPF',vars.cpf],['Avaliação',`${versionTitle} (versão ${r.version})`],['Data',vars.data],
    ['Nota',`${vars.nota} (${r.correct_count} de ${r.graded_count}) · mínimo ${vars.minimo}`],['Resultado',vars.resultado],['Válida até',passed?vars.validade:'—']],
   // Só o que a pessoa marcou e se acertou: a resposta certa não sai no comprovante.
+  syllabus:(r.version_syllabus as string)||'',
   answers:withAnswers?(r.answers as Row[]).map(x=>({text:x.text as string,answer:optionText(x,x.answer)||null,result:x.isCorrect==null?'livre' as const:x.isCorrect?'certa' as const:'errada' as const})):undefined};
 }
-const ATTEMPT_SELECT='SELECT a.*,v.title version_title FROM quiz_attempts a JOIN quiz_versions v ON v.quiz_id=a.quiz_id AND v.version=a.version';
+const ATTEMPT_SELECT='SELECT a.*,v.title version_title,v.syllabus version_syllabus FROM quiz_attempts a JOIN quiz_versions v ON v.quiz_id=a.quiz_id AND v.version=a.version';
 
 export async function quizPdf(member:Member,aid:string,withAnswers=false){
  const a=await access(member);
@@ -466,7 +468,7 @@ export async function quizPdfSample(member:Member,qid:string){
  const q=await getQuiz(db(),qid),t=now();
  const sample={name:'Nome do Visitante',company:'Empresa do Visitante',cpf:'00000000000',anonymized_at:t,version:Math.max(1,Number(q.published_version)),created_at:t,score:100,min_score:q.min_score,
   correct_count:5,graded_count:5,passed:1,valid_until:validUntilDay(brDay(t),Number(q.validity_amount),q.validity_unit),code:'EXEMPLO0'};
- const pdf=await certificatePdf(certificateData(q,sample,q.title));
+ const pdf=await certificatePdf(certificateData(q,{...sample,version_syllabus:q.syllabus},q.title));
  return new Response(new Uint8Array(pdf),{headers:fileHeaders('application/pdf','comprovante-exemplo.pdf',true)});
 }
 /** Monta o .zip com um PDF por tentativa (nome da pessoa + comprovante). */

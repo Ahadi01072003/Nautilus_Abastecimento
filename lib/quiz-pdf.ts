@@ -6,16 +6,17 @@ import {DEFAULT_LOGO_PNG} from './quiz-logo';
 
 export type CertificateAnswer={text:string,answer:string|null,result:'certa'|'errada'|'livre'};
 export type CertificateData={title:string,body:string,footer:string,passed:boolean,validUntil:string|null,code:string,issuedAt:string,
- facts:[string,string][],logo:{bytes:Uint8Array,type:string}|null,answers?:CertificateAnswer[]};
+ facts:[string,string][],logo:{bytes:Uint8Array,type:string}|null,syllabus?:string,answers?:CertificateAnswer[]};
 
 const INK=rgb(0.043,0.114,0.145),MUTED=rgb(0.29,0.37,0.4),LINE=rgb(0.78,0.82,0.81),GREEN=rgb(0.04,0.48,0.24),RED=rgb(0.71,0.14,0.09);
 const W=595.28,H=841.89,M=56;
 const DEFAULT_LOGO=Buffer.from(DEFAULT_LOGO_PNG,'base64');
 
-function safeText(font:PDFFont){
- const ok=new Set(font.getCharacterSet());
- return (s:string)=>Array.from(String(s??'').replace(/\t/g,' ').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[–—]/g,'-').replace(/‑/g,'-')).map(ch=>ok.has(ch.codePointAt(0)!)?ch:'?').join('');
+/** Troca o que a fonte não tem por "?"; quebras de linha passam (o texto é quebrado em linhas depois). */
+export function sanitizeFor(ok:Set<number>){
+ return (s:string)=>Array.from(String(s??'').replace(/\r\n?/g,'\n').replace(/\t/g,' ').replace(/[“”]/g,'"').replace(/[‘’]/g,"'").replace(/[–—]/g,'-').replace(/‑/g,'-')).map(ch=>ch==='\n'||ok.has(ch.codePointAt(0)!)?ch:'?').join('');
 }
+const safeText=(font:PDFFont)=>sanitizeFor(new Set(font.getCharacterSet()));
 /** Quebra o texto em linhas que cabem na largura (respeita parágrafos). */
 function wrap(text:string,font:PDFFont,size:number,width:number){
  const lines:string[]=[];
@@ -84,6 +85,13 @@ export async function certificatePdf(d:CertificateData):Promise<Uint8Array>{
   let y=top-16;for(const l of lines){page.drawText(l,{x:M+col,y,size:11,font,color:INK});y-=15;}
   top=y-6;
   page.drawRectangle({x:M,y:top,width:W-2*M,height:0.8,color:LINE});
+ }
+ // Conteúdo programático da versão respondida.
+ if(d.syllabus?.trim()){
+  top-=26;room(50);
+  page.drawText(t('CONTEÚDO PROGRAMÁTICO'),{x:M,y:top,size:9,font:mono,color:MUTED});
+  top-=18;
+  for(const l of wrap(t(d.syllabus.trim()),font,10.5,W-2*M)){room(15);page.drawText(l,{x:M,y:top,size:10.5,font,color:INK});top-=14.5;}
  }
  // Perguntas e respostas: o que a pessoa marcou e se acertou (a resposta certa não aparece).
  if(d.answers?.length){

@@ -167,3 +167,33 @@ test('ZIP só das selecionadas; com respostas, o PDF traz as perguntas e cresce 
  const zf=await quizPdfZip(evaluator,url({quiz:id,answers:'1'}));
  assert.equal(zipNames(await bytes(zf)).length,3);
 });
+
+test('conteúdo programático: versionado, no passo 1, no Excel e no PDF',async()=>{
+ const syllabus='1. Regras de ouro\n2. EPIs obrigatórios\n3. Permissão de trabalho';
+ const {id,token}=await published({syllabus});
+ const d=await quizGet('quiz/detail',url({id}),evaluator) as Row;
+ assert.equal(d.quiz.syllabus,syllabus);
+ assert.equal((await publicQuiz(token) as Row).quiz.syllabus,syllabus);
+ const r=await answer(token,cpf(70),RIGHT,'Rita Melo');
+ // Mudar o conteúdo sem publicar não muda a página nem o que a resposta guardou.
+ await quizMutate('quiz/save',{id,rev:d.quiz.rev,syllabus:'Conteúdo novo'},evaluator);
+ assert.equal((await publicQuiz(token) as Row).quiz.syllabus,syllabus);
+ const after=await quizGet('quiz/detail',url({id}),evaluator) as Row;
+ assert.equal(after.quiz.dirty,true,'conteúdo diferente da versão publicada pede nova publicação');
+ const c=await quizExport(evaluator,url({quiz:id,format:'csv'}));
+ const text=await c.text();
+ assert.ok(text.includes('Conteúdo programático'));assert.ok(text.includes('Regras de ouro'));assert.ok(!text.includes('Conteúdo novo'));
+ const list=await quizGet('quiz/attempts',url({quiz:id}),evaluator) as Row;
+ const pdf=await PDFDocument.load(await bytes(await quizPdf(evaluator,list.rows.find((x:Row)=>x.code===r.code).id)));
+ assert.equal(pdf.getPageCount(),1);
+ await quizMutate('quiz/publish',{id,rev:after.quiz.rev},evaluator);
+ assert.equal((await publicQuiz(token) as Row).quiz.syllabus,'Conteúdo novo');
+ await rejects(quizMutate('quiz/save',{id,rev:(await quizGet('quiz/detail',url({id}),evaluator) as Row).quiz.rev,syllabus:'x'.repeat(4001)},evaluator),400);
+});
+
+test('PDF: quebras de linha viram linhas, não "?"',async()=>{
+ const {sanitizeFor}=await import('../lib/quiz-pdf');
+ const ok=new Set(Array.from({length:95},(_,i)=>i+32));
+ assert.equal(sanitizeFor(ok)('1. Regras\n2. EPIs\r\n3. PT'),'1. Regras\n2. EPIs\n3. PT');
+ assert.equal(sanitizeFor(ok)('seta → fim'),'seta ? fim');
+});
