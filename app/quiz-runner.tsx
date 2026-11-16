@@ -7,7 +7,7 @@ import {cpfDigits,validCpf,typingCpf} from '@/lib/cpf';
 import './quiz-public.css';
 
 export type RunnerQuestion={id:string,type:'multipla'|'simnao'|'texto',text:string,required:boolean,options:{id:string,text:string}[],correct?:string|null};
-export type RunnerQuiz={title:string,intro:string,version:number,questions:RunnerQuestion[],minScore:number,validity:{amount:number,unit:string},companies:string[],consent:{version:number,text:string}};
+export type RunnerQuiz={title:string,intro:string,syllabus?:string,version:number,questions:RunnerQuestion[],minScore:number,validity:{amount:number,unit:string},companies:string[],consent:{version:number,text:string}};
 export type PreviewRules={resultDetail:'resultado'|'nota'|'erradas',dailyLimit:number};
 type Result={status:string,passed?:boolean,score?:number|null,wrong?:string[]|null,validUntil?:string|null,code?:string,remainingToday?:number};
 type Block={kind:'valida'|'limite'|'indisponivel'|'erro',message:string,validUntil?:string};
@@ -94,6 +94,7 @@ export default function QuizRunner({token,quiz,preview}:{token?:string,quiz:Runn
 
    :step===1?<form className="qz-card" onSubmit={start} noValidate>
      {quiz.intro&&<p className="qz-intro">{quiz.intro}</p>}
+     {!!quiz.syllabus?.trim()&&<div className="qz-syllabus"><p className="qz-consent-title">Conteúdo programático</p><div className="qz-consent-text" tabIndex={0}>{quiz.syllabus.trim()}</div></div>}
      <p className="qz-rules">{quiz.questions.length} pergunta{quiz.questions.length>1?'s':''} · nota mínima {quiz.minScore}% · válida por {validityText(quiz.validity)} após a aprovação</p>
      <label className="qz-field"><span>Nome completo</span>
       <input autoComplete="name" maxLength={120} value={person.name} onChange={e=>setPerson(p=>({...p,name:e.target.value}))} aria-invalid={touched&&!!issues.name}/>

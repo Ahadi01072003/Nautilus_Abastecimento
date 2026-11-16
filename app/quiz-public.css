@@ -72,3 +72,5 @@
 .qz-check input{width:22px;height:22px;accent-color:#087f77;flex:none;margin:0}
 .qz-check.bad{border-color:#b42318}
 .qz-consent small{color:#b42318;font-weight:600}
+.qz-syllabus{display:grid;gap:8px}
+.qz-syllabus .qz-consent-text{max-height:220px;color:#0b1d25}

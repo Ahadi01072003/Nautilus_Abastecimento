@@ -27,7 +27,7 @@ const newQuestion=(type:string):R=>type==='multipla'?{id:rid(),type,text:'',requ
  :type==='simnao'?{id:rid(),type,text:'',required:true,options:[{id:'sim',text:'Sim'},{id:'nao',text:'Não'}],correct:null}:{id:rid(),type,text:'',required:false,options:[],correct:null};
 const DEFAULT_CONSENT='Ao continuar, autorizo o registro do meu nome, empresa, CPF e respostas desta avaliação, usados só para controlar o acesso e a segurança da base. Os dados ficam guardados enquanto forem necessários para essa finalidade e posso pedir a exclusão a qualquer momento na recepção.';
 const DEFAULT_BODY='Certificamos que {nome}, da empresa {empresa}, realizou a avaliação "{questionario}" em {data}, com {nota} de acertos (mínimo {minimo}). Resultado: {resultado}.';
-const EMPTY:R={title:'',intro:'',questions:[],validityAmount:12,validityUnit:'meses',minScore:70,dailyLimit:3,resultDetail:'erradas',shuffle:false,closedMessage:'',
+const EMPTY:R={title:'',intro:'',syllabus:'',questions:[],validityAmount:12,validityUnit:'meses',minScore:70,dailyLimit:3,resultDetail:'erradas',shuffle:false,closedMessage:'',
  consentText:DEFAULT_CONSENT,retentionMonths:'none',pdfTitle:'Comprovante de avaliação',pdfBody:DEFAULT_BODY,pdfFooter:''};
 const RETENTION=[{value:'none',label:'Não anonimizar automaticamente'},...[12,24,36,60].map(n=>({value:String(n),label:`Anonimizar após ${n} meses`}))];
 /** Baixa um arquivo da API; erro do servidor vira aviso (sem sair da tela). */
@@ -133,7 +133,7 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
  const readOnly=meta?.status==='encerrado';
  const apply=useCallback((d:R)=>{
   const q=d.quiz as R;
-  setMeta(q);setVersions(d.versions);setF({title:q.title,intro:q.intro,questions:q.questions,validityAmount:q.validityAmount,validityUnit:q.validityUnit,minScore:q.minScore,dailyLimit:q.dailyLimit,resultDetail:q.resultDetail,shuffle:q.shuffle,closedMessage:q.closedMessage,
+  setMeta(q);setVersions(d.versions);setF({title:q.title,intro:q.intro,syllabus:q.syllabus||'',questions:q.questions,validityAmount:q.validityAmount,validityUnit:q.validityUnit,minScore:q.minScore,dailyLimit:q.dailyLimit,resultDetail:q.resultDetail,shuffle:q.shuffle,closedMessage:q.closedMessage,
    consentText:q.consentText,retentionMonths:q.retentionMonths==null?'none':String(q.retentionMonths),pdfTitle:q.pdfTitle,pdfBody:q.pdfBody,pdfFooter:q.pdfFooter});setChanged(false);
  },[]);
  const fetchDetail=useCallback(async(qid:string)=>apply(await load<R>('quiz/detail?id='+encodeURIComponent(qid))),[apply]);
@@ -155,7 +155,7 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
  if(loadError)return <div className="error-panel"><TriangleAlert/><h2>Questionário indisponível</h2><p>{loadError}</p><Button variant="outline" onClick={onBack}>Voltar</Button></div>;
  if(id&&!meta)return <Skeleton className="h-64 rounded-xl"/>;
  const questions=f.questions as R[];
- const previewQuiz={title:f.title||'Sem título',intro:f.intro,version:1,questions:questions.map(q=>({...q,options:q.options||[]})) as RunnerQuestion[],minScore:Number(f.minScore)||70,validity:{amount:Number(f.validityAmount)||1,unit:f.validityUnit},companies:[],consent:{version:meta?.consentVersion||1,text:f.consentText||DEFAULT_CONSENT}};
+ const previewQuiz={title:f.title||'Sem título',intro:f.intro,syllabus:f.syllabus,version:1,questions:questions.map(q=>({...q,options:q.options||[]})) as RunnerQuestion[],minScore:Number(f.minScore)||70,validity:{amount:Number(f.validityAmount)||1,unit:f.validityUnit},companies:[],consent:{version:meta?.consentVersion||1,text:f.consentText||DEFAULT_CONSENT}};
  return <div className="qa-screen">
   <div className="qa-bar"><Button variant="ghost" onClick={back}><ArrowLeft size={16}/> Questionários</Button>
    {meta&&<div className="qa-meta"><StatusBadge status={meta.status} name={meta.statusName}/>{meta.publishedVersion>0&&<Badge tone="info">Versão {meta.publishedVersion} no ar</Badge>}{(changed||meta.dirty)&&meta.publishedVersion>0&&!readOnly&&<Badge tone="warning">Alterações não publicadas</Badge>}</div>}</div>
@@ -165,6 +165,7 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
    <div className="form-grid">
     <Field label="Título *" wide><Input maxLength={120} value={f.title} onChange={e=>set({title:e.target.value})} placeholder="Ex.: Integração de segurança para visitantes"/></Field>
     <Field label="Texto de abertura" wide hint="Opcional. Instruções, regras de segurança, quem procurar em caso de dúvida."><Textarea maxLength={2000} rows={4} value={f.intro} onChange={e=>set({intro:e.target.value})}/></Field>
+    <Field label="Conteúdo programático" wide hint="O que esta avaliação contempla, um tópico por linha. Aparece para o visitante no passo 1, no comprovante em PDF e no Excel. Faz parte da versão: muda ao publicar."><Textarea maxLength={4000} rows={5} value={f.syllabus} onChange={e=>set({syllabus:e.target.value})} placeholder={'Ex.:\n1. Regras de ouro da base\n2. EPIs obrigatórios\n3. Permissão para trabalho'}/></Field>
    </div></section>
   <section className="n-panel qa-section"><div className="panel-heading"><div><h2>Regras</h2><p>Valem para as próximas tentativas (as já feitas não mudam).</p></div></div>
    <div className="form-grid">
