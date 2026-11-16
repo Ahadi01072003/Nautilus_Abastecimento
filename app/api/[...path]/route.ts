@@ -20,6 +20,7 @@ import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
 import {tvData} from '@/lib/tv';
+import {quizGet,quizMutate,publicQuiz,publicCheck,publicSubmit} from '@/lib/quiz';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -76,9 +77,12 @@ export async function GET(req:Request){try{
   await rateLimit('cron','cron');
   await db().run('DELETE FROM sessions WHERE expires_at<?',new Date().toISOString());
   await db().run('DELETE FROM rate_limits WHERE window_start<?',Math.floor(Date.now()/60000)-10);
+  await db().run('DELETE FROM quiz_tickets WHERE issued_at<?',new Date(Date.now()-24*3600_000).toISOString());
   await flushNotifications(env().APP_URL||url.origin);
   return json({ok:true});
  }
+ // Avaliações: questionário público (sem login), limitado por endereço de rede.
+ if(path==='public/quiz'){await rateLimit(clientKey(req),'quiz_read');return json(await publicQuiz(url.searchParams.get('token')||''));}
  const {member}=await session();
  if(path==='state'){await rateLimit(member.id,'read');const result=await state(member,Number(url.searchParams.get('page')||0));flushLater(req);return json(result);}
  if(path==='export'){await rateLimit(member.id,'export');return await exportData(member,url);}
@@ -117,6 +121,7 @@ export async function GET(req:Request){try{
  if(path==='finance/attachment'){await rateLimit(member.id,'read');return await downloadAttachment(member,url.searchParams.get('id')||'');}
  if(path==='tools/loan-file'){await rateLimit(member.id,'read');return await downloadLoanFile(member,url.searchParams.get('id')||'');}
  if(path.startsWith('tools/')){await rateLimit(member.id,'read');return json(await loansGet(path,url,member)??await toolsGet(path,url,member));}
+ if(path.startsWith('quiz/')){await rateLimit(member.id,'read');return json(await quizGet(path,url,member));}
  if(path==='finance/order-uses'){await rateLimit(member.id,'read');return json(await orderUses(member,url.searchParams.get('os')||''));}
  return json({error:'Página não encontrada.'},404);
 }catch(e){return error(e);}}
@@ -130,6 +135,13 @@ export async function POST(req:Request){try{
   const result=await login(body.username,body.password);
   (await cookies()).set(SESSION_COOKIE,result.token,{httpOnly:true,secure:new URL(req.url).protocol==='https:',sameSite:'lax',path:'/',maxAge:SESSION_MAX_MS/1000});
   return json({ok:true,mustChangePassword:result.mustChangePassword});
+ }
+ // Avaliações: etapa do CPF e envio das respostas, sem login (o visitante não tem cadastro).
+ if(path==='public/quiz/check'){await rateLimit(clientKey(req),'quiz_check');const body=await boundedJSON(req);return json(await publicCheck(String(body.token||''),body));}
+ if(path==='public/quiz/submit'){
+  const ip=clientKey(req);await rateLimit(ip,'quiz_submit');
+  const body=await boundedJSON(req,65536);
+  return json(await publicSubmit(String(body.token||''),body,{ipHash:ip,userAgent:req.headers.get('user-agent')||''}));
  }
  if(path==='auth/logout'){
   const jar=await cookies();await destroySession(jar.get(SESSION_COOKIE)?.value);jar.delete(SESSION_COOKIE);
@@ -147,7 +159,7 @@ export async function POST(req:Request){try{
  if(path==='tools/loan-file')return json(await uploadLoanFile(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
  // Fluxos e checklists levam várias etapas/perguntas por envio.
  // Empréstimo, assinatura e devolução levam as duas assinaturas feitas na tela (até 400 KB cada).
- const body=await boundedJSON(req,path==='flows/save'||path==='registry/checklists'||path==='planning/save'||path==='maint/plan'?262144:path==='tools/loans/issue'||path==='tools/loans/sign'||path==='tools/loans/return'?900000:undefined);
+ const body=await boundedJSON(req,path==='flows/save'||path==='quiz/save'||path==='registry/checklists'||path==='planning/save'||path==='maint/plan'?262144:path==='tools/loans/issue'||path==='tools/loans/sign'||path==='tools/loans/return'?900000:undefined);
  if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));
  if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
  if(path.startsWith('maint/'))return json(await maintenanceMutate(path,body,member));
@@ -159,6 +171,7 @@ export async function POST(req:Request){try{
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));
  if(path.startsWith('finance/config/')||path==='finance/suppliers'||path.startsWith('finance/requests/')||path==='finance/quotes')return json(await financeRequestsMutate(path,body,member));
  if(path.startsWith('finance/'))return json(await financeMutate(path,body,member));
+ if(path.startsWith('quiz/'))return json(await quizMutate(path,body,member));
  if(path.startsWith('tools/'))return json(await loansMutate(path,body,member)??await toolsMutate(path,body,member));
  const result=await mutate(path,body,member);
  flushLater(req);
