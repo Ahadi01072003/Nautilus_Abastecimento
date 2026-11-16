@@ -2,7 +2,7 @@
 // Configuração central de módulos e telas. Uma tela só aparece quando existe e quando o
 // servidor a libera em actor.modules; o servidor revalida cada consulta e comando.
 import {useEffect,useState} from 'react';
-import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign,FileSpreadsheet,Settings2,Hammer,Boxes,ArrowLeftRight,LayoutList,Handshake} from 'lucide-react';
+import {LayoutDashboard,Fuel,Warehouse,Bell,Truck,Users,Download,CalendarDays,KeyRound,LogOut,ChevronDown,Building2,MapPin,ListChecks,Tags,Workflow,Database,Droplets,CalendarRange,CalendarPlus,ListOrdered,HardHat,ClipboardList,Gauge,Wrench,ClipboardCheck,Timer,Activity,Radar,ClipboardPlus,type LucideIcon,Landmark,Receipt,BadgeDollarSign,FileSpreadsheet,Settings2,Hammer,Boxes,ArrowLeftRight,LayoutList,Handshake,QrCode,ClipboardPen} from 'lucide-react';
 import {Sidebar,SidebarContent,SidebarHeader,SidebarFooter,SidebarGroup,SidebarGroupLabel,SidebarMenu,SidebarMenuItem,SidebarMenuButton,SidebarMenuSub,SidebarMenuSubItem,SidebarMenuSubButton,useSidebar} from '@/components/ui/sidebar';
 import {signOut} from './login';
 import Bathy from './bathy';
@@ -48,6 +48,10 @@ export const MODULES:Module[]=[
   {id:'fer-movimentar',label:'Movimentar',icon:ArrowLeftRight,subtitle:'Entradas, saídas e perdas de vários itens de uma vez. O saldo muda só por movimentação.'},
   {id:'fer-emprestimos',label:'Empréstimos',icon:Handshake,subtitle:'Empréstimos para solicitantes: termo com assinatura, devolução e o que cada um tem em mãos.'},
   {id:'fer-cadastros',label:'Cadastros',icon:LayoutList,subtitle:'Unidades de medida, categorias, locais e solicitantes.'},
+ ]},
+ {id:'avaliacoes',label:'Avaliações',icon:QrCode,screens:[
+  {id:'ava-questionarios',label:'Questionários',icon:ClipboardPen,subtitle:'Perguntas com resposta certa, nota mínima, validade por CPF, versões e o QR code do link público.'},
+  {id:'ava-respostas',label:'Respostas',icon:ListChecks,subtitle:'Quem respondeu, nota, resultado e validade, com filtros por questionário, empresa, período e CPF.'},
  ]},
  {id:'cadastros',label:'Cadastros gerais',icon:Database,screens:[
   {id:'cad-solicitantes',label:'Solicitantes e clientes',icon:Building2,subtitle:'Organizações solicitantes, etiquetas visuais e pessoas de contato.'},

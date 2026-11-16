@@ -19,7 +19,7 @@ export function sameOrigin(req:Request){
  if(host)expected.add(`${req.headers.get('x-forwarded-proto')||new URL(req.url).protocol.replace(':','')}://${host}`);
  if(!origin||!expected.has(origin)||req.headers.get('Sec-Fetch-Site')==='cross-site')throw new AppError('Origem não autorizada.',403);
 }
-const limits={read:120,write:90,export:5,cron:10,email_test:2,login:10,password:10};
+const limits={read:120,write:90,export:5,cron:10,email_test:2,login:10,password:10,quiz_read:240,quiz_check:60,quiz_submit:60};
 /** Contador atômico por chave (conta ou hash do endereço de rede), janela de 1 minuto. */
 export async function rateLimit(subject:string,action:keyof typeof limits){
  const minute=Math.floor(Date.now()/60000),key=subject+':'+action;
@@ -28,8 +28,9 @@ export async function rateLimit(subject:string,action:keyof typeof limits){
  if(Math.random()<0.05)await db().run('DELETE FROM rate_limits WHERE window_start<?',minute-10);
 }
 /** Identificador não reversível do cliente para limitar tentativas de login sem guardar o IP. */
-export function clientKey(req:Request){
- const ip=(req.headers.get('x-forwarded-for')||'').split(',')[0].trim()||req.headers.get('x-real-ip')||'local';
+export function clientKey(req:Request){return ipKey(req.headers);}
+export function ipKey(h:{get(name:string):string|null}){
+ const ip=(h.get('x-forwarded-for')||'').split(',')[0].trim()||h.get('x-real-ip')||'local';
  return 'ip_'+createHash('sha256').update('nautilus:'+ip).digest('hex').slice(0,32);
 }
 export async function bearerMatches(received:string|null,secret:string|undefined){
