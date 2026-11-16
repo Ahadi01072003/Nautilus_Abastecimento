@@ -31,8 +31,8 @@ const EMPTY:R={title:'',intro:'',questions:[],validityAmount:12,validityUnit:'me
  consentText:DEFAULT_CONSENT,retentionMonths:'none',pdfTitle:'Comprovante de avaliação',pdfBody:DEFAULT_BODY,pdfFooter:''};
 const RETENTION=[{value:'none',label:'Não anonimizar automaticamente'},...[12,24,36,60].map(n=>({value:String(n),label:`Anonimizar após ${n} meses`}))];
 /** Baixa um arquivo da API; erro do servidor vira aviso (sem sair da tela). */
-async function download(path:string){
- const r=await fetch('/api/'+path,{cache:'no-store'});
+async function download(path:string,body?:R){
+ const r=await fetch('/api/'+path,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{cache:'no-store'});
  if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'Não foi possível gerar o arquivo.');}
  const name=/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition')||'')?.[1]||'arquivo';
  const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
@@ -223,24 +223,34 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
 function query(f:R){
  const p=new URLSearchParams();
  if(f.quiz!=='all')p.set('quiz',f.quiz);if(f.result!=='all')p.set('result',f.result);
- for(const k of ['company','from','to'])if(f[k])p.set(k,f[k]);
+ for(const k of ['name','company','from','to'])if(f[k])p.set(k,f[k]);
  if(f.cpf)p.set('cpf',cpfDigits(f.cpf));
  return p;
 }
-function ExportBar({query:q,total}:{query:URLSearchParams,total:number}){
+function ExportBar({query:q,total,selected,onClear}:{query:URLSearchParams,total:number,selected:Map<string,string>,onClear:()=>void}){
  const [answers,setAnswers]=useState(false),[busy,setBusy]=useState('');
- async function go(kind:string,path:string){setBusy(kind);try{await download(path);}catch(e){toast.error((e as Error).message)}finally{setBusy('')}}
+ async function go(kind:string,path:string,body?:R){setBusy(kind);try{await download(path,body);}catch(e){toast.error((e as Error).message)}finally{setBusy('')}}
  const with_=(extra:Record<string,string>)=>{const p=new URLSearchParams(q);for(const [k,v] of Object.entries(extra))p.set(k,v);return p.toString();};
- return <div className="qa-export"><span>Com os filtros aplicados:</span>
-  <Button variant="outline" size="sm" disabled={!!busy||!total} onClick={()=>void go('x','quiz/export?'+with_({format:'xlsx',...(answers?{answers:'1'}:{})}))}>{busy==='x'?<LoaderCircle className="spin" size={14}/>:<FileSpreadsheet size={14}/>} Excel</Button>
-  <Button variant="outline" size="sm" disabled={!!busy||!total} onClick={()=>void go('c','quiz/export?'+with_({format:'csv',...(answers?{answers:'1'}:{})}))}>{busy==='c'?<LoaderCircle className="spin" size={14}/>:<Download size={14}/>} CSV</Button>
-  <label className="qa-inline-check"><input type="checkbox" checked={answers} onChange={e=>setAnswers(e.target.checked)}/> incluir as respostas</label>
-  <Button variant="outline" size="sm" disabled={!!busy||!total} onClick={()=>void go('z','quiz/pdf-zip?'+with_({}))} title="Um PDF por resposta, até 500 por arquivo">{busy==='z'?<LoaderCircle className="spin" size={14}/>:<FileArchive size={14}/>} Comprovantes (ZIP)</Button>
+ const ans:Record<string,string>=answers?{answers:'1'}:{},n=selected.size;
+ return <div className="qa-export">
+  <div className="qa-export-row"><span>Com os filtros aplicados:</span>
+   <Button variant="outline" size="sm" disabled={!!busy||!total} onClick={()=>void go('x','quiz/export?'+with_({format:'xlsx',...ans}))}>{busy==='x'?<LoaderCircle className="spin" size={14}/>:<FileSpreadsheet size={14}/>} Excel</Button>
+   <Button variant="outline" size="sm" disabled={!!busy||!total} onClick={()=>void go('c','quiz/export?'+with_({format:'csv',...ans}))}>{busy==='c'?<LoaderCircle className="spin" size={14}/>:<Download size={14}/>} CSV</Button>
+   {!n&&<Button variant="outline" size="sm" disabled={!!busy||!total} onClick={()=>void go('z','quiz/pdf-zip?'+with_(ans))} title="Um PDF por resposta, até 500 por arquivo">{busy==='z'?<LoaderCircle className="spin" size={14}/>:<FileArchive size={14}/>} Comprovantes (ZIP)</Button>}
+   <label className="qa-inline-check" title="Vale para Excel, CSV e PDF. No PDF sai o que a pessoa marcou e se acertou, sem a resposta certa."><input type="checkbox" checked={answers} onChange={e=>setAnswers(e.target.checked)}/> incluir as respostas</label>
+  </div>
+  {n>0&&<div className="qa-export-row qa-selected"><b>{n} selecionada{n>1?'s':''}</b>
+   <Button size="sm" disabled={!!busy} onClick={()=>void go('s','quiz/pdf-zip',{ids:[...selected.keys()],answers})} title="Um PDF por pessoa selecionada">{busy==='s'?<LoaderCircle className="spin" size={14}/>:<FileArchive size={14}/>} Comprovantes das selecionadas (ZIP)</Button>
+   <Button variant="ghost" size="sm" disabled={!!busy} onClick={onClear}>Limpar seleção</Button>
+   {n>500&&<small className="form-error">Até 500 por arquivo.</small>}</div>}
  </div>;
 }
 export function QuizAnswers({refreshKey}:{refreshKey?:number}){
- const [quizzes,setQuizzes]=useState<R[]>([]),[filters,setFilters]=useState<R>({quiz:'all',result:'all',company:'',cpf:'',from:'',to:''});
+ const [quizzes,setQuizzes]=useState<R[]>([]),[filters,setFilters]=useState<R>({quiz:'all',result:'all',name:'',company:'',cpf:'',from:'',to:''});
  const [applied,setApplied]=useState<R>(filters),[page,setPage]=useState(1),[data,setData]=useState<R|null>(null),[error,setError]=useState(''),[open,setOpen]=useState<string|null>(null);
+ // Seleção para o .zip de comprovantes: continua ao trocar de página ou de filtro.
+ const [sel,setSel]=useState<Map<string,string>>(()=>new Map());
+ const toggle=(r:R,on:boolean)=>setSel(m=>{const x=new Map(m);if(on)x.set(r.id,r.name);else x.delete(r.id);return x;});
  useEffect(()=>{load<R>('quiz/list').then(d=>setQuizzes(d.rows),()=>setQuizzes([]))},[refreshKey]);
  useEffect(()=>{
   const p=query(applied);p.set('page',String(page));
@@ -252,22 +262,23 @@ export function QuizAnswers({refreshKey}:{refreshKey?:number}){
    <div className="qa-filter-grid">
     <Field label="Questionário"><Choice value={filters.quiz} onChange={v=>setFilters(x=>({...x,quiz:v}))} options={[{value:'all',label:'Todos'},...quizzes.map(q=>({value:q.id,label:q.title}))]}/></Field>
     <Field label="Resultado"><Choice value={filters.result} onChange={v=>setFilters(x=>({...x,result:v}))} options={[{value:'all',label:'Todos'},{value:'aprovado',label:'Aprovados'},{value:'reprovado',label:'Reprovados'}]}/></Field>
+    <Field label="Nome"><Input maxLength={120} value={filters.name} placeholder="Parte do nome" onChange={e=>setFilters(x=>({...x,name:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter')apply()}}/></Field>
     <Field label="Empresa"><Input maxLength={120} value={filters.company} onChange={e=>setFilters(x=>({...x,company:e.target.value}))} onKeyDown={e=>{if(e.key==='Enter')apply()}}/></Field>
     <Field label="CPF completo"><Input inputMode="numeric" placeholder="000.000.000-00" value={filters.cpf} onChange={e=>setFilters(x=>({...x,cpf:typingCpf(e.target.value)}))} onKeyDown={e=>{if(e.key==='Enter')apply()}}/></Field>
     <Field label="De"><Input type="date" value={filters.from} onChange={e=>setFilters(x=>({...x,from:e.target.value}))}/></Field>
     <Field label="Até"><Input type="date" value={filters.to} onChange={e=>setFilters(x=>({...x,to:e.target.value}))}/></Field>
    </div>
-   <div className="qa-actions"><Button onClick={apply}><Search size={15}/> Filtrar</Button><Button variant="ghost" onClick={()=>{const e={quiz:'all',result:'all',company:'',cpf:'',from:'',to:''};setFilters(e);setApplied(e);setPage(1);}}>Limpar</Button></div>
+   <div className="qa-actions"><Button onClick={apply}><Search size={15}/> Filtrar</Button><Button variant="ghost" onClick={()=>{const e={quiz:'all',result:'all',name:'',company:'',cpf:'',from:'',to:''};setFilters(e);setApplied(e);setPage(1);}}>Limpar</Button></div>
   </section>
   {error?<div className="error-panel"><TriangleAlert/><h2>Respostas indisponíveis</h2><p>{error}</p></div>
   :!data?<Skeleton className="h-64 rounded-xl"/>
   :<section className="n-panel">
-   <ExportBar query={query(applied)} total={data.total}/>
+   <ExportBar query={query(applied)} total={data.total} selected={sel} onClear={()=>setSel(new Map())}/>
    <div className="panel-heading"><div><h2>{data.total} resposta{data.total!==1?'s':''}</h2><p>{data.passed} aprovada{data.passed!==1?'s':''} · {data.total-data.passed} reprovada{data.total-data.passed!==1?'s':''}. CPF mascarado na lista; o completo aparece no detalhe (fica na auditoria).</p></div></div>
    {data.rows.length?<>
-    <div className="qa-table"><table><thead><tr><th>Data</th><th>Nome</th><th>Empresa</th><th>CPF</th><th>Questionário</th><th className="num">Nota</th><th>Resultado</th><th>Válida até</th></tr></thead>
-     <tbody>{(data.rows as R[]).map(r=><tr key={r.id} onClick={()=>setOpen(r.id)} tabIndex={0} onKeyDown={e=>{if(e.key==='Enter')setOpen(r.id)}}><td>{fmt(r.createdAt)}</td><td><b className={r.anonymizedAt?'pending-text':''}>{r.name}</b></td><td>{r.company}</td><td className="mono">{r.cpf}</td><td>{r.quizTitle} <small>v{r.version}</small></td><td className="num mono">{pct(r.score)}</td><td>{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}</td><td>{dayText(r.validUntil)}</td></tr>)}</tbody></table></div>
-    <ul className="qa-mcards">{(data.rows as R[]).map(r=><li key={r.id}><button type="button" onClick={()=>setOpen(r.id)}><div><b>{r.name}</b><small>{r.company} · {r.cpf}</small><small>{r.quizTitle} · {fmt(r.createdAt)}</small></div><div className="qa-mres">{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}<b>{pct(r.score)}</b></div></button></li>)}</ul>
+    <div className="qa-table"><table><thead><tr><th className="qa-sel"><input type="checkbox" aria-label="Selecionar todas desta página" checked={(data.rows as R[]).every(r=>sel.has(r.id))} onChange={e=>{const on=e.target.checked;setSel(m=>{const x=new Map(m);for(const r of data.rows as R[]){if(on)x.set(r.id,r.name);else x.delete(r.id);}return x;});}}/></th><th>Data</th><th>Nome</th><th>Empresa</th><th>CPF</th><th>Questionário</th><th className="num">Nota</th><th>Resultado</th><th>Válida até</th></tr></thead>
+     <tbody>{(data.rows as R[]).map(r=><tr key={r.id} onClick={()=>setOpen(r.id)} tabIndex={0} onKeyDown={e=>{if(e.key==='Enter')setOpen(r.id)}} className={sel.has(r.id)?'on':''}><td className="qa-sel" onClick={e=>e.stopPropagation()}><input type="checkbox" aria-label={`Selecionar ${r.name}`} checked={sel.has(r.id)} onChange={e=>toggle(r,e.target.checked)}/></td><td>{fmt(r.createdAt)}</td><td><b className={r.anonymizedAt?'pending-text':''}>{r.name}</b></td><td>{r.company}</td><td className="mono">{r.cpf}</td><td>{r.quizTitle} <small>v{r.version}</small></td><td className="num mono">{pct(r.score)}</td><td>{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}</td><td>{dayText(r.validUntil)}</td></tr>)}</tbody></table></div>
+    <ul className="qa-mcards">{(data.rows as R[]).map(r=><li key={r.id} className={sel.has(r.id)?'on':''}><label className="qa-msel"><input type="checkbox" aria-label={`Selecionar ${r.name}`} checked={sel.has(r.id)} onChange={e=>toggle(r,e.target.checked)}/></label><button type="button" onClick={()=>setOpen(r.id)}><div><b>{r.name}</b><small>{r.company} · {r.cpf}</small><small>{r.quizTitle} · {fmt(r.createdAt)}</small></div><div className="qa-mres">{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}<b>{pct(r.score)}</b></div></button></li>)}</ul>
     {data.pages>1&&<div className="tl-pager qa-pager"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Anterior</Button><span>Página {data.page} de {data.pages}</span><Button variant="outline" size="sm" disabled={page>=data.pages} onClick={()=>setPage(p=>p+1)}>Próxima</Button></div>}
    </>:<Empty icon={ClipboardCheck} title="Nenhuma resposta encontrada" description="Ajuste os filtros ou aguarde as primeiras respostas pelo QR code."/>}
   </section>}
@@ -287,6 +298,7 @@ function AttemptDialog({id,onClose,onOpen,onChanged}:{id:string,onClose:()=>void
    {a.anonymizedAt&&<p className="qa-warn">Dados pessoais anonimizados em {fmt(a.anonymizedAt)}{a.anonymizedReason?` · ${a.anonymizedReason}`:''}.</p>}
    <div className="qa-actions">
     <Button variant="outline" onClick={()=>window.open(`/api/quiz/pdf?id=${encodeURIComponent(a.id)}`,'_blank','noopener')}><FileText size={15}/> Comprovante (PDF)</Button>
+    <Button variant="outline" onClick={()=>window.open(`/api/quiz/pdf?id=${encodeURIComponent(a.id)}&answers=1`,'_blank','noopener')}><FileText size={15}/> Comprovante com respostas</Button>
     {!a.anonymizedAt&&<Button variant="ghost" onClick={()=>setAnon(v=>!v)}><UserX size={15}/> Anonimizar dados deste CPF</Button>}
    </div>
    {anon&&<div className="qa-anon"><p>Apaga nome, empresa, CPF e textos livres de <b>todas</b> as respostas deste CPF, em todos os questionários. Notas e datas ficam. Não se desfaz.</p>
