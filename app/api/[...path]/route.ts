@@ -101,7 +101,7 @@ export async function GET(req:Request){try{
  if(path==='planning/validate'){await rateLimit(member.id,'read');return json(await validateRealized(member,url.searchParams.get('id')||''));}
  if(path==='planning/recoverable'){await rateLimit(member.id,'read');return json(await recoverableEquipment(member,url));}
  if(path==='planning/d1'||path==='planning/d1/preview'||path==='planning/d1/published'){await rateLimit(member.id,'read');return json(await d1Get(path,url,member));}
- if(path==='planning/capacity'||path==='planning/bars'||path==='planning/absences'){await rateLimit(member.id,'read');return json(await capacityGet(path,url,member));}
+ if(path==='planning/bars'){await rateLimit(member.id,'read');return json(await capacityGet(path,url,member));}
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}
  if(path==='orders/steps'){await rateLimit(member.id,'read');return json(await ordersSteps(member,url));}
  if(path==='orders/refs'){await rateLimit(member.id,'read');return json(await ordersRefs(member));}

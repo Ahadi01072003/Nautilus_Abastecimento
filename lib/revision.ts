@@ -39,7 +39,7 @@ export async function startRevision(tx:Executor,a:Actor,workOrderId:string){
  for(const s of base.steps){
   const sid=id();
   await tx.run('INSERT INTO plan_steps(id,plan_id,step_key,position,name,description,required,included,default_minutes,depends_on,planned_start,planned_end,location_id) VALUES(?,?,?,?,?,?,?,?,?,?::text[],?,?,?)',sid,pid,s.step_key,s.position,s.name,s.description,s.required,s.included,s.default_minutes,s.depends_on,s.planned_start,s.planned_end,s.location_id);
-  for(const n of s.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit,hours_per_day) VALUES(?,?,?,?,?,?,?,?,?,?)',id(),pid,sid,n.equipment_type_id,n.function_id,n.material_id,n.quantity,n.amount,n.unit,n.hours_per_day??null);
+  for(const n of s.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit) VALUES(?,?,?,?,?,?,?,?,?)',id(),pid,sid,n.equipment_type_id,n.function_id,n.material_id,n.quantity,n.amount,n.unit);
   for(const o of s.operator_ids)await tx.run('INSERT INTO plan_step_people(plan_id,plan_step_id,operator_id) VALUES(?,?,?)',pid,sid,o);
   // Mesma reserva, agora também no rascunho: o banco a reconhece como transportada (não é compromisso novo).
   for(const r of s.reservations)await tx.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,hours_per_day,status,created_at) VALUES(?,?,?,?,?,?,?,'provisoria',?)",id(),pid,sid,r.equipment_id,r.start_at,r.end_at,r.hours_per_day,t);

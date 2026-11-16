@@ -9,6 +9,8 @@ type R=Record<string,any>;// eslint-disable-line @typescript-eslint/no-explicit-
 const WEEK=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 const plus=(d:string,n:number)=>new Date(Date.parse(d+'T12:00:00Z')+n*86_400_000).toISOString().slice(0,10);
 const h=(n:number)=>Number(n).toLocaleString('pt-BR',{maximumFractionDigits:2});
+const cardPeople=(c:R)=>c.people??(c.byFunction as R[]).reduce((n,f)=>n+Number(f.people||0),0);
+const people=(snap:R)=>snap.people??(snap.cards as R[]).reduce((n,c)=>n+cardPeople(c),0);
 const at=(iso:string)=>new Date(iso).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(',','');
 
 export default function ProgramView({bar,day:initial}:{bar:string,day:string}){
@@ -34,18 +36,17 @@ export default function ProgramView({bar,day:initial}:{bar:string,day:string}){
   {error&&<p className="pg-error">{error}</p>}
   <div className={`pg-bars n${bars.length}`}>{bars.map(b=>{const p=data[b],snap=p?.snapshot as R|undefined;
    return <section key={b} className={`pg-bar bar-${b}`}>
-    <header><h2>{b==='ocp'?'OCP':'Equinor'}</h2>{p?.version?<p>Versão {p.version} · {at(p.publishedAt)} · {p.publishedBy}{p.leaders?.length?` · lideranças: ${p.leaders.join(', ')}`:''}</p>:<p>{p?'Ainda não publicado para este dia.':'Carregando…'}</p>}</header>
+    <header><h2>{b==='ocp'?'OCP':'Equinor'}</h2>{p?.version?<p>Publicado {at(p.publishedAt)} · {p.publishedBy}{snap?.staff!=null?` · ${people(snap)} de ${snap.staff} pessoas`:''}</p>:<p>{p?'Ainda não publicado para este dia.':'Carregando…'}</p>}</header>
     {snap&&<>
-     <ul className="pg-fns">{(snap.functions as R[]).filter(f=>f.capacity||f.accepted).map(f=><li key={f.name} className={`z-${f.zone}`}><span>{f.name}</span><b>{h(f.accepted)} / {h(f.capacity)} HH</b><em>{f.pct==null?'—':`${h(f.pct)}%`}</em></li>)}</ul>
      <ol className="pg-cards">{(snap.cards as R[]).map(c=><li key={c.planId}>
       <span className="pg-pos">{c.position}</span>
       <div><div className="pg-head"><b className="pg-os">{c.label}</b>{c.org?.acronym&&<span className="pg-org">{c.org.acronym}</span>}{c.location&&<span><MapPin size={13}/> {c.location}</span>}</div>
        <h3>{c.title}</h3><p className="pg-steps">{(c.steps as string[]).join(' · ')}</p>
        <div className="pg-chips">{(c.byFunction as R[]).map(f=><span key={f.functionId}><Users size={13}/> {f.people}× {f.name}</span>)}
-        {(c.equipment as R[]).map((e,i)=><span key={i}><Truck size={13}/> {e.tag} · {h(e.hours)} h</span>)}
+        {(c.equipment as R[]).map((e,i)=><span key={i}><Truck size={13}/> {e.tag}</span>)}
         {(c.materials as R[]).map((m,i)=><span key={'m'+i}><Package size={13}/> {h(m.amount)} {m.unit} {m.name}</span>)}</div>
-       {c.note&&<p className="pg-note">{c.note}</p>}</div>
-      <b className="pg-hh">{h(c.hh)} HH</b>
+</div>
+      <b className="pg-hh">{cardPeople(c)} {cardPeople(c)===1?"pessoa":"pessoas"}</b>
      </li>)}</ol>
      {!(snap.cards as R[]).length&&<p className="pg-empty">Nenhuma OS publicada para este dia.</p>}
     </>}

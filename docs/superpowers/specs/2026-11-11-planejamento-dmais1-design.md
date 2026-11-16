@@ -100,3 +100,14 @@ Decisões do usuário em 16/11: publicação **por barra**; **trava completa**; 
 - **Programação publicada** (`/programacao`): as duas barras, hoje e amanhã, atualiza a cada minuto; serve à TV e ao celular do líder.
 - **Lista de separação** (`/separacao`): materiais e equipamentos por OS e total por material, para imprimir.
 - **Aviso:** depois das 16:00 de Brasília, barra com OS amanhã e sem publicação aparece no Painel central.
+
+## 14. Simplificação (16/11/2026) — substitui o que conflitar nas seções 1 a 13
+
+O usuário achou o conjunto confuso e pediu o mais simples possível. Decisões dele:
+
+- **Medida em pessoas**, não em HH. A OS soma a quantidade de cada função das etapas do dia; não há horas por dia por função.
+- **Efetivo em pessoas por barra**: padrão de dia útil e de fim de semana (só a Gestão), corrigido por dia pelo planejador da barra no D+1. Saem a escala 2x2, as equipes, a função atuante, "Entra no HH", as ausências e a tela Capacidade.
+- **Passou do efetivo só avisa** (vermelho, "Passou N pessoas", linha "daqui para baixo passa do efetivo"). Saem as zonas (meta/esticado/teto), a validação da zona esticada e a linha de corte rígida.
+- **Publicar é um clique**: grava o retrato imutável (só OS lançadas; rascunho não entra). Publicar de novo cria a versão seguinte, sem justificativa. Saem Confirmado/Ajustar, a lista de pendências e as lideranças obrigatórias.
+- Continuam: barra pelo solicitante, planejador por barra, ordem da pilha, adiar com prévia (OS lançada vira revisão com motivo), domingo de folga, TV/celular, lista de separação e o alerta das 16:00.
+- As migrações 0030, 0034 e 0035 (nunca aplicadas em produção) foram reescritas nessa forma; o banco de teste foi adaptado por um script à parte.

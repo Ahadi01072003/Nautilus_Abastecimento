@@ -42,7 +42,7 @@ export default async function Separacao({searchParams}:{searchParams:Promise<Rec
    <img src="/logo-color.svg" alt="OceanPact LOG"/><div>Lista de separação · barra {barName}<b>{dayText(p.day)}</b></div></div>
   {!snap?<><h1>Lista de separação</h1><p className="lead">O D+1 da barra {barName} de {dayText(p.day)} ainda não foi publicado.</p></>:<>
    <h1>Lista de separação</h1>
-   <p className="lead">Versão {p.version} publicada por {p.publishedBy}. {(snap.cards as R[]).length} OS no dia.</p>
+   <p className="lead">Publicada por {p.publishedBy}{p.version! > 1?` (versão ${p.version})`:""}. {(snap.cards as R[]).length} OS no dia.</p>
    <h2>Total por material</h2>
    {(snap.materials as R[]).length?<table><thead><tr><th>Material</th><th className="n">Quantidade</th><th>Separado</th></tr></thead>
     <tbody>{(snap.materials as R[]).map(m=><tr key={m.name+m.unit}><td>{m.name}</td><td className="n">{h(m.amount)} {m.unit}</td><td className="ok"><span className="box"/></td></tr>)}</tbody></table>:<p className="muted">Nenhum material informado nas OS do dia.</p>}

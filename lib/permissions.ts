@@ -43,7 +43,7 @@ export async function loadAccess(a:Member){
 }
 export const fuelModules=['visao','solicitacoes','abastecimentos','estoque','alertas'];
 export const registryModules=['cad-solicitantes','cad-locais','cad-equipamentos','cad-colaboradores','cad-checklists','cad-categorias'];
-export const planningModules=['plan-fluxos','plan-atividade','plan-os','plan-d1','plan-capacidade'];
+export const planningModules=['plan-fluxos','plan-atividade','plan-os','plan-d1'];
 export const operationModules=['op-painel','op-os','op-registro'];
 export const maintenanceModules=['man-painel','man-criterios','man-corretivas','man-leituras'];
 export const toolsModules=['fer-painel','fer-inventario','fer-movimentar','fer-emprestimos','fer-cadastros'];
