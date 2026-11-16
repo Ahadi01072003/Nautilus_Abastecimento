@@ -90,9 +90,18 @@
 .qa-upload:focus-within{outline:2px solid #087f77;outline-offset:2px}
 .qa-upload.off{opacity:.55;cursor:not-allowed}
 .qa-upload input{position:absolute;width:1px;height:1px;opacity:0}
-.qa-export{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:14px 22px 0}
-.qa-export>span{font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.qa-export{display:grid;gap:8px;padding:14px 22px 0}
+.qa-export-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.qa-selected{padding:8px 10px;border-radius:10px;background:color-mix(in srgb,#087f77 10%,var(--surface));border:1px solid color-mix(in srgb,#087f77 35%,var(--line))}
+.qa-export-row>span{font:600 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
 .qa-inline-check{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;min-height:36px;cursor:pointer}
 .qa-inline-check input{width:17px;height:17px;accent-color:#087f77}
 .qa-anon{display:grid;gap:8px;padding:12px;border:1px solid #fecdca;background:#fef3f2;border-radius:10px;margin-top:8px}
 .qa-anon p{margin:0;font-size:13.5px}
+.qa-sel{width:36px;cursor:default}
+.qa-sel input,.qa-msel input{width:18px;height:18px;accent-color:#087f77;cursor:pointer}
+.qa-table tbody tr.on{background:color-mix(in srgb,#087f77 8%,transparent)}
+.qa-mcards li{display:flex;gap:6px;align-items:stretch}
+.qa-mcards li>button{flex:1;min-width:0}
+.qa-msel{display:grid;place-items:center;width:44px;flex:none;border:1px solid var(--line);border-radius:12px;background:var(--surface);cursor:pointer}
+.qa-mcards li.on>button,.qa-mcards li.on .qa-msel{border-color:#087f77}

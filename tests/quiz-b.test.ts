@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import {inflateRawSync} from 'node:zlib';
 import {freshDatabase,addMember} from './helpers';
 import {mutate} from '../lib/service';
-import {quizGet,quizMutate,publicQuiz,publicCheck,publicSubmit,anonymizeExpired,quizExport,quizPdf,quizPdfZip,uploadQuizLogo,PDF_BATCH_LIMIT} from '../lib/quiz';
+import {PDFDocument} from 'pdf-lib';
+import {quizGet,quizMutate,publicQuiz,publicCheck,publicSubmit,anonymizeExpired,quizExport,quizPdf,quizPdfZip,quizPdfZipIds,uploadQuizLogo,PDF_BATCH_LIMIT} from '../lib/quiz';
 import {type Member} from '../lib/permissions';
 import type {Database,Row} from '../lib/db';
 
@@ -136,4 +137,33 @@ test('comprovante em PDF: um por tentativa e em lote (ZIP); modelo com logotipo'
  await quizMutate('quiz/logo-remove',{id},evaluator);
  assert.equal((await db.first('SELECT pdf_logo FROM quizzes WHERE id=?',id))!.pdf_logo,null);
  await rejects(quizPdf(operator,list.rows[0].id),403);
+});
+
+test('busca por nome: parte do nome, sem diferença de maiúsculas e acentos',async()=>{
+ const {id,token}=await published();
+ await answer(token,cpf(50),RIGHT,'João Gonçalves');await answer(token,cpf(51),RIGHT,'Maria Souza');
+ const r=await quizGet('quiz/attempts',url({quiz:id,name:'joao GON'}),evaluator) as Row;
+ assert.deepEqual(r.rows.map((x:Row)=>x.name),['João Gonçalves']);
+ const none=await quizGet('quiz/attempts',url({quiz:id,name:'100%_'}),evaluator) as Row;
+ assert.equal(none.total,0,'curingas do LIKE são texto comum');
+});
+
+test('ZIP só das selecionadas; com respostas, o PDF traz as perguntas e cresce em páginas',async()=>{
+ const many=Array.from({length:40},(_,i)=>({id:'m'+i,type:'multipla',text:`Pergunta longa número ${i+1} sobre as regras de segurança da base, com texto suficiente para ocupar mais de uma linha no PDF?`,required:true,options:[{id:'a',text:'Certa'},{id:'b',text:'Errada'}],correct:'a'}));
+ const {id,token}=await published({questions:many,minScore:50});
+ const all=Object.fromEntries(many.map((q,i)=>[q.id,i%3?'a':'b']));
+ const r1=await answer(token,cpf(60),all,'Ana Lima'),r2=await answer(token,cpf(61),all,'Bruno Reis'),r3=await answer(token,cpf(62),all,'Carla Dias');
+ const list=await quizGet('quiz/attempts',url({quiz:id}),evaluator) as Row;
+ const idOf=(code:string)=>list.rows.find((x:Row)=>x.code===code).id as string;
+ const z=await quizPdfZipIds(evaluator,[idOf(r1.code),idOf(r3.code)],false);
+ assert.deepEqual(zipNames(await bytes(z)).sort(),[`ana-lima-${r1.code}.pdf`,`carla-dias-${r3.code}.pdf`]);
+ await rejects(quizPdfZipIds(evaluator,[],false),400);
+ await rejects(quizPdfZipIds(evaluator,['x'.repeat(10)],false),404);
+ await rejects(quizPdfZipIds(evaluator,Array.from({length:PDF_BATCH_LIMIT+1},(_,i)=>'id'+i),false),413);
+ await rejects(quizPdfZipIds(operator,[idOf(r2.code)],false),403);
+ const plain=await PDFDocument.load(await bytes(await quizPdf(evaluator,idOf(r2.code))));
+ const full=await PDFDocument.load(await bytes(await quizPdf(evaluator,idOf(r2.code),true)));
+ assert.equal(plain.getPageCount(),1);assert.ok(full.getPageCount()>=2,'40 perguntas ocupam mais de uma página');
+ const zf=await quizPdfZip(evaluator,url({quiz:id,answers:'1'}));
+ assert.equal(zipNames(await bytes(zf)).length,3);
 });

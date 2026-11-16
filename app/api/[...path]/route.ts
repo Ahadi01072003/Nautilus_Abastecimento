@@ -20,7 +20,7 @@ import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
 import {tvData} from '@/lib/tv';
-import {quizGet,quizMutate,publicQuiz,publicCheck,publicSubmit,anonymizeExpired,quizExport,quizPdf,quizPdfSample,quizPdfZip,quizLogo,uploadQuizLogo,MAX_LOGO} from '@/lib/quiz';
+import {quizGet,quizMutate,publicQuiz,publicCheck,publicSubmit,anonymizeExpired,quizExport,quizPdf,quizPdfSample,quizPdfZip,quizPdfZipIds,quizLogo,uploadQuizLogo,MAX_LOGO} from '@/lib/quiz';
 import {AppError} from '@/lib/domain';
 import {db,env} from '@/lib/db';
 import {boundedJSON,sameOrigin,rateLimit,bearerMatches,clientKey} from '@/lib/security';
@@ -124,7 +124,7 @@ export async function GET(req:Request){try{
  if(path.startsWith('tools/')){await rateLimit(member.id,'read');return json(await loansGet(path,url,member)??await toolsGet(path,url,member));}
  if(path==='quiz/export'){await rateLimit(member.id,'export');return await quizExport(member,url);}
  if(path==='quiz/pdf-zip'){await rateLimit(member.id,'export');return await quizPdfZip(member,url);}
- if(path==='quiz/pdf'){await rateLimit(member.id,'read');return await quizPdf(member,url.searchParams.get('id')||'');}
+ if(path==='quiz/pdf'){await rateLimit(member.id,'read');return await quizPdf(member,url.searchParams.get('id')||'',url.searchParams.get('answers')==='1');}
  if(path==='quiz/pdf-sample'){await rateLimit(member.id,'read');return await quizPdfSample(member,url.searchParams.get('id')||'');}
  if(path==='quiz/logo'){await rateLimit(member.id,'read');return await quizLogo(member,url.searchParams.get('id')||'');}
  if(path.startsWith('quiz/')){await rateLimit(member.id,'read');return json(await quizGet(path,url,member));}
@@ -166,7 +166,7 @@ export async function POST(req:Request){try{
  if(path==='tools/loan-file')return json(await uploadLoanFile(member,new URL(req.url).searchParams,await readAttachmentBody(req)));
  // Fluxos e checklists levam várias etapas/perguntas por envio.
  // Empréstimo, assinatura e devolução levam as duas assinaturas feitas na tela (até 400 KB cada).
- const body=await boundedJSON(req,path==='flows/save'||path==='quiz/save'||path==='registry/checklists'||path==='planning/save'||path==='maint/plan'?262144:path==='tools/loans/issue'||path==='tools/loans/sign'||path==='tools/loans/return'?900000:undefined);
+ const body=await boundedJSON(req,path==='flows/save'||path==='quiz/save'||path==='quiz/pdf-zip'||path==='registry/checklists'||path==='planning/save'||path==='maint/plan'?262144:path==='tools/loans/issue'||path==='tools/loans/sign'||path==='tools/loans/return'?900000:undefined);
  if(path.startsWith('registry/'))return json(await registryMutate(path,body,member));
  if(path.startsWith('flows/'))return json(await flowsMutate(path,body,member));
  if(path.startsWith('maint/'))return json(await maintenanceMutate(path,body,member));
@@ -178,6 +178,8 @@ export async function POST(req:Request){try{
  if(path.startsWith('condition/'))return json(await conditionMutate(path,body,member));
  if(path.startsWith('finance/config/')||path==='finance/suppliers'||path.startsWith('finance/requests/')||path==='finance/quotes')return json(await financeRequestsMutate(path,body,member));
  if(path.startsWith('finance/'))return json(await financeMutate(path,body,member));
+ // Comprovantes das respostas selecionadas: a lista vai no corpo (até 500 identificadores).
+ if(path==='quiz/pdf-zip'){await rateLimit(member.id,'export');return await quizPdfZipIds(member,body.ids,body.answers===true);}
  if(path.startsWith('quiz/'))return json(await quizMutate(path,body,member));
  if(path.startsWith('tools/'))return json(await loansMutate(path,body,member)??await toolsMutate(path,body,member));
  const result=await mutate(path,body,member);

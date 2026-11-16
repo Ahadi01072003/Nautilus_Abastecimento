@@ -345,16 +345,20 @@ const attemptRow=(r:Row,full=false)=>({id:r.id,quizId:r.quiz_id,quizTitle:r.quiz
  cpf:r.anonymized_at?'—':full?r.cpf:maskCpf(r.cpf),anonymizedAt:r.anonymized_at||null,anonymizedReason:full?r.anonymized_reason||null:undefined,consentVersion:r.consent_version==null?null:Number(r.consent_version),score:Number(r.score),correct:Number(r.correct_count),graded:Number(r.graded_count),minScore:Number(r.min_score),
  passed:Number(r.passed)===1,validUntil:r.valid_until||null,createdAt:r.created_at,...(full?{answers:r.answers,startedAt:r.started_at,userAgent:r.user_agent}:{})});
 
+/** Busca sem acentos e sem diferença de maiúsculas (o banco aplica o mesmo mapa com translate). */
+const ACCENTED='áàâãäéèêëíìîïóòôõöúùûüçñ',PLAIN='aaaaaeeeeiiiiooooouuuucn';
+const fold=(s:string)=>s.toLowerCase().replace(/[áàâãäéèêëíìîïóòôõöúùûüçñ]/g,c=>PLAIN[ACCENTED.indexOf(c)]);
 /** Filtros da lista de respostas (os mesmos valem para a exportação e o lote de comprovantes). */
 function attemptFilter(p:URLSearchParams){
  const where:string[]=[],args:unknown[]=[];
  const qid=p.get('quiz');if(qid){where.push('a.quiz_id=?');args.push(text(qid,64));}
  const result=p.get('result');if(result==='aprovado')where.push('a.passed=1');else if(result==='reprovado')where.push('a.passed=0');
+ const name=text(p.get('name'),120);if(name){where.push(`translate(lower(a.name),'${ACCENTED}','${PLAIN}') LIKE ? ESCAPE '\\'`);args.push('%'+fold(name).replace(/[\\%_]/g,'\\$&')+'%');}
  const company=text(p.get('company'),120);if(company){where.push("a.company ILIKE ? ESCAPE '\\'");args.push('%'+company.replace(/[\\%_]/g,'\\$&')+'%');}
  const cpf=cpfDigits(p.get('cpf'));if(cpf){if(cpf.length!==11)throw new AppError('Informe o CPF completo para buscar.');where.push('a.cpf=?');args.push(cpf);}
  const from=p.get('from');if(from){where.push('a.created_at>=?');args.push(dayStart(isoDay(from)));}
  const to=p.get('to');if(to){const d=isoDay(to);where.push('a.created_at<?');args.push(dayStart(validUntilDay(d,1,'dias')));}
- return {sql:where.length?'WHERE '+where.join(' AND '):'',args,cpf,filters:{quiz:qid||null,result:result||null,company:company||null,cpf:cpf?maskCpf(cpf):null,from:from||null,to:to||null}};
+ return {sql:where.length?'WHERE '+where.join(' AND '):'',args,cpf,filters:{name:name||null,quiz:qid||null,result:result||null,company:company||null,cpf:cpf?maskCpf(cpf):null,from:from||null,to:to||null}};
 }
 export async function attemptsList(member:Member,url:URL){
  await access(member);
@@ -434,24 +438,26 @@ export async function quizExport(member:Member,url:URL){
 }
 
 const fill=(tpl:string,v:Record<string,string>)=>tpl.replace(/\{(\w+)\}/g,(m,k)=>k in v?v[k]:m);
-function certificateData(q:Row,r:Row,versionTitle:string):CertificateData{
+function certificateData(q:Row,r:Row,versionTitle:string,withAnswers=false):CertificateData{
  const passed=Number(r.passed)===1,anon=!!r.anonymized_at;
  const vars:Record<string,string>={nome:r.name,empresa:r.company,cpf:anon?'—':formatCpf(r.cpf),questionario:versionTitle,versao:String(r.version),data:when(r.created_at),
   nota:pct(Number(r.score)),minimo:pct(Number(r.min_score)),resultado:passed?'Aprovado':'Reprovado',validade:r.valid_until?dayText(r.valid_until):'—',codigo:r.code};
  return {title:fill(q.pdf_title,vars),body:fill(q.pdf_body,vars),footer:fill(q.pdf_footer,vars),passed,validUntil:r.valid_until?dayText(r.valid_until):null,code:r.code,issuedAt:when(now()),
   logo:q.pdf_logo?{bytes:new Uint8Array(q.pdf_logo as Buffer),type:q.pdf_logo_type}:null,
   facts:[['Nome',r.name],['Empresa',r.company],['CPF',vars.cpf],['Avaliação',`${versionTitle} (versão ${r.version})`],['Data',vars.data],
-   ['Nota',`${vars.nota} (${r.correct_count} de ${r.graded_count}) · mínimo ${vars.minimo}`],['Resultado',vars.resultado],['Válida até',passed?vars.validade:'—']]};
+   ['Nota',`${vars.nota} (${r.correct_count} de ${r.graded_count}) · mínimo ${vars.minimo}`],['Resultado',vars.resultado],['Válida até',passed?vars.validade:'—']],
+  // Só o que a pessoa marcou e se acertou: a resposta certa não sai no comprovante.
+  answers:withAnswers?(r.answers as Row[]).map(x=>({text:x.text as string,answer:optionText(x,x.answer)||null,result:x.isCorrect==null?'livre' as const:x.isCorrect?'certa' as const:'errada' as const})):undefined};
 }
 const ATTEMPT_SELECT='SELECT a.*,v.title version_title FROM quiz_attempts a JOIN quiz_versions v ON v.quiz_id=a.quiz_id AND v.version=a.version';
 
-export async function quizPdf(member:Member,aid:string){
+export async function quizPdf(member:Member,aid:string,withAnswers=false){
  const a=await access(member);
  const r=await db().first(`${ATTEMPT_SELECT} WHERE a.id=?`,text(aid,64));
  if(!r)throw new AppError('Tentativa não encontrada.',404);
  const q=await getQuiz(db(),r.quiz_id);
- const pdf=await certificatePdf(certificateData(q,r,r.version_title));
- await db().tx(tx=>audit(tx,a,'Avaliações: comprovante emitido',r.id as string,{code:r.code}));
+ const pdf=await certificatePdf(certificateData(q,r,r.version_title,withAnswers));
+ await db().tx(tx=>audit(tx,a,'Avaliações: comprovante emitido',r.id as string,{code:r.code,answers:withAnswers}));
  return new Response(new Uint8Array(pdf),{headers:fileHeaders('application/pdf',`comprovante-${r.code}.pdf`,true)});
 }
 /** Exemplo do modelo, com dados fictícios (para conferir logotipo e textos antes de usar). */
@@ -463,19 +469,34 @@ export async function quizPdfSample(member:Member,qid:string){
  const pdf=await certificatePdf(certificateData(q,sample,q.title));
  return new Response(new Uint8Array(pdf),{headers:fileHeaders('application/pdf','comprovante-exemplo.pdf',true)});
 }
+/** Monta o .zip com um PDF por tentativa (nome da pessoa + comprovante). */
+async function zipOf(rows:Row[],withAnswers:boolean){
+ const quizzes=new Map<string,Row>(),files:{name:string,data:Uint8Array}[]=[];
+ for(const r of rows){
+  if(!quizzes.has(r.quiz_id))quizzes.set(r.quiz_id,await getQuiz(db(),r.quiz_id));
+  files.push({name:`${slug(r.name)}-${r.code}.pdf`,data:await certificatePdf(certificateData(quizzes.get(r.quiz_id)!,r,r.version_title,withAnswers))});
+ }
+ return new Response(new Uint8Array(zip(files)),{headers:fileHeaders('application/zip',`comprovantes_${brDay(Date.now())}.zip`)});
+}
 export async function quizPdfZip(member:Member,url:URL){
- const a=await access(member),f=attemptFilter(url.searchParams);
+ const a=await access(member),f=attemptFilter(url.searchParams),withAnswers=url.searchParams.get('answers')==='1';
  const n=Number((await db().first(`SELECT count(*)::int n FROM quiz_attempts a ${f.sql}`,...f.args))!.n);
  if(!n)throw new AppError('Nenhuma resposta com estes filtros.',404);
  if(n>PDF_BATCH_LIMIT)throw new AppError(`${n.toLocaleString('pt-BR')} respostas. Filtre para até ${PDF_BATCH_LIMIT} comprovantes por arquivo.`,413);
  const rows=await db().all(`${ATTEMPT_SELECT} ${f.sql} ORDER BY a.created_at,a.id`,...f.args);
- const quizzes=new Map<string,Row>(),files:{name:string,data:Uint8Array}[]=[];
- for(const r of rows){
-  if(!quizzes.has(r.quiz_id))quizzes.set(r.quiz_id,await getQuiz(db(),r.quiz_id));
-  files.push({name:`${slug(r.name)}-${r.code}.pdf`,data:await certificatePdf(certificateData(quizzes.get(r.quiz_id)!,r,r.version_title))});
- }
- await db().tx(tx=>audit(tx,a,'Avaliações: comprovantes em lote',a.id,{filters:f.filters,count:files.length}));
- return new Response(new Uint8Array(zip(files)),{headers:fileHeaders('application/zip',`comprovantes_${brDay(Date.now())}.zip`)});
+ await db().tx(tx=>audit(tx,a,'Avaliações: comprovantes em lote',a.id,{filters:f.filters,count:rows.length,answers:withAnswers}));
+ return await zipOf(rows,withAnswers);
+}
+/** Comprovantes das respostas selecionadas na tela (até 500). */
+export async function quizPdfZipIds(member:Member,ids:unknown,withAnswers:boolean){
+ const a=await access(member);
+ if(!Array.isArray(ids)||!ids.length)throw new AppError('Selecione ao menos uma resposta.',400);
+ if(ids.length>PDF_BATCH_LIMIT)throw new AppError(`Selecione até ${PDF_BATCH_LIMIT} respostas por arquivo.`,413);
+ const list=[...new Set(ids.map(x=>text(x,64)).filter(Boolean))];
+ const rows=await db().all(`${ATTEMPT_SELECT} WHERE a.id=ANY(?::text[]) ORDER BY a.created_at,a.id`,list);
+ if(!rows.length)throw new AppError('As respostas selecionadas não foram encontradas. Atualize a tela.',404);
+ await db().tx(tx=>audit(tx,a,'Avaliações: comprovantes em lote',a.id,{selected:list.length,count:rows.length,answers:withAnswers}));
+ return await zipOf(rows,withAnswers);
 }
 
 // ───────────── Logotipo do comprovante ─────────────
