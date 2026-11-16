@@ -7,6 +7,7 @@ import {osNumber} from './planning';
 import {localDay,dateOf} from './maintenance-cycle';
 import {rateAt} from './recoverables';
 import {toRate} from './finance';
+import {d1Late} from './d1';
 
 const all=(q:string,...v:unknown[])=>db().all(q,...v);
 const HOUR=3600000,DAY=24*HOUR;
@@ -82,6 +83,8 @@ export async function centralState(member:Member){
   // Rascunho não segura equipamento: rascunho parado não prende recurso de ninguém.
   const stale:Row[]=[];
   out.sections.planejamento={drafts:drafts.length,revisions:drafts.filter(d=>d.work_order_id).length,stale:stale.length};
+  // D+1 (P3): depois das 16:00, a barra com OS amanhã e sem publicação aparece como aviso.
+  for(const l of await d1Late(t))alerts.push({id:`d1:${l.bar}:${l.day}`,module:'planejamento',severity:'atencao',title:`D+1 da barra ${l.barName} não publicado`,detail:`${l.cards} OS em ${l.day.split('-').reverse().join('/')} aguardam a reunião das 16:00 e a publicação.`,at:null,link:{view:'plan-d1'}});
  }
 
  // ── Manutenção ──

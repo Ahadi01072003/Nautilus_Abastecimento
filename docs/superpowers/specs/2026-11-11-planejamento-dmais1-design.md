@@ -88,3 +88,15 @@ Decisões do usuário em 16/11: horas da função sem preenchimento = **jornada 
 - **Zona esticada** (100% < carga ≤ teto): aviso até registrar quem validou (nome, observação, quem registrou). Acima do teto, o cartão fica abaixo da linha (cadeado).
 - **Adiar** (+1, +2, +3 ou +7 dias): prévia por dia com a carga de cada função antes → depois e as horas de equipamento (alerta acima de 12 h). Rascunho muda as datas direto; OS lançada gera e lança a revisão (mesmo processo da revisão manual), com o motivo; se não der para lançar, a revisão é descartada. OS já iniciada não se adia pelo D+1.
 - Por enquanto o D+1 **mostra e organiza**; a trava de publicação (nada acima do teto, esticado validado) entra na P3, com a reunião das 16:00.
+
+## 13. P3 implementado (16/11/2026, no ambiente de teste)
+
+Decisões do usuário em 16/11: publicação **por barra**; **trava completa**; depois de publicar, mudar é permitido e pede **nova versão com justificativa**; aviso das 16:00 **no Painel central**.
+
+- **Reunião:** cada OS lançada que cabe no dia fica **Confirmado** ou **Ajustar** (com o que ajustar). Adiar usa a ação do D+1. A marcação é da versão da OS: revisão (inclusive por adiamento) pede nova confirmação.
+- **Conferência para publicar (trava):** nenhuma OS sem confirmação ou em Ajustar, nenhum rascunho, nada abaixo da linha de corte, zona esticada validada, equipamento sem impedimento técnico e até 12 h no dia, dependência em ordem, e ao menos uma liderança presente.
+- **Publicar** grava a versão (1, 2, 3…) imutável com o retrato do dia: ordem, HH por função, equipamentos, materiais, lideranças e quem publicou. A partir da versão 2, justificativa obrigatória; não publica se nada mudou.
+- **Alterado após a publicação:** o D+1 compara o dia atual com o retrato publicado e avisa; TV, celular e lista de separação seguem na última versão publicada.
+- **Programação publicada** (`/programacao`): as duas barras, hoje e amanhã, atualiza a cada minuto; serve à TV e ao celular do líder.
+- **Lista de separação** (`/separacao`): materiais e equipamentos por OS e total por material, para imprimir.
+- **Aviso:** depois das 16:00 de Brasília, barra com OS amanhã e sem publicação aparece no Painel central.

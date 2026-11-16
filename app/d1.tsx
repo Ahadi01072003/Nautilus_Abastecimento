@@ -5,7 +5,7 @@
 // ordem, adiar com prévia (rascunho muda direto; OS lançada vira revisão com motivo) e validar a zona esticada.
 // Azul-marinho e vermelho identificam a barra; o estado usa preenchimento, listras, borda e ícone.
 import {useCallback,useEffect,useRef,useState,type DragEvent} from 'react';
-import {ChevronLeft,ChevronRight,GripVertical,ArrowUp,ArrowDown,CalendarClock,Lock,TriangleAlert,CheckCircle2,LoaderCircle,ShieldCheck,Scissors,Truck,Users,RefreshCw} from 'lucide-react';
+import {ChevronLeft,ChevronRight,GripVertical,ArrowUp,ArrowDown,CalendarClock,Lock,TriangleAlert,CheckCircle2,LoaderCircle,ShieldCheck,Scissors,Truck,Users,RefreshCw,Send,Tv,ClipboardList,X,Pencil} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Skeleton} from '@/components/ui/skeleton';
@@ -50,6 +50,10 @@ export default function D1View(){
   setBusy(true);
   try{await post('planning/d1/order',{bar,day,order:ids});await refresh();}catch(e){toast.error((e as Error).message);await refresh();}finally{setBusy(false)}
  }
+ async function setMark(c:R,mark:string|null,note=''){
+  setBusy(true);
+  try{await post('planning/d1/mark',{bar,day,plan:c.planId,mark,note});await refresh();}catch(e){toast.error((e as Error).message)}finally{setBusy(false)}
+ }
  const move=(i:number,d:number)=>{const ids=cards.map(c=>c.planId);const j=i+d;if(j<0||j>=ids.length)return;[ids[i],ids[j]]=[ids[j],ids[i]];void saveOrder(ids);};
  function drop(e:DragEvent,target:string){
   e.preventDefault();setOver(null);
@@ -88,6 +92,7 @@ export default function D1View(){
        :<Button size="sm" variant="outline" onClick={()=>setStretch(f)}>Registrar validação</Button>)}</div>
     </li>)}</ul>
    </section>
+   <PublishPanel data={data} bar={bar} day={day} onDone={()=>void refresh()}/>
    <section className="n-panel d1-stack-panel">
     <div className="panel-heading"><div><h2>Pilha do dia</h2><p>Arraste (ou use as setas) para mudar a prioridade. A ordem vale para todos os dias da OS. A linha de corte cai na primeira OS que não cabe até o teto.</p></div>{busy&&<LoaderCircle className="spin" size={18}/>}</div>
     {cards.length?<ol className="d1-stack">{cards.map((c,i)=><li key={c.planId} className="d1-slot">
@@ -108,6 +113,11 @@ export default function D1View(){
         {!(c.byFunction as R[]).length&&<small className="pending-text">Sem funções informadas: não ocupa HH.</small>}</div>
       </div>
       <div className="d1-side"><b>{h(c.hh)} HH</b><Badge tone={ZONE[c.zone].tone}><ZoneIcon zone={c.zone}/> {c.fits?ZONE[c.zone].label:'Não cabe'}</Badge>
+       {c.status==='lancada'&&c.fits&&<div className="d1-mark" role="group" aria-label={`Reunião: ${c.label}`}>
+        <button type="button" className={c.mark?.mark==='confirmado'?'on ok':''} aria-pressed={c.mark?.mark==='confirmado'} disabled={busy} onClick={()=>void setMark(c,c.mark?.mark==='confirmado'?null:'confirmado')}><CheckCircle2 size={14}/> Confirmado</button>
+        <button type="button" className={c.mark?.mark==='ajustar'?'on adj':''} aria-pressed={c.mark?.mark==='ajustar'} disabled={busy} onClick={()=>{if(c.mark?.mark==='ajustar'){void setMark(c,null);return;}const note=window.prompt(`O que ajustar em ${c.label}?`,'');if(note!==null)void setMark(c,'ajustar',note);}}><Pencil size={14}/> Ajustar</button>
+       </div>}
+       {c.mark?.mark==='ajustar'&&c.mark.note&&<small className="d1-adj-note">{c.mark.note}</small>}
        <Button size="sm" variant={c.fits?'ghost':'outline'} disabled={c.started} title={c.started?'OS já iniciada: ajuste pela revisão da OS.':undefined} onClick={()=>setPostpone(c)}><CalendarClock size={14}/> Adiar</Button></div>
      </article>
     </li>)}</ol>
@@ -159,4 +169,29 @@ function StretchDialog({fn,bar,day,onClose,onDone}:{fn:R,bar:string,day:string,o
   </div>
   <div className="step-actions"><Button variant="outline" disabled={busy} onClick={onClose}>Cancelar</Button><Button disabled={busy||by.trim().length<2} onClick={()=>void go()}>{busy&&<LoaderCircle className="spin" size={15}/>} Registrar</Button></div>
  </DialogContent></Dialog>;
+}
+
+/** Reunião das 16:00: situação da publicação, pendências, lideranças presentes e publicar (nova versão pede justificativa). */
+function PublishPanel({data,bar,day,onDone}:{data:R,bar:string,day:string,onDone:()=>void}){
+ const pub=data.publication as R|null,pending=(data.checks?.pending||[]) as string[];
+ const [leaders,setLeaders]=useState<string[]>([]),[name,setName]=useState(''),[why,setWhy]=useState(''),[busy,setBusy]=useState(false);
+ const next=pub?pub.version+1:1,needsWhy=!!pub;
+ const add=()=>{const n=name.trim().replace(/\s+/g,' ');if(n.length>=2&&!leaders.includes(n))setLeaders(l=>[...l,n]);setName('');};
+ async function go(){setBusy(true);try{const r=await post('planning/d1/publish',{bar,day,leaders,justification:why});toast.success(r.message);setWhy('');onDone();}catch(e){toast.error((e as Error).message)}finally{setBusy(false)}}
+ const state=!pub?{tone:'muted',text:'Não publicado'}:pub.changed?{tone:'warning',text:`Alterado após a versão ${pub.version}`}:{tone:'success',text:`Publicado · versão ${pub.version}`};
+ return <section className={`n-panel d1-publish ${pub&&!pub.changed?'done':''}`}>
+  <div className="d1-publish-head"><div><h2>Reunião das 16:00 · publicação</h2>
+   <p>{pub?`Versão ${pub.version} publicada em ${new Date(pub.publishedAt).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})} por ${pub.by} · lideranças: ${(pub.leaders as string[]).join(', ')}.`:'A TV, o celular do líder e a lista de separação mostram só o que for publicado.'}</p></div>
+   <Badge tone={state.tone}>{state.text}</Badge></div>
+  <div className="d1-publish-links"><a href={`/programacao?bar=${bar}&day=${day}`} target="_blank" rel="noopener"><Tv size={14}/> Programação publicada (TV e celular)</a><a href={`/separacao?bar=${bar}&day=${day}`} target="_blank" rel="noopener"><ClipboardList size={14}/> Lista de separação</a></div>
+  {(!pub||pub.changed)&&<>
+   {pending.length?<div className="d1-pending"><b><TriangleAlert size={15}/> {pending.length} pendência{pending.length>1?'s':''} para publicar</b><ul>{pending.map((p,i)=><li key={i}>{p}</li>)}</ul></div>
+    :<p className="d1-ready"><CheckCircle2 size={15}/> Conferência sem pendências: pode publicar.</p>}
+   <div className="d1-leaders"><label htmlFor="d1-leader">Lideranças presentes *</label>
+    <div className="d1-leader-row"><Input id="d1-leader" maxLength={120} value={name} placeholder="Nome e Enter" onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();add();}}}/><Button type="button" variant="outline" onClick={add}>Incluir</Button></div>
+    {leaders.length>0&&<div className="d1-leader-chips">{leaders.map(l=><span key={l}>{l}<button type="button" aria-label={`Remover ${l}`} onClick={()=>setLeaders(x=>x.filter(y=>y!==l))}><X size={12}/></button></span>)}</div>}</div>
+   {needsWhy&&<Field label={`Justificativa da versão ${next} *`} wide><Textarea maxLength={1200} rows={2} value={why} onChange={e=>setWhy(e.target.value)} placeholder="O que mudou depois da publicação e por quê"/></Field>}
+   <div className="step-actions"><Button disabled={busy||pending.length>0||!leaders.length||(needsWhy&&why.trim().length<3)} onClick={()=>void go()}>{busy?<LoaderCircle className="spin" size={15}/>:<Send size={15}/>} Publicar {needsWhy?`versão ${next}`:'D+1'}</Button></div>
+  </>}
+ </section>;
 }
