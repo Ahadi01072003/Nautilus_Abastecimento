@@ -30,9 +30,11 @@ ALTER TABLE operators ADD COLUMN IF NOT EXISTS team text CHECK (team IN ('adm','
 ALTER TABLE operators ADD COLUMN IF NOT EXISTS acting_function_id text REFERENCES job_functions(id);
 ALTER TABLE operators ADD COLUMN IF NOT EXISTS counts_hh smallint NOT NULL DEFAULT 1 CHECK (counts_hh IN (0,1));
 
--- Solicitante: a barra da OS vem da organização (OCP OCEANPACT → OCP; os demais → Equinor).
+-- Solicitante: a barra da OS vem da organização (OceanPact → OCP; os demais → Equinor). O cadastro atual
+-- da OceanPact usa sigla OCPT e nome OCEANPACT; as variações OCP… também contam. Ajustável no cadastro.
 ALTER TABLE requester_orgs ADD COLUMN IF NOT EXISTS bar text NOT NULL DEFAULT 'equinor' REFERENCES plan_bars(id);
-UPDATE requester_orgs SET bar = 'ocp' WHERE upper(acronym) = 'OCP' OR upper(name) LIKE 'OCP%';
+UPDATE requester_orgs SET bar = 'ocp'
+ WHERE upper(acronym) IN ('OCP','OCPT') OR upper(name) LIKE 'OCP%' OR upper(replace(name,' ','')) LIKE 'OCEANPACT%';
 
 -- Planejador: barras que planeja (vazio = sem restrição, como antes).
 ALTER TABLE members ADD COLUMN IF NOT EXISTS planning_bars text[] NOT NULL DEFAULT '{}';
