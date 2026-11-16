@@ -1,6 +1,6 @@
 # Avaliações por QR code · especificação
 
-Data: 16/11/2026 · Status: **aprovada pelo usuário em 16/11/2026**; implementação em duas fases (A: núcleo; B: PDF, LGPD e exportação). **Fase A entregue** (migração 0031). Ajustes da implementação na seção 12.
+Data: 16/11/2026 · Status: **aprovada pelo usuário em 16/11/2026**; implementação em duas fases (A: núcleo; B: PDF, LGPD e exportação). **Fases A e B entregues** (migrações 0031 e 0032). Ajustes da implementação na seção 12.
 
 ## 1. Objetivo
 Visitantes da base respondem um questionário pelo celular, lendo um QR code, **sem login**. O Nautilus corrige na hora, mostra o resultado e guarda tudo para consulta, exportação e comprovante em PDF. O responsável pelo módulo cria e mantém os questionários.
@@ -84,4 +84,11 @@ Visitantes da base respondem um questionário pelo celular, lendo um QR code, **
 - **Pergunta que vale nota é sempre obrigatória** (múltipla escolha e sim/não); "opcional" vale só para texto livre.
 - **Regras (validade, nota mínima, limite diário, detalhe, embaralhar) valem ao salvar**, sem nova versão; título, abertura e perguntas mudam só ao publicar.
 - O comprovante tem 8 caracteres (sem 0/O e 1/I para não confundir).
+
+## 13. Ajustes na implementação da fase B
+- **Termo:** mudar o texto cria uma nova versão; quem estava com a página aberta na versão anterior recebe o pedido para recarregar e ler de novo. A data do aceite é o momento da etapa do CPF.
+- **Anonimização a pedido:** vale para todas as respostas do CPF em todos os questionários; apaga nome, empresa, CPF, rede, aparelho e textos livres; mantém nota, resultado, versão e datas. O banco só aceita essa alteração, uma vez por tentativa.
+- **Retenção:** escolha por questionário (12, 24, 36 ou 60 meses, ou desligada), aplicada pela rotina diária que já existe (11h UTC).
+- **Exportação:** limite de 20.000 respostas por arquivo; com "incluir as respostas", vem uma segunda aba (ou um segundo CSV no .zip) com uma linha por pergunta.
+- **Comprovante:** um PDF por tentativa (aprovada ou reprovada), com logotipo do questionário ou o padrão; "Ver exemplo do PDF" mostra o modelo com dados fictícios. Lote em ZIP com até 500.
 

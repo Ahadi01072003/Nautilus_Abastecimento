@@ -2,7 +2,7 @@
 // Avaliações · telas internas (acesso Avaliações e Gestão): questionários (editor com versões, pré-visualização,
 // QR code e situação) e respostas (filtros, detalhe com as respostas marcadas e histórico do CPF).
 import {useCallback,useEffect,useMemo,useState} from 'react';
-import {Plus,QrCode,Pencil,Pause,Play,Archive,Eye,Send,ArrowLeft,ArrowUp,ArrowDown,Trash2,Copy,Download,Printer,RefreshCw,LoaderCircle,TriangleAlert,ClipboardCheck,CheckCircle2,XCircle,Search,Save} from 'lucide-react';
+import {Plus,QrCode,Pencil,Pause,Play,Archive,Eye,Send,ArrowLeft,ArrowUp,ArrowDown,Trash2,Copy,Download,Printer,RefreshCw,LoaderCircle,TriangleAlert,ClipboardCheck,CheckCircle2,XCircle,Search,Save,FileText,FileSpreadsheet,FileArchive,UserX,ImageUp} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Skeleton} from '@/components/ui/skeleton';
@@ -25,7 +25,18 @@ const pct=(n:number)=>`${n.toLocaleString('pt-BR',{maximumFractionDigits:2})}%`;
 const publicUrl=(path:string)=>(typeof window!=='undefined'?window.location.origin:'')+path;
 const newQuestion=(type:string):R=>type==='multipla'?{id:rid(),type,text:'',required:true,options:[{id:rid(),text:''},{id:rid(),text:''}],correct:null}
  :type==='simnao'?{id:rid(),type,text:'',required:true,options:[{id:'sim',text:'Sim'},{id:'nao',text:'Não'}],correct:null}:{id:rid(),type,text:'',required:false,options:[],correct:null};
-const EMPTY:R={title:'',intro:'',questions:[],validityAmount:12,validityUnit:'meses',minScore:70,dailyLimit:3,resultDetail:'erradas',shuffle:false,closedMessage:''};
+const DEFAULT_CONSENT='Ao continuar, autorizo o registro do meu nome, empresa, CPF e respostas desta avaliação, usados só para controlar o acesso e a segurança da base. Os dados ficam guardados enquanto forem necessários para essa finalidade e posso pedir a exclusão a qualquer momento na recepção.';
+const DEFAULT_BODY='Certificamos que {nome}, da empresa {empresa}, realizou a avaliação "{questionario}" em {data}, com {nota} de acertos (mínimo {minimo}). Resultado: {resultado}.';
+const EMPTY:R={title:'',intro:'',questions:[],validityAmount:12,validityUnit:'meses',minScore:70,dailyLimit:3,resultDetail:'erradas',shuffle:false,closedMessage:'',
+ consentText:DEFAULT_CONSENT,retentionMonths:'none',pdfTitle:'Comprovante de avaliação',pdfBody:DEFAULT_BODY,pdfFooter:''};
+const RETENTION=[{value:'none',label:'Não anonimizar automaticamente'},...[12,24,36,60].map(n=>({value:String(n),label:`Anonimizar após ${n} meses`}))];
+/** Baixa um arquivo da API; erro do servidor vira aviso (sem sair da tela). */
+async function download(path:string){
+ const r=await fetch('/api/'+path,{cache:'no-store'});
+ if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.error||'Não foi possível gerar o arquivo.');}
+ const name=/filename="([^"]+)"/.exec(r.headers.get('Content-Disposition')||'')?.[1]||'arquivo';
+ const a=document.createElement('a');a.href=URL.createObjectURL(await r.blob());a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
 
 function StatusBadge({status,name}:{status:string,name?:string}){return <Badge tone={STATUS_TONE[status]}>{name||status}</Badge>;}
 
@@ -94,6 +105,27 @@ function QrDialog({quiz,onClose,onChanged}:{quiz:R,onClose:()=>void,onChanged:()
  </DialogContent></Dialog>;
 }
 
+function LogoField({quiz,disabled,onDone}:{quiz:R,disabled?:boolean,onDone:()=>void}){
+ const [busy,setBusy]=useState(false);
+ async function upload(file:File){
+  if(file.size>524288){toast.error('Logotipo acima de 512 KB. Use uma imagem menor.');return;}
+  setBusy(true);
+  try{const r=await fetch('/api/quiz/logo?id='+encodeURIComponent(quiz.id),{method:'POST',headers:{'Content-Type':'application/octet-stream'},body:file});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Não foi possível enviar.');toast.success(j.message);onDone();}
+  catch(e){toast.error((e as Error).message)}finally{setBusy(false)}
+ }
+ async function remove(){setBusy(true);try{const r=await post('quiz/logo-remove',{id:quiz.id});toast.success(r.message);onDone();}catch(e){toast.error((e as Error).message)}finally{setBusy(false)}}
+ return <div className="qa-logo wide">
+  {/* eslint-disable-next-line @next/next/no-img-element -- imagem enviada pelo responsável, servida pela API */}
+  <img src={`/api/quiz/logo?id=${encodeURIComponent(quiz.id)}&v=${quiz.rev}`} alt="Logotipo do comprovante"/>
+  <div><b>{quiz.hasLogo?'Logotipo próprio':'Logotipo padrão (OceanPact LOG)'}</b><small>PNG ou JPG até 512 KB.</small>
+   <div className="qa-actions">
+    <label className={`qa-upload ${busy||disabled?'off':''}`}><ImageUp size={15}/> {quiz.hasLogo?'Trocar':'Enviar logotipo'}<input type="file" accept="image/png,image/jpeg" disabled={busy||disabled} onChange={e=>{const file=e.target.files?.[0];e.target.value='';if(file)void upload(file);}}/></label>
+    {quiz.hasLogo&&<Button type="button" variant="ghost" disabled={busy||disabled} onClick={()=>void remove()}>Usar o padrão</Button>}
+    <Button type="button" variant="outline" onClick={()=>window.open(`/api/quiz/pdf-sample?id=${encodeURIComponent(quiz.id)}`,'_blank','noopener')}><FileText size={15}/> Ver exemplo do PDF</Button>
+   </div></div>
+ </div>;
+}
+
 function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,onQr:(q:R)=>void,qr:R|null,closeQr:()=>void}){
  const [quizId,setQuizId]=useState(id),[meta,setMeta]=useState<R|null>(null),[versions,setVersions]=useState<R[]>([]);
  const [f,setF]=useState<R>(EMPTY),[changed,setChanged]=useState(false),[busy,setBusy]=useState(''),[error,setError]=useState(''),[preview,setPreview]=useState(false),[loadError,setLoadError]=useState('');
@@ -101,14 +133,17 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
  const readOnly=meta?.status==='encerrado';
  const apply=useCallback((d:R)=>{
   const q=d.quiz as R;
-  setMeta(q);setVersions(d.versions);setF({title:q.title,intro:q.intro,questions:q.questions,validityAmount:q.validityAmount,validityUnit:q.validityUnit,minScore:q.minScore,dailyLimit:q.dailyLimit,resultDetail:q.resultDetail,shuffle:q.shuffle,closedMessage:q.closedMessage});setChanged(false);
+  setMeta(q);setVersions(d.versions);setF({title:q.title,intro:q.intro,questions:q.questions,validityAmount:q.validityAmount,validityUnit:q.validityUnit,minScore:q.minScore,dailyLimit:q.dailyLimit,resultDetail:q.resultDetail,shuffle:q.shuffle,closedMessage:q.closedMessage,
+   consentText:q.consentText,retentionMonths:q.retentionMonths==null?'none':String(q.retentionMonths),pdfTitle:q.pdfTitle,pdfBody:q.pdfBody,pdfFooter:q.pdfFooter});setChanged(false);
  },[]);
  const fetchDetail=useCallback(async(qid:string)=>apply(await load<R>('quiz/detail?id='+encodeURIComponent(qid))),[apply]);
+ /** Logotipo, situação e link mudam só o cadastro: atualiza a versão e o estado sem descartar o que está sendo editado. */
+ const refreshMeta=useCallback(async(qid:string)=>{const d=await load<R>('quiz/detail?id='+encodeURIComponent(qid));setMeta(d.quiz);setVersions(d.versions);},[]);
  useEffect(()=>{if(id)load<R>('quiz/detail?id='+encodeURIComponent(id)).then(apply,e=>setLoadError((e as Error).message));},[id,apply]);
  const set=(patch:R)=>{setF(x=>({...x,...patch}));setChanged(true);};
  const setQ=(i:number,patch:R)=>set({questions:(f.questions as R[]).map((q,j)=>j===i?{...q,...patch}:q)});
  const move=(i:number,d:number)=>{const qs=[...f.questions as R[]];const j=i+d;if(j<0||j>=qs.length)return;[qs[i],qs[j]]=[qs[j],qs[i]];set({questions:qs});};
- const body=()=>({...f,validityAmount:Number(f.validityAmount),minScore:Number(f.minScore),dailyLimit:Number(f.dailyLimit)});
+ const body=()=>({...f,validityAmount:Number(f.validityAmount),minScore:Number(f.minScore),dailyLimit:Number(f.dailyLimit),retentionMonths:f.retentionMonths==='none'?null:Number(f.retentionMonths)});
  async function save(silent=false){
   const payload=quizId?{id:quizId,rev:meta?.rev,...body()}:{...body(),idempotencyKey:k.for(body())};
   const r=await post('quiz/save',payload);if(!quizId){setQuizId(r.id);k.renew();}
@@ -120,7 +155,7 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
  if(loadError)return <div className="error-panel"><TriangleAlert/><h2>Questionário indisponível</h2><p>{loadError}</p><Button variant="outline" onClick={onBack}>Voltar</Button></div>;
  if(id&&!meta)return <Skeleton className="h-64 rounded-xl"/>;
  const questions=f.questions as R[];
- const previewQuiz={title:f.title||'Sem título',intro:f.intro,version:1,questions:questions.map(q=>({...q,options:q.options||[]})) as RunnerQuestion[],minScore:Number(f.minScore)||70,validity:{amount:Number(f.validityAmount)||1,unit:f.validityUnit},companies:[]};
+ const previewQuiz={title:f.title||'Sem título',intro:f.intro,version:1,questions:questions.map(q=>({...q,options:q.options||[]})) as RunnerQuestion[],minScore:Number(f.minScore)||70,validity:{amount:Number(f.validityAmount)||1,unit:f.validityUnit},companies:[],consent:{version:meta?.consentVersion||1,text:f.consentText||DEFAULT_CONSENT}};
  return <div className="qa-screen">
   <div className="qa-bar"><Button variant="ghost" onClick={back}><ArrowLeft size={16}/> Questionários</Button>
    {meta&&<div className="qa-meta"><StatusBadge status={meta.status} name={meta.statusName}/>{meta.publishedVersion>0&&<Badge tone="info">Versão {meta.publishedVersion} no ar</Badge>}{(changed||meta.dirty)&&meta.publishedVersion>0&&!readOnly&&<Badge tone="warning">Alterações não publicadas</Badge>}</div>}</div>
@@ -139,6 +174,18 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
     <Field label="O que o visitante vê no resultado" wide><Choice value={f.resultDetail} onChange={v=>set({resultDetail:v})} options={Object.entries(DETAIL_NAME).map(([value,label])=>({value,label}))}/></Field>
     <Toggle title="Embaralhar perguntas e alternativas" description="Cada visitante vê uma ordem diferente." checked={!!f.shuffle} onChange={v=>set({shuffle:v})}/>
     <Field label="Mensagem quando estiver pausado ou encerrado" wide hint="Opcional. Padrão: Questionário indisponível no momento."><Input maxLength={300} value={f.closedMessage} onChange={e=>set({closedMessage:e.target.value})}/></Field>
+   </div></section>
+  <section className="n-panel qa-section"><div className="panel-heading"><div><h2>Uso dos dados (LGPD)</h2><p>O visitante lê e aceita este termo antes das perguntas. {meta?`Versão ${meta.consentVersion} em vigor; ao mudar o texto nasce a versão ${meta.consentVersion+1}.`:'Cada resposta guarda a versão aceita.'}</p></div></div>
+   <div className="form-grid">
+    <Field label="Termo de uso dos dados *" wide><Textarea maxLength={4000} rows={4} value={f.consentText} onChange={e=>set({consentText:e.target.value})}/></Field>
+    <Field label="Retenção" wide hint="Depois do prazo, nome, empresa, CPF e textos livres são apagados todo dia de madrugada; notas e datas ficam para estatística."><Choice value={f.retentionMonths} onChange={v=>set({retentionMonths:v})} options={RETENTION}/></Field>
+   </div></section>
+  <section className="n-panel qa-section"><div className="panel-heading"><div><h2>Comprovante em PDF</h2><p>Use {'{nome}'}, {'{empresa}'}, {'{cpf}'}, {'{questionario}'}, {'{data}'}, {'{nota}'}, {'{minimo}'}, {'{resultado}'}, {'{validade}'} e {'{codigo}'} nos textos.</p></div></div>
+   <div className="form-grid">
+    <Field label="Título *" wide><Input maxLength={120} value={f.pdfTitle} onChange={e=>set({pdfTitle:e.target.value})}/></Field>
+    <Field label="Texto" wide><Textarea maxLength={2000} rows={3} value={f.pdfBody} onChange={e=>set({pdfBody:e.target.value})}/></Field>
+    <Field label="Rodapé" wide hint="Opcional. Ex.: endereço da base, responsável, observações."><Input maxLength={300} value={f.pdfFooter} onChange={e=>set({pdfFooter:e.target.value})}/></Field>
+    {meta?<LogoField quiz={meta} disabled={readOnly} onDone={()=>void refreshMeta(meta.id).catch(()=>{})}/>:<p className="qa-note wide">Salve o questionário para enviar um logotipo próprio. Sem logotipo, o comprovante usa o da OceanPact LOG.</p>}
    </div></section>
   <section className="n-panel qa-section"><div className="panel-heading"><div><h2>Perguntas ({questions.length})</h2><p>Marque a resposta certa de cada pergunta que vale nota. A resposta certa nunca vai para a página do visitante.</p></div></div>
    <ol className="qa-questions">{questions.map((q,i)=><li key={q.id} className="qa-question">
@@ -162,26 +209,41 @@ function QuizEditor({id,onBack,onQr,qr,closeQr}:{id:string|null,onBack:()=>void,
    <Button variant="outline" disabled={!!busy||(!changed&&!!quizId)} onClick={()=>void run('save',async()=>{await save();})}>{busy==='save'?<LoaderCircle className="spin" size={15}/>:<Save size={15}/>} Salvar rascunho</Button>
    <Button disabled={!!busy} onClick={()=>void publish()}>{busy==='publish'?<LoaderCircle className="spin" size={15}/>:<Send size={15}/>} {meta?.publishedVersion?'Publicar nova versão':'Publicar'}</Button>
    {meta&&meta.publishedVersion>0&&<Button variant="ghost" onClick={()=>onQr(meta)}><QrCode size={15}/> QR code</Button>}
-   {meta&&<StatusActions quiz={meta} onDone={()=>void fetchDetail(meta.id)}/>}
+   {meta&&<StatusActions quiz={meta} onDone={()=>void refreshMeta(meta.id).catch(()=>{})}/>}
   </div>}
   {versions.length>0&&<section className="n-panel qa-section"><div className="panel-heading"><div><h2>Versões publicadas</h2><p>Cada resposta guarda a versão que foi respondida.</p></div></div>
    <ul className="qa-versions">{versions.map(v=><li key={v.version}><b>v{v.version}</b><span>{v.title}</span><small>{fmt(v.publishedAt)} · {v.publishedBy} · {v.attempts} resposta{v.attempts!==1?'s':''}</small></li>)}</ul></section>}
   {preview&&<Dialog open onOpenChange={v=>{if(!v)setPreview(false)}}><DialogContent className="qa-preview"><DialogHeader className="sr-only"><DialogTitle>Pré-visualização</DialogTitle><DialogDescription>Como o visitante vê. Nada é gravado.</DialogDescription></DialogHeader>
    <QuizRunner quiz={previewQuiz} preview={{resultDetail:f.resultDetail,dailyLimit:Number(f.dailyLimit)||1}}/></DialogContent></Dialog>}
-  {qr&&<QrDialog quiz={qr} onClose={closeQr} onChanged={()=>{if(quizId)void fetchDetail(quizId);}}/>}
+  {qr&&<QrDialog quiz={qr} onClose={closeQr} onChanged={()=>{if(quizId)void refreshMeta(quizId).catch(()=>{});}}/>}
  </div>;
 }
 
 // ───────────── Respostas ─────────────
+function query(f:R){
+ const p=new URLSearchParams();
+ if(f.quiz!=='all')p.set('quiz',f.quiz);if(f.result!=='all')p.set('result',f.result);
+ for(const k of ['company','from','to'])if(f[k])p.set(k,f[k]);
+ if(f.cpf)p.set('cpf',cpfDigits(f.cpf));
+ return p;
+}
+function ExportBar({query:q,total}:{query:URLSearchParams,total:number}){
+ const [answers,setAnswers]=useState(false),[busy,setBusy]=useState('');
+ async function go(kind:string,path:string){setBusy(kind);try{await download(path);}catch(e){toast.error((e as Error).message)}finally{setBusy('')}}
+ const with_=(extra:Record<string,string>)=>{const p=new URLSearchParams(q);for(const [k,v] of Object.entries(extra))p.set(k,v);return p.toString();};
+ return <div className="qa-export"><span>Com os filtros aplicados:</span>
+  <Button variant="outline" size="sm" disabled={!!busy||!total} onClick={()=>void go('x','quiz/export?'+with_({format:'xlsx',...(answers?{answers:'1'}:{})}))}>{busy==='x'?<LoaderCircle className="spin" size={14}/>:<FileSpreadsheet size={14}/>} Excel</Button>
+  <Button variant="outline" size="sm" disabled={!!busy||!total} onClick={()=>void go('c','quiz/export?'+with_({format:'csv',...(answers?{answers:'1'}:{})}))}>{busy==='c'?<LoaderCircle className="spin" size={14}/>:<Download size={14}/>} CSV</Button>
+  <label className="qa-inline-check"><input type="checkbox" checked={answers} onChange={e=>setAnswers(e.target.checked)}/> incluir as respostas</label>
+  <Button variant="outline" size="sm" disabled={!!busy||!total} onClick={()=>void go('z','quiz/pdf-zip?'+with_({}))} title="Um PDF por resposta, até 500 por arquivo">{busy==='z'?<LoaderCircle className="spin" size={14}/>:<FileArchive size={14}/>} Comprovantes (ZIP)</Button>
+ </div>;
+}
 export function QuizAnswers({refreshKey}:{refreshKey?:number}){
  const [quizzes,setQuizzes]=useState<R[]>([]),[filters,setFilters]=useState<R>({quiz:'all',result:'all',company:'',cpf:'',from:'',to:''});
  const [applied,setApplied]=useState<R>(filters),[page,setPage]=useState(1),[data,setData]=useState<R|null>(null),[error,setError]=useState(''),[open,setOpen]=useState<string|null>(null);
  useEffect(()=>{load<R>('quiz/list').then(d=>setQuizzes(d.rows),()=>setQuizzes([]))},[refreshKey]);
  useEffect(()=>{
-  const p=new URLSearchParams({page:String(page)});
-  if(applied.quiz!=='all')p.set('quiz',applied.quiz);if(applied.result!=='all')p.set('result',applied.result);
-  for(const k of ['company','from','to'])if(applied[k])p.set(k,applied[k]);
-  if(applied.cpf)p.set('cpf',cpfDigits(applied.cpf));
+  const p=query(applied);p.set('page',String(page));
   load<R>('quiz/attempts?'+p).then(d=>{setData(d);setError('')},e=>setError((e as Error).message));
  },[applied,page,refreshKey]);
  const apply=()=>{setPage(1);setApplied({...filters});};
@@ -200,26 +262,36 @@ export function QuizAnswers({refreshKey}:{refreshKey?:number}){
   {error?<div className="error-panel"><TriangleAlert/><h2>Respostas indisponíveis</h2><p>{error}</p></div>
   :!data?<Skeleton className="h-64 rounded-xl"/>
   :<section className="n-panel">
+   <ExportBar query={query(applied)} total={data.total}/>
    <div className="panel-heading"><div><h2>{data.total} resposta{data.total!==1?'s':''}</h2><p>{data.passed} aprovada{data.passed!==1?'s':''} · {data.total-data.passed} reprovada{data.total-data.passed!==1?'s':''}. CPF mascarado na lista; o completo aparece no detalhe (fica na auditoria).</p></div></div>
    {data.rows.length?<>
     <div className="qa-table"><table><thead><tr><th>Data</th><th>Nome</th><th>Empresa</th><th>CPF</th><th>Questionário</th><th className="num">Nota</th><th>Resultado</th><th>Válida até</th></tr></thead>
-     <tbody>{(data.rows as R[]).map(r=><tr key={r.id} onClick={()=>setOpen(r.id)} tabIndex={0} onKeyDown={e=>{if(e.key==='Enter')setOpen(r.id)}}><td>{fmt(r.createdAt)}</td><td><b>{r.name}</b></td><td>{r.company}</td><td className="mono">{r.cpf}</td><td>{r.quizTitle} <small>v{r.version}</small></td><td className="num mono">{pct(r.score)}</td><td>{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}</td><td>{dayText(r.validUntil)}</td></tr>)}</tbody></table></div>
+     <tbody>{(data.rows as R[]).map(r=><tr key={r.id} onClick={()=>setOpen(r.id)} tabIndex={0} onKeyDown={e=>{if(e.key==='Enter')setOpen(r.id)}}><td>{fmt(r.createdAt)}</td><td><b className={r.anonymizedAt?'pending-text':''}>{r.name}</b></td><td>{r.company}</td><td className="mono">{r.cpf}</td><td>{r.quizTitle} <small>v{r.version}</small></td><td className="num mono">{pct(r.score)}</td><td>{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}</td><td>{dayText(r.validUntil)}</td></tr>)}</tbody></table></div>
     <ul className="qa-mcards">{(data.rows as R[]).map(r=><li key={r.id}><button type="button" onClick={()=>setOpen(r.id)}><div><b>{r.name}</b><small>{r.company} · {r.cpf}</small><small>{r.quizTitle} · {fmt(r.createdAt)}</small></div><div className="qa-mres">{r.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}<b>{pct(r.score)}</b></div></button></li>)}</ul>
     {data.pages>1&&<div className="tl-pager qa-pager"><Button variant="outline" size="sm" disabled={page<=1} onClick={()=>setPage(p=>p-1)}>Anterior</Button><span>Página {data.page} de {data.pages}</span><Button variant="outline" size="sm" disabled={page>=data.pages} onClick={()=>setPage(p=>p+1)}>Próxima</Button></div>}
    </>:<Empty icon={ClipboardCheck} title="Nenhuma resposta encontrada" description="Ajuste os filtros ou aguarde as primeiras respostas pelo QR code."/>}
   </section>}
-  {open&&<AttemptDialog key={open} id={open} onClose={()=>setOpen(null)} onOpen={setOpen}/>}
+  {open&&<AttemptDialog key={open} id={open} onClose={()=>setOpen(null)} onOpen={setOpen} onChanged={()=>{setOpen(null);setApplied(x=>({...x}));}}/>}
  </div>;
 }
 
-function AttemptDialog({id,onClose,onOpen}:{id:string,onClose:()=>void,onOpen:(id:string)=>void}){
+function AttemptDialog({id,onClose,onOpen,onChanged}:{id:string,onClose:()=>void,onOpen:(id:string)=>void,onChanged:()=>void}){
+ const [anon,setAnon]=useState(false),[reason,setReason]=useState(''),[busy,setBusy]=useState(false);
  const [d,setD]=useState<R|null>(null),[error,setError]=useState('');
  useEffect(()=>{load<R>('quiz/attempt?id='+encodeURIComponent(id)).then(setD,e=>setError((e as Error).message))},[id]);
  const a=d?.attempt as R|undefined;
  return <Dialog open onOpenChange={v=>{if(!v)onClose()}}><DialogContent className="n-dialog qa-attempt"><DialogHeader><DialogTitle>{a?a.name:'Resposta'}</DialogTitle><DialogDescription>{a?`${a.quizTitle} · versão ${a.version} · ${fmt(a.createdAt)}`:'Carregando…'}</DialogDescription></DialogHeader>
   {error?<p className="form-error">{error}</p>:!a?<Skeleton className="h-48 rounded-xl"/>:<>
-   <dl className="qa-facts"><div><dt>Empresa</dt><dd>{a.company}</dd></div><div><dt>CPF</dt><dd className="mono">{formatCpf(a.cpf)}</dd></div><div><dt>Comprovante</dt><dd className="mono">{a.code}</dd></div>
+   <dl className="qa-facts"><div><dt>Empresa</dt><dd>{a.company}</dd></div><div><dt>CPF</dt><dd className="mono">{a.anonymizedAt?'—':formatCpf(a.cpf)}</dd></div><div><dt>Comprovante</dt><dd className="mono">{a.code}</dd></div>
     <div><dt>Resultado</dt><dd>{a.passed?<Badge tone="success">Aprovado</Badge>:<Badge tone="danger">Reprovado</Badge>}</dd></div><div><dt>Nota</dt><dd className="mono">{pct(a.score)} ({a.correct}/{a.graded}) · mín. {a.minScore}%</dd></div><div><dt>Válida até</dt><dd>{dayText(a.validUntil)}</dd></div></dl>
+   {a.anonymizedAt&&<p className="qa-warn">Dados pessoais anonimizados em {fmt(a.anonymizedAt)}{a.anonymizedReason?` · ${a.anonymizedReason}`:''}.</p>}
+   <div className="qa-actions">
+    <Button variant="outline" onClick={()=>window.open(`/api/quiz/pdf?id=${encodeURIComponent(a.id)}`,'_blank','noopener')}><FileText size={15}/> Comprovante (PDF)</Button>
+    {!a.anonymizedAt&&<Button variant="ghost" onClick={()=>setAnon(v=>!v)}><UserX size={15}/> Anonimizar dados deste CPF</Button>}
+   </div>
+   {anon&&<div className="qa-anon"><p>Apaga nome, empresa, CPF e textos livres de <b>todas</b> as respostas deste CPF, em todos os questionários. Notas e datas ficam. Não se desfaz.</p>
+    <Field label="Motivo *" wide><Textarea maxLength={300} rows={2} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Ex.: pedido do titular por e-mail em 16/11/2026"/></Field>
+    <div className="qa-actions"><Button variant="destructive" disabled={busy||reason.trim().length<3} onClick={()=>void (async()=>{setBusy(true);try{const r=await post('quiz/anonymize',{cpf:a.cpf,reason});toast.success(r.message);onChanged();}catch(e){toast.error((e as Error).message)}finally{setBusy(false)}})()}>{busy&&<LoaderCircle className="spin" size={15}/>} Anonimizar</Button><Button variant="ghost" onClick={()=>setAnon(false)}>Cancelar</Button></div></div>}
    <h3 className="qa-h">Respostas</h3>
    <ol className="qa-answers">{(a.answers as R[]).map((x,i)=>{const opt=(id:string|null)=>(x.options as R[]|undefined)?.find(o=>o.id===id)?.text||'—';return <li key={x.id} className={x.isCorrect===true?'ok':x.isCorrect===false?'bad':''}>
     <div className="qa-ans-head">{x.isCorrect===true?<CheckCircle2 size={17}/>:x.isCorrect===false?<XCircle size={17}/>:<span className="qa-dot"/>}<b>{i+1}. {x.text}</b></div>

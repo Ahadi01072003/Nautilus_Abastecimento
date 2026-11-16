@@ -17,6 +17,7 @@ const set=async(who:Member,profile:string,caps:string[])=>{const m=await db.firs
 /** CPF válido a partir de 9 dígitos. */
 function cpf(seed:number){const d=String(100000000+seed).slice(-9).split('').map(Number);for(const n of [9,10]){const s=d.reduce((t,x,i)=>t+x*(n+1-i),0);d.push((s*10)%11%10);}return d.join('');}
 const meta={ipHash:'ip_test',userAgent:'teste'};
+const OK={consent:true,consentVersion:1};
 const QUESTIONS=[
  {id:'q1',type:'multipla',text:'Cor do capacete do visitante?',required:true,options:[{id:'a',text:'Branco'},{id:'b',text:'Azul'},{id:'c',text:'Verde'}],correct:'b'},
  {id:'q2',type:'simnao',text:'Pode fumar na área?',required:true,correct:'nao'},
@@ -32,7 +33,7 @@ async function published(b:Row={}){
 /** Passa pela etapa do CPF e envia (o bilhete é envelhecido para cumprir o tempo mínimo). */
 async function answer(token:string,doc:string,answers:Row,extra:Row={}){
  const person={cpf:doc,name:'Maria da Silva',company:'Empresa X'};
- const c=await publicCheck(token,person) as Row;
+ const c=await publicCheck(token,{...OK,...person}) as Row;
  await db.run('UPDATE quiz_tickets SET issued_at=? WHERE id=?',new Date(Date.now()-60_000).toISOString(),c.ticket);
  const page=await publicQuiz(token) as Row;
  return await publicSubmit(token,{...person,ticket:c.ticket,submitKey:key(),version:page.quiz.version,answers,...extra},meta) as Row;
@@ -85,8 +86,8 @@ test('página pública sem gabarito; aprovado recebe validade e o CPF fica bloqu
  const r=await answer(token,doc,RIGHT);
  assert.equal(r.passed,true);assert.equal(r.score,100);
  assert.equal(r.validUntil,validUntilDay(brDay(Date.now()),12,'meses'));
- await rejects(publicCheck(token,{cpf:doc,name:'Maria da Silva',company:'Empresa X'}),409,'CPF_VALID');
- await assert.rejects(publicCheck(token,{cpf:doc,name:'Maria da Silva',company:'X'}),(e:{data?:Row})=>e.data?.validUntil===r.validUntil);
+ await rejects(publicCheck(token,{...OK,cpf:doc,name:'Maria da Silva',company:'Empresa X'}),409,'CPF_VALID');
+ await assert.rejects(publicCheck(token,{...OK,cpf:doc,name:'Maria da Silva',company:'X'}),(e:{data?:Row})=>e.data?.validUntil===r.validUntil);
 });
 
 test('reprovado refaz até o limite do dia; erradas aparecem sem a resposta certa',async()=>{
@@ -97,14 +98,14 @@ test('reprovado refaz até o limite do dia; erradas aparecem sem a resposta cert
  assert.deepEqual(r1.wrong,['Cor do capacete do visitante?']);
  assert.ok(!JSON.stringify(r1).includes('Azul'));
  const r2=await answer(token,doc,WRONG);assert.equal(r2.remainingToday,0);
- await rejects(publicCheck(token,{cpf:doc,name:'Maria da Silva',company:'Empresa X'}),429,'DAILY_LIMIT');
+ await rejects(publicCheck(token,{...OK,cpf:doc,name:'Maria da Silva',company:'Empresa X'}),429,'DAILY_LIMIT');
  const n=await db.first('SELECT count(*)::int n FROM quiz_attempts WHERE cpf=?',doc);assert.equal(n!.n,2,'todas as tentativas ficam registradas');
 });
 
 test('envio repetido grava uma vez; bilhete é de uso único e exige tempo mínimo',async()=>{
  const {token}=await published({dailyLimit:5});
  const doc=cpf(30),person={cpf:doc,name:'João Souza',company:'Empresa Y'};
- const c=await publicCheck(token,person) as Row,page=await publicQuiz(token) as Row;
+ const c=await publicCheck(token,{...OK,...person}) as Row,page=await publicQuiz(token) as Row;
  const body={...person,ticket:c.ticket,submitKey:key(),version:page.quiz.version,answers:WRONG};
  await rejects(publicSubmit(token,body,meta),429,'TOO_FAST');
  await db.run('UPDATE quiz_tickets SET issued_at=? WHERE id=?',new Date(Date.now()-60_000).toISOString(),c.ticket);
@@ -137,7 +138,7 @@ test('nova versão não muda o link nem o histórico; pausar e regerar link',asy
  d=await quizGet('quiz/detail',url({id}),evaluator) as Row;
  await quizMutate('quiz/status',{id,status:'pausado'},evaluator);
  assert.equal((await publicQuiz(token) as Row).status,'indisponivel');
- await rejects(publicCheck(token,{cpf:cpf(51),name:'Ana Lima',company:'Z'}),409,'UNAVAILABLE');
+ await rejects(publicCheck(token,{...OK,cpf:cpf(51),name:'Ana Lima',company:'Z'}),409,'UNAVAILABLE');
  await quizMutate('quiz/status',{id,status:'publicado'},evaluator);
  const r=await quizMutate('quiz/regenerate-token',{id},evaluator) as Row;
  assert.notEqual(r.token,token);
@@ -149,15 +150,15 @@ test('nova versão não muda o link nem o histórico; pausar e regerar link',asy
 
 test('dados pessoais: CPF inválido e nome incompleto são recusados',async()=>{
  const {token}=await published();
- await rejects(publicCheck(token,{cpf:'52998224724',name:'Maria da Silva',company:'X'}),400,'CPF_INVALID');
- await rejects(publicCheck(token,{cpf:cpf(60),name:'Maria',company:'X'}),400);
- await rejects(publicCheck(token,{cpf:cpf(60),name:'Maria da Silva',company:''}),400);
+ await rejects(publicCheck(token,{...OK,cpf:'52998224724',name:'Maria da Silva',company:'X'}),400,'CPF_INVALID');
+ await rejects(publicCheck(token,{...OK,cpf:cpf(60),name:'Maria',company:'X'}),400);
+ await rejects(publicCheck(token,{...OK,cpf:cpf(60),name:'Maria da Silva',company:''}),400);
 });
 
 test('dois envios simultâneos do mesmo CPF não passam do limite',async()=>{
  const {token}=await published({dailyLimit:1});
  const doc=cpf(70),person={cpf:doc,name:'Paulo Reis',company:'W'};
- const t1=await publicCheck(token,person) as Row,t2=await publicCheck(token,person) as Row,page=await publicQuiz(token) as Row;
+ const t1=await publicCheck(token,{...OK,...person}) as Row,t2=await publicCheck(token,{...OK,...person}) as Row,page=await publicQuiz(token) as Row;
  await db.run('UPDATE quiz_tickets SET issued_at=?',new Date(Date.now()-60_000).toISOString());
  const results=await Promise.allSettled([t1,t2].map(t=>publicSubmit(token,{...person,ticket:t.ticket,submitKey:key(),version:page.quiz.version,answers:WRONG},meta)));
  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
