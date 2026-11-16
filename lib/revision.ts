@@ -23,7 +23,7 @@ const STATUS:Record<string,string>={concluida:'concluída',dispensada:'dispensad
 const fingerprint=(s:PlanStep)=>JSON.stringify([s.included,s.planned_start,s.planned_end,s.location_id,[...s.equipment_ids].sort(),[...s.operator_ids].sort()]);
 
 /** Abre a revisão (ou reabre a que já está em rascunho): cópia da versão vigente com as mesmas reservas. */
-async function start(tx:Executor,a:Actor,workOrderId:string){
+export async function startRevision(tx:Executor,a:Actor,workOrderId:string){
  const wo=await tx.first('SELECT * FROM work_orders WHERE id=? FOR UPDATE',workOrderId);
  if(!wo||!inScope(a,wo.org_id))throw new AppError('OS não encontrada ou fora do seu acesso.',404);
  if(!REVISABLE.includes(wo.status))throw new AppError('Só OS programadas ou em andamento podem ser revisadas.',409);
@@ -34,12 +34,12 @@ async function start(tx:Executor,a:Actor,workOrderId:string){
  }
  const base=(await loadPlan(wo.current_plan_id,tx))!;
  const pid=id(),t=now();
- await tx.run(`INSERT INTO plans(id,work_order_id,status,activity_type_id,flow_version_id,title,code,description,org_id,requester_person_id,location_id,planned_start,planned_end,author_id,author_name,created_at,updated_at,revision,base_plan_id)
-  VALUES(?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,pid,wo.id,base.activity_type_id,base.flow_version_id,base.title??null,base.code??null,base.description,base.org_id,base.requester_person_id,base.location_id,base.planned_start,base.planned_end,a.id,a.name,t,t,wo.revision+1,base.id);
+ await tx.run(`INSERT INTO plans(id,work_order_id,status,activity_type_id,flow_version_id,title,code,description,org_id,requester_person_id,location_id,planned_start,planned_end,author_id,author_name,created_at,updated_at,revision,base_plan_id,priority,skip_sunday)
+  VALUES(?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,pid,wo.id,base.activity_type_id,base.flow_version_id,base.title??null,base.code??null,base.description,base.org_id,base.requester_person_id,base.location_id,base.planned_start,base.planned_end,a.id,a.name,t,t,wo.revision+1,base.id,base.priority??null,base.skip_sunday??0);
  for(const s of base.steps){
   const sid=id();
   await tx.run('INSERT INTO plan_steps(id,plan_id,step_key,position,name,description,required,included,default_minutes,depends_on,planned_start,planned_end,location_id) VALUES(?,?,?,?,?,?,?,?,?,?::text[],?,?,?)',sid,pid,s.step_key,s.position,s.name,s.description,s.required,s.included,s.default_minutes,s.depends_on,s.planned_start,s.planned_end,s.location_id);
-  for(const n of s.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit) VALUES(?,?,?,?,?,?,?,?,?)',id(),pid,sid,n.equipment_type_id,n.function_id,n.material_id,n.quantity,n.amount,n.unit);
+  for(const n of s.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit,hours_per_day) VALUES(?,?,?,?,?,?,?,?,?,?)',id(),pid,sid,n.equipment_type_id,n.function_id,n.material_id,n.quantity,n.amount,n.unit,n.hours_per_day??null);
   for(const o of s.operator_ids)await tx.run('INSERT INTO plan_step_people(plan_id,plan_step_id,operator_id) VALUES(?,?,?)',pid,sid,o);
   // Mesma reserva, agora também no rascunho: o banco a reconhece como transportada (não é compromisso novo).
   for(const r of s.reservations)await tx.run("INSERT INTO reservations(id,plan_id,plan_step_id,equipment_id,start_at,end_at,hours_per_day,status,created_at) VALUES(?,?,?,?,?,?,?,'provisoria',?)",id(),pid,sid,r.equipment_id,r.start_at,r.end_at,r.hours_per_day,t);
@@ -49,7 +49,7 @@ async function start(tx:Executor,a:Actor,workOrderId:string){
 }
 
 /** Lança a revisão: troca planejamento, reservas e etapas da OS de forma atômica. */
-async function launch(a:Actor,b:Row){
+export async function launchRevision(a:Actor,b:Row){
  const plan=await loadPlan(idOf(b.id,'Planejamento'));
  if(!plan||!plan.work_order_id||!plan.base_plan_id||!inScope(a,plan.org_id))throw new AppError('Revisão não encontrada.',404);
  const key=required(b.launchKey,'Identificador do lançamento',100);
@@ -131,7 +131,7 @@ async function launch(a:Actor,b:Row){
 
 export async function revisionMutate(path:string,b:Row,member:Member){
  const a=await requireAny(member,['planejamento']);
- if(path==='planning/revision/start')return db().tx(tx=>start(tx,a,idOf(b.workOrderId,'OS')));
- if(path==='planning/revision/launch')return launch(a,b);
+ if(path==='planning/revision/start')return db().tx(tx=>startRevision(tx,a,idOf(b.workOrderId,'OS')));
+ if(path==='planning/revision/launch')return launchRevision(a,b);
  throw new AppError('Ação não encontrada.',404);
 }

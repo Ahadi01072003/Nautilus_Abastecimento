@@ -107,7 +107,7 @@ export async function registryMutate(path:string,b:Row,member:Member){
   if(!/^[A-Z0-9][A-Z0-9 ._-]{0,11}$/.test(acronym))throw new AppError('Sigla deve ter até 12 letras ou números.');
   if(!COLOR.test(color))throw new AppError('Cor inválida. Use o formato #RRGGBB.');
   // Barra de HH da OS (planejamento): OCP OCEANPACT → OCP; os demais → Equinor (a Gestão pode mudar).
-  const bar=b.bar==null||b.bar===''?(old?.bar||(acronym==='OCP'||/^OCP/i.test(name)?'ocp':'equinor')):String(b.bar);
+  const bar=b.bar==null||b.bar===''?(old?.bar||(acronym==='OCP'||acronym==='OCPT'||/^OCP/i.test(name)||/^OCEAN\s*PACT/i.test(name)?'ocp':'equinor')):String(b.bar);
   if(!['ocp','equinor'].includes(bar))throw new AppError('Barra inválida: OCP ou Equinor.');
   const oid=old?.id||id(),active=flag(b.active);
   await db().tx(async tx=>{

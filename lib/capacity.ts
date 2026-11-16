@@ -17,7 +17,7 @@ const now=()=>new Date().toISOString();
 const YMD=/^\d{4}-\d{2}-\d{2}$/;
 const DAY=86_400_000;
 const ymdMs=(d:string)=>Date.parse(d+'T12:00:00Z');
-const plusDays=(d:string,n:number)=>new Date(ymdMs(d)+n*DAY).toISOString().slice(0,10);
+export const plusDays=(d:string,n:number)=>new Date(ymdMs(d)+n*DAY).toISOString().slice(0,10);
 /** Dia da semana (0 = domingo) de um dia AAAA-MM-DD. */
 export const weekday=(d:string)=>new Date(ymdMs(d)).getUTCDay();
 
@@ -32,11 +32,11 @@ export function teamHours(bar:Row,team:string|null,day:string){
  if(team==='turno_a'||team==='turno_b')return shiftWorking(bar as {shift_anchor:string},team,day)?Number(bar.shift_hours):0;
  return 0;
 }
-const barRow=(b:Row)=>({id:b.id,name:b.name,color:b.color,admHours:(b.adm_hours as unknown[]).map(Number),shiftHours:Number(b.shift_hours),shiftAnchor:String(b.shift_anchor).slice(0,10),
- zones:[Number(b.zone_target),Number(b.zone_full),Number(b.zone_ceiling)],updatedAt:b.updated_at||null,updatedByName:b.updated_by_name||null});
-const loadBars=async()=>db().all("SELECT id,name,color,adm_hours,shift_hours,to_char(shift_anchor,'YYYY-MM-DD') shift_anchor,zone_target,zone_full,zone_ceiling,updated_at,updated_by_name FROM plan_bars ORDER BY id");
+export const barRow=(b:Row)=>({id:b.id,name:b.name,color:b.color,admHours:(b.adm_hours as unknown[]).map(Number),shiftHours:Number(b.shift_hours),shiftAnchor:String(b.shift_anchor).slice(0,10),
+ zones:[Number(b.zone_target),Number(b.zone_full),Number(b.zone_ceiling)],defaultNeedHours:Number(b.default_need_hours),updatedAt:b.updated_at||null,updatedByName:b.updated_by_name||null});
+export const loadBars=async()=>db().all("SELECT id,name,color,adm_hours,shift_hours,to_char(shift_anchor,'YYYY-MM-DD') shift_anchor,zone_target,zone_full,zone_ceiling,default_need_hours,updated_at,updated_by_name FROM plan_bars ORDER BY id");
 
-function barOf(value:unknown):BarId{const b=String(value||'');if(!(BARS as readonly string[]).includes(b))throw new AppError('Escolha a barra: OCP ou Equinor.');return b as BarId;}
+export function barOf(value:unknown):BarId{const b=String(value||'');if(!(BARS as readonly string[]).includes(b))throw new AppError('Escolha a barra: OCP ou Equinor.');return b as BarId;}
 function period(url:URL,max=62){
  const from=url.searchParams.get('from')||dayOf(Date.now()),to=url.searchParams.get('to')||from;
  if(!YMD.test(from)||!YMD.test(to))throw new AppError('Informe o período em dias.');
@@ -104,10 +104,12 @@ async function saveBar(a:Member,b:Row){
  dayRange(anchor,anchor,['Âncora','Âncora']);
  const [zt,zf,zc]=[b.zoneTarget,b.zoneFull,b.zoneCeiling].map(Number);
  if(![zt,zf,zc].every(Number.isInteger)||!(zt>0&&zt<=zf&&zf<=zc&&zc<=200))throw new AppError('Zonas: meta ≤ 100% ≤ teto (até 200%), em números inteiros.');
+ const needH=b.defaultNeedHours==null||b.defaultNeedHours===''?null:Number(b.defaultNeedHours);
+ if(needH!=null&&(!Number.isFinite(needH)||needH<=0||needH>24))throw new AppError('Horas padrão por função: de mais de 0 até 24.');
  await db().tx(async tx=>{
   const before=await tx.first('SELECT * FROM plan_bars WHERE id=? FOR UPDATE',bid);
-  await tx.run('UPDATE plan_bars SET adm_hours=?::numeric[],shift_hours=?,shift_anchor=?::date,zone_target=?,zone_full=?,zone_ceiling=?,updated_at=?,updated_by_name=? WHERE id=?',adm,shift,anchor,zt,zf,zc,now(),a.name,bid);
-  await audit(tx,a,'Planejamento: barra configurada',bid,{before,after:{admHours:adm,shiftHours:shift,shiftAnchor:anchor,zones:[zt,zf,zc]}});
+  await tx.run('UPDATE plan_bars SET adm_hours=?::numeric[],shift_hours=?,shift_anchor=?::date,zone_target=?,zone_full=?,zone_ceiling=?,default_need_hours=coalesce(?,default_need_hours),updated_at=?,updated_by_name=? WHERE id=?',adm,shift,anchor,zt,zf,zc,needH,now(),a.name,bid);
+  await audit(tx,a,'Planejamento: barra configurada',bid,{before,after:{admHours:adm,shiftHours:shift,shiftAnchor:anchor,zones:[zt,zf,zc],defaultNeedHours:needH}});
  });
  return {ok:true,message:`Barra ${bid==='ocp'?'OCP':'Equinor'} atualizada.`};
 }

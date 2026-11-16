@@ -17,6 +17,7 @@ import {financeRates,orderUses,financeMutate,financePanel} from '@/lib/finance';
 import {toolsGet,toolsMutate} from '@/lib/tools';
 import {loansGet,loansMutate,uploadLoanFile,downloadLoanFile} from '@/lib/tools-loans';
 import {capacityGet,capacityMutate} from '@/lib/capacity';
+import {d1Get,d1Mutate} from '@/lib/d1';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
@@ -99,6 +100,7 @@ export async function GET(req:Request){try{
  if(path==='planning/availability'){await rateLimit(member.id,'read');return json(await availability(member,url));}
  if(path==='planning/validate'){await rateLimit(member.id,'read');return json(await validateRealized(member,url.searchParams.get('id')||''));}
  if(path==='planning/recoverable'){await rateLimit(member.id,'read');return json(await recoverableEquipment(member,url));}
+ if(path==='planning/d1'||path==='planning/d1/preview'){await rateLimit(member.id,'read');return json(await d1Get(path,url,member));}
  if(path==='planning/capacity'||path==='planning/bars'||path==='planning/absences'){await rateLimit(member.id,'read');return json(await capacityGet(path,url,member));}
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}
  if(path==='orders/steps'){await rateLimit(member.id,'read');return json(await ordersSteps(member,url));}
@@ -156,6 +158,7 @@ export async function POST(req:Request){try{
  if(path==='planning/realize')return json(await realizeActivity(body,member));
  if(path.startsWith('planning/revision/'))return json(await revisionMutate(path,body,member));
  if(path==='planning/bars/save')return json(await capacityMutate(path,body,member));
+ if(path.startsWith('planning/d1/'))return json(await d1Mutate(path,body,member));
  if(path==='planning/cancel')return json(await cancelOrder(body,member));
  if(path.startsWith('planning/'))return json(await planningMutate(path,body,member));
  if(path.startsWith('ops/'))return json(await operationMutate(path,body,member));
