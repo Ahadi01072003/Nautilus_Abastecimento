@@ -8,6 +8,7 @@ import {db,type Executor,type Row} from './db';
 import {AppError,required,text,isoDay} from './domain';
 import {type Member,requireAny} from './permissions';
 import {audit} from './registry';
+import {cpfDigits,validCpf,maskCpf} from './cpf';
 
 const TZ='America/Sao_Paulo';
 const id=()=>crypto.randomUUID();
@@ -23,15 +24,7 @@ const DETAILS=['resultado','nota','erradas'] as const;
 const STATUS_NAME:Record<string,string>={rascunho:'Rascunho',publicado:'Publicado',pausado:'Pausado',encerrado:'Encerrado'};
 
 // ───────────── Regras puras ─────────────
-export const cpfDigits=(v:unknown)=>String(v??'').replace(/\D/g,'');
-export function validCpf(d:string){
- if(!/^\d{11}$/.test(d)||/^(\d)\1{10}$/.test(d))return false;
- const n=d.split('').map(Number);
- for(const len of [9,10]){const s=n.slice(0,len).reduce((t,x,i)=>t+x*(len+1-i),0);if((s*10)%11%10!==n[len])return false;}
- return true;
-}
-export const maskCpf=(d:string)=>/^\d{11}$/.test(d)?`***.${d.slice(3,6)}.${d.slice(6,9)}-**`:'***';
-export const formatCpf=(d:string)=>/^\d{11}$/.test(d)?`${d.slice(0,3)}.${d.slice(3,6)}.${d.slice(6,9)}-${d.slice(9)}`:d;
+export {cpfDigits,validCpf,maskCpf,formatCpf} from './cpf';
 /** Data civil no horário de Brasília. */
 export const brDay=(t:number|string)=>new Intl.DateTimeFormat('sv-SE',{timeZone:TZ}).format(new Date(t));
 const dayStart=(day:string)=>new Date(`${day}T00:00:00-03:00`).toISOString();

@@ -28,8 +28,9 @@ export async function rateLimit(subject:string,action:keyof typeof limits){
  if(Math.random()<0.05)await db().run('DELETE FROM rate_limits WHERE window_start<?',minute-10);
 }
 /** Identificador não reversível do cliente para limitar tentativas de login sem guardar o IP. */
-export function clientKey(req:Request){
- const ip=(req.headers.get('x-forwarded-for')||'').split(',')[0].trim()||req.headers.get('x-real-ip')||'local';
+export function clientKey(req:Request){return ipKey(req.headers);}
+export function ipKey(h:{get(name:string):string|null}){
+ const ip=(h.get('x-forwarded-for')||'').split(',')[0].trim()||h.get('x-real-ip')||'local';
  return 'ip_'+createHash('sha256').update('nautilus:'+ip).digest('hex').slice(0,32);
 }
 export async function bearerMatches(received:string|null,secret:string|undefined){
