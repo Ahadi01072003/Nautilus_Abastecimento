@@ -141,3 +141,11 @@ Saem do teste: efetivo ADM+Turno digitado, padrão por funcionários, publicar/v
 - Reaproveitar: `lib/d1.ts` (lista, ordem, adiar, retrato imutável), `lib/capacity.ts` (refazer o cálculo), `app/d1.tsx`,
   `app/programacao`, `app/separacao`, `effective()` de `lib/exports.ts`, exportação Excel existente.
 - Remover: telas e código das abordagens anteriores que não estão no §4.
+
+## 8. Ajuste de 17/11/2026: uma barra por equipe
+
+- Cada equipe vê e apresenta só a sua barra: seletor **Equinor | OCP | Ambas** na Programação do dia; abre na barra do
+  planejador (Ivo, Wilhan, Jorge e Kissila → Equinor; Jefferson e Thiago → OCP; Gestão → Ambas) e a escolha fica lembrada.
+- **Consolidação por barra** (substitui a consolidação única do §3.6 e do §6): cada barra consolida na própria reunião,
+  com participantes, observações, versões e relatório próprios; só quem planeja a barra (ou a Gestão) consolida.
+  Emergencial, cumprimento, alerta das 16h, TV (`/programacao?bar=`), relatório e lista de separação são por barra.

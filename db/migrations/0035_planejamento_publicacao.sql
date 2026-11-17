@@ -1,10 +1,12 @@
--- NAUTILUS · Programação do dia: consolidação da reunião das 16h. Consolidar grava um retrato imutável do dia (as duas
--- barras: lista, ordem, HH, duração e recursos), com participantes e observações; é o que a TV, o celular, o relatório e
--- a lista de separação mostram e a base do indicador de cumprimento. Consolidar de novo cria a versão seguinte.
+-- NAUTILUS · Programação do dia: consolidação da reunião das 16h, por barra (Equinor e OCP têm reuniões próprias).
+-- Consolidar grava um retrato imutável do dia da barra (lista, ordem, HH, duração e recursos), com participantes e
+-- observações; é o que a TV, o celular, o relatório e a lista de separação mostram e a base do indicador de
+-- cumprimento. Consolidar de novo cria a versão seguinte.
 SET LOCAL lock_timeout='15s';
 
 CREATE TABLE IF NOT EXISTS plan_day_consolidations (
   id text PRIMARY KEY,
+  bar text NOT NULL REFERENCES plan_bars(id),
   day date NOT NULL,
   version integer NOT NULL CHECK (version >= 1),
   fingerprint text NOT NULL,
@@ -14,9 +16,9 @@ CREATE TABLE IF NOT EXISTS plan_day_consolidations (
   consolidated_at text NOT NULL,
   consolidated_by text NOT NULL REFERENCES members(id),
   consolidated_by_name text NOT NULL,
-  UNIQUE (day, version)
+  UNIQUE (bar, day, version)
 );
-CREATE INDEX IF NOT EXISTS idx_plan_day_consolidations_day ON plan_day_consolidations (day, version DESC);
+CREATE INDEX IF NOT EXISTS idx_plan_day_consolidations_day ON plan_day_consolidations (bar, day, version DESC);
 
 CREATE OR REPLACE FUNCTION nautilus_day_consolidation_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN RAISE EXCEPTION 'Consolidação do dia não pode ser alterada nem apagada'; END $$;

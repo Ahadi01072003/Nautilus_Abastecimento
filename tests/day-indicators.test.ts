@@ -48,7 +48,7 @@ after(async()=>{await ctx.drop();});
 test('indicadores do dia e do mês: cumprimento, ocupação, precisão e emergenciais; Excel',async()=>{
  const A=await os(4,2,'A');                 // 8 HH
  await os(3,2,'B');                        // 6 HH
- await d1Mutate('planning/d1/consolidate',{day:today,participants:['Ivo Azevedo']},planner);
+ await d1Mutate('planning/d1/consolidate',{bar:'equinor',day:today,participants:['Ivo Azevedo']},planner);
  await os(2,1,'Emergência');               // 2 HH, depois da consolidação
  const step=await db.first('SELECT id FROM os_steps WHERE work_order_id=?',A);
  await operationMutate('ops/start',{operationKey:key(),stepId:step!.id},operator);

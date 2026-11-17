@@ -37,17 +37,18 @@ export default async function Relatorio({searchParams}:{searchParams:Promise<Rec
  if(!member||member.must_change_password)redirect('/');
  const s=await searchParams,one=(v:string|string[]|undefined)=>Array.isArray(v)?v[0]:v||'';
  let p:Awaited<ReturnType<typeof d1Consolidated>>;
- try{p=await d1Consolidated(member,new URL(`http://x/?day=${encodeURIComponent(one(s.day))}${one(s.version)?`&version=${encodeURIComponent(one(s.version))}`:''}`));}
+ const bar=one(s.bar)==='ocp'?'ocp':'equinor';
+ try{p=await d1Consolidated(member,new URL(`http://x/?bar=${bar}&day=${encodeURIComponent(one(s.day))}${one(s.version)?`&version=${encodeURIComponent(one(s.version))}`:''}`));}
  catch(e){if(!(e instanceof AppError))throw e;return <main className="sheet"><style>{css}</style><p>{e.message}</p></main>;}
  const snap=p.snapshot as R|null,wd=new Date(p.day+'T12:00:00Z').getUTCDay();
  return <main className="sheet"><style>{css+extra}</style><PrintButton/>
   <div className="top">
    {/* eslint-disable-next-line @next/next/no-img-element -- logotipo estático */}
-   <img src="/logo-color.svg" alt="OceanPact LOG"/><div>Relatório de planejamento<b>{WEEK[wd]}, {dayText(p.day)}</b></div></div>
-  {!snap?<><h1>Relatório de planejamento</h1><p className="lead">A programação de {dayText(p.day)} ainda não foi consolidada.</p></>:<>
+   <img src="/logo-color.svg" alt="OceanPact LOG"/><div>Relatório de planejamento · barra {p.barName}<b>{WEEK[wd]}, {dayText(p.day)}</b></div></div>
+  {!snap?<><h1>Relatório de planejamento</h1><p className="lead">A barra {p.barName} de {dayText(p.day)} ainda não foi consolidada.</p></>:<>
    <h1>Relatório de planejamento</h1>
    <p className="lead">Consolidado em {at(p.consolidatedAt!)} por {p.consolidatedBy}{p.version!>1?` · versão ${p.version}`:''}. Participantes: {(p.participants as string[]).join(', ')}.</p>
-   {(['equinor','ocp'] as const).map(b=>{const x=(snap.bars as R)[b] as R;const r=x.resources as R;
+   {[bar].map(b=>{const x=snap;const r=x.resources as R;
     return <section key={b} className="bar" style={{['--c' as string]:b==='ocp'?'#14254A':'#B3261E'}}>
      <h2>Barra {b==='ocp'?'OCP':'Equinor'}</h2>
      <p className="sum">HH {h(x.demandHh)} de {h(x.staff.hh)} ({x.staff.hh>0?Math.round(x.demandHh/x.staff.hh*100):0}%){x.extraHh>0?` · ${h(x.extraHh)} HH além do limite`:''} · Duração programada {h(x.durationTotal)} h · {x.cards.length} atividade{x.cards.length===1?'':'s'}</p>

@@ -95,14 +95,13 @@ const demandOn=(plans:PlanRow[],day:string)=>roundHh(plans.reduce((n,p)=>n+(onDa
 const keyOf=(c:{workOrderId:string|null,planId:string})=>c.workOrderId||c.planId;
 
 // ───────────── Consolidações ─────────────
-async function consolidationOf(day:string,version?:number){
- return await db().first(`SELECT * FROM plan_day_consolidations WHERE day=?::date${version?' AND version=?':''} ORDER BY version ${version?'DESC':'DESC'} LIMIT 1`,day,...(version?[version]:[]));
+async function consolidationOf(bar:string,day:string,version?:number){
+ return await db().first(`SELECT * FROM plan_day_consolidations WHERE bar=? AND day=?::date${version?' AND version=?':''} ORDER BY version DESC LIMIT 1`,bar,day,...(version?[version]:[]));
 }
-/** OS consolidadas na 1ª versão do dia (as duas barras): quem não está nela entrou depois = Emergencial. */
-async function firstKeys(day:string):Promise<Set<string>|null>{
- const v1=await consolidationOf(day,1);if(!v1)return null;
- const bars=(v1.snapshot as Row).bars as Record<string,Row>;
- return new Set(Object.values(bars).flatMap(b=>(b.cards as Row[]).map(c=>c.workOrderId||c.planId)));
+/** OS consolidadas na 1ª versão do dia da barra: quem não está nela entrou depois = Emergencial. */
+async function firstKeys(bar:string,day:string):Promise<Set<string>|null>{
+ const v1=await consolidationOf(bar,day,1);if(!v1)return null;
+ return new Set(((v1.snapshot as Row).cards as Row[]).map(c=>c.workOrderId||c.planId));
 }
 
 /** Monta o dia da barra: HH disponível, lista em ordem com o HH acumulado, barra de duração e recursos. */
@@ -155,17 +154,15 @@ async function retrato(b:Board){
   resources:await resourcesOf(cards,b.staff.maxShiftHours)};
 }
 type Retrato=Awaited<ReturnType<typeof retrato>>;
-const fingerprintOf=(bars:Record<string,Retrato>)=>createHash('sha256').update(JSON.stringify(BARS.map(k=>bars[k].cards.map(c=>[keyOf(c),c.position,c.hours,c.people,c.byFunction.map(f=>[f.functionId,f.people]),c.equipment.map(e=>e.tag),c.materials.map(m=>[m.name,m.unit,m.amount])])))).digest('hex');
-async function wholeDay(day:string){
- const first=await firstKeys(day);
- const boards=await Promise.all(BARS.map(async bar=>compose(bar,day,await loadPlans(bar,day,day),first)));
- const bars=Object.fromEntries(await Promise.all(BARS.map(async(k,i)=>[k,await retrato(boards[i])]))) as Record<string,Retrato>;
- return {boards,bars,first};
+const fingerprintOf=(r:Retrato)=>createHash('sha256').update(JSON.stringify(r.cards.map(c=>[keyOf(c),c.position,c.hours,c.people,c.byFunction.map(f=>[f.functionId,f.people]),c.equipment.map(e=>e.tag),c.materials.map(m=>[m.name,m.unit,m.amount])]))).digest('hex');
+async function barDay(bar:BarId,day:string){
+ const board=await compose(bar,day,await loadPlans(bar,day,day),await firstKeys(bar,day));
+ return {board,retrato:await retrato(board)};
 }
 
 /** Para os indicadores: as OS lançadas do dia (inclusive as já concluídas), com o HH e a marca de emergencial. */
 export async function dayLoad(bar:BarId,day:string){
- const first=await firstKeys(day);
+ const first=await firstKeys(bar,day);
  return (await loadPlans(bar,day,day,undefined,true)).map(p=>({p,d:onDay(p,day,true)})).filter(x=>x.d).map(({p,d})=>{
   const c={planId:p.id,workOrderId:p.workOrderId,label:p.number!=null?osNumber(p.number):'Rascunho',title:p.title,hours:d!.hours,people:d!.people,hh:d!.hh,
    noDuration:p.hours==null,firstDay:dayOf(p.start),lastDay:lastDay(p.end),emergency:false};
@@ -177,22 +174,22 @@ export {consolidationOf};
 export async function d1Board(member:Member,url:URL){
  await viewer(member);
  const bar=barOf(url.searchParams.get('bar')||'equinor'),day=url.searchParams.get('day')?dayParam(url.searchParams.get('day')):tomorrow();
- const last=await consolidationOf(day);
- const first=await firstKeys(day);
- const board=await compose(bar,day,await loadPlans(bar,day,day),first);
- let consolidation=null;
- if(last){const {bars}=await wholeDay(day);consolidation={version:Number(last.version),at:last.consolidated_at,by:last.consolidated_by_name,participants:last.participants,changed:last.fingerprint!==fingerprintOf(bars)};}
- return {...board,consolidation,generatedAt:now()};
+ const last=await consolidationOf(bar,day);
+ const {board,retrato:r}=await barDay(bar,day);
+ const consolidation=last?{version:Number(last.version),at:last.consolidated_at,by:last.consolidated_by_name,participants:last.participants,changed:last.fingerprint!==fingerprintOf(r)}:null;
+ const mine=((member as Actor).planning_bars||[]) as string[];
+ return {...board,consolidation,myBars:isManager(member)?[]:mine,generatedAt:now()};
 }
 
-/** Dia consolidado (a versão pedida ou a última): TV, celular, relatório e lista de separação. */
+/** Dia consolidado da barra (a versão pedida ou a última): TV, celular, relatório e lista de separação. */
 export async function d1Consolidated(member:Member,url:URL){
  await viewer(member);
+ const bar=barOf(url.searchParams.get('bar')||'equinor');
  const day=url.searchParams.get('day')?dayParam(url.searchParams.get('day')):tomorrow();
  const v=url.searchParams.get('version')?Number(url.searchParams.get('version')):undefined;
  if(v!==undefined&&(!Number.isInteger(v)||v<1))throw new AppError('Versão inválida.');
- const [c,versions]=await Promise.all([consolidationOf(day,v),db().all('SELECT version,consolidated_at,consolidated_by_name FROM plan_day_consolidations WHERE day=?::date ORDER BY version DESC',day)]);
- return {day,version:c?Number(c.version):null,consolidatedAt:c?.consolidated_at||null,consolidatedBy:c?.consolidated_by_name||null,participants:c?.participants||[],notes:c?.notes||null,
+ const [c,versions]=await Promise.all([consolidationOf(bar,day,v),db().all('SELECT version,consolidated_at,consolidated_by_name FROM plan_day_consolidations WHERE bar=? AND day=?::date ORDER BY version DESC',bar,day)]);
+ return {bar,barName:barName(bar),day,version:c?Number(c.version):null,consolidatedAt:c?.consolidated_at||null,consolidatedBy:c?.consolidated_by_name||null,participants:c?.participants||[],notes:c?.notes||null,
   snapshot:c?.snapshot||null,versions:versions.map(x=>({version:Number(x.version),at:x.consolidated_at,by:x.consolidated_by_name}))};
 }
 
@@ -201,8 +198,8 @@ export async function d1Late(nowMs=Date.now()){
  const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'America/Sao_Paulo',hour:'2-digit',hourCycle:'h23'}).format(new Date(nowMs)));
  if(hour<16)return [];
  const day=plusDays(dayOf(nowMs),1),out:{bar:string,barName:string,day:string,cards:number}[]=[];
- if(await consolidationOf(day))return out;
  for(const bar of BARS){
+  if(await consolidationOf(bar,day))continue;
   const n=(await loadPlans(bar,day,day)).filter(p=>onDay(p,day)).length;
   if(n)out.push({bar,barName:barName(bar),day,cards:n});
  }
@@ -309,25 +306,24 @@ async function postpone(member:Member,b:Row){
  }
 }
 
-/** Consolidar o dia (reunião das 16h): as duas barras, com participantes e observações. Nova versão a cada consolidação. */
+/** Consolidar o dia da barra (reunião das 16h), com participantes e observações. Nova versão a cada consolidação. */
 async function consolidate(member:Member,b:Row){
- const a=await requireAny(member,['planejamento']);
- const day=dayParam(b.day);
+ const bar=barOf(b.bar),a=await planner(member,bar),day=dayParam(b.day);
  if(!Array.isArray(b.participants))throw new AppError('Informe os participantes da reunião.');
  const participants=[...new Set(b.participants.map((x:unknown)=>text(x,120).replace(/\s+/g,' ')).filter((x:string)=>x.length>=2))] as string[];
  if(!participants.length||participants.length>30)throw new AppError('Informe os participantes da reunião (de 1 a 30 nomes).');
  const notes=text(b.notes,2000)||null;
- const {bars}=await wholeDay(day);
- const last=await consolidationOf(day),version=last?Number(last.version)+1:1;
- const snapshot={day,weekday:weekday(day),bars};
+ const {retrato:r}=await barDay(bar,day);
+ const last=await consolidationOf(bar,day),version=last?Number(last.version)+1:1;
+ const snapshot={day,weekday:weekday(day),...r};
  try{
   await db().tx(async tx=>{
-   await tx.run('INSERT INTO plan_day_consolidations(id,day,version,fingerprint,snapshot,participants,notes,consolidated_at,consolidated_by,consolidated_by_name) VALUES(?,?::date,?,?,?::text::jsonb,?::text[],?,?,?,?)',
-    id(),day,version,fingerprintOf(bars),JSON.stringify(snapshot),participants,notes,now(),a.id,a.name);
-   await audit(tx,a,'Planejamento: dia consolidado',day,{day,version,participants,notes,equinor:bars.equinor.cards.length,ocp:bars.ocp.cards.length});
+   await tx.run('INSERT INTO plan_day_consolidations(id,bar,day,version,fingerprint,snapshot,participants,notes,consolidated_at,consolidated_by,consolidated_by_name) VALUES(?,?,?::date,?,?,?::text::jsonb,?::text[],?,?,?,?)',
+    id(),bar,day,version,fingerprintOf(r),JSON.stringify(snapshot),participants,notes,now(),a.id,a.name);
+   await audit(tx,a,'Planejamento: dia consolidado',`${bar}:${day}`,{bar,day,version,participants,notes,cards:r.cards.length,hh:r.demandHh});
   });
  }catch(e){if((e as {code?:string}).code==='23505')throw new AppError('Outra pessoa acabou de consolidar este dia. Atualize a tela.',409);throw e;}
- return {ok:true,version,message:`Dia ${dayText(day)} consolidado${version>1?` (versão ${version})`:''}.`};
+ return {ok:true,version,message:`Barra ${barName(bar)} de ${dayText(day)} consolidada${version>1?` (versão ${version})`:''}.`};
 }
 
 export async function d1Get(path:string,url:URL,member:Member):Promise<unknown|null>{

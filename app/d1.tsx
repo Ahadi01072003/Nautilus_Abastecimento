@@ -28,7 +28,8 @@ export default function D1View({manager=false}:{manager?:boolean}){
  const [tab,setTab]=useState<'dia'|'indicadores'>('dia');
  const [day,setDay]=useState(()=>plus(today,1));
  const [data,setData]=useState<Record<string,R>|null>(null),[error,setError]=useState('');
- const [meeting,setMeeting]=useState(false),[consolidating,setConsolidating]=useState(false),[journeys,setJourneys]=useState(false);
+ const [meeting,setMeeting]=useState(false),[journeys,setJourneys]=useState(false);
+ const [view,setView]=useState<string|null>(null);
  const root=useRef<HTMLDivElement>(null);
  const refresh=useCallback(async()=>{
   try{const [e,o]=await Promise.all(BARS.map(b=>load<R>(`planning/d1?bar=${b}&day=${day}`)));setData({equinor:e,ocp:o});setError('')}
@@ -36,16 +37,23 @@ export default function D1View({manager=false}:{manager?:boolean}){
  },[day]);
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Carrega o dia ao trocar de dia.
  useEffect(()=>{if(tab==='dia')void refresh()},[refresh,tab]);
+ // Barra que a tela mostra: a escolhida (lembrada) ou, na primeira vez, a do planejador; a Gestão vê as duas.
+ // eslint-disable-next-line react-hooks/set-state-in-effect -- Lê a escolha lembrada.
+ useEffect(()=>{try{const v=localStorage.getItem('nautilus.pd.view');if(v==='equinor'||v==='ocp'||v==='ambas')setView(v);}catch{}},[]);
+ // eslint-disable-next-line react-hooks/set-state-in-effect -- Primeira vez: a barra do planejador.
+ useEffect(()=>{if(view||!data)return;const mine=(data.equinor.myBars||[]) as string[];setView(mine.length===1?mine[0]:'ambas');},[view,data]);
+ const choose=(v:string)=>{setView(v);try{localStorage.setItem('nautilus.pd.view',v)}catch{}};
+ const shown=(view==='equinor'||view==='ocp'?[view]:BARS) as readonly string[];
  useEffect(()=>{const f=()=>setMeeting(!!document.fullscreenElement);document.addEventListener('fullscreenchange',f);return()=>document.removeEventListener('fullscreenchange',f);},[]);
  const toggleMeeting=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await root.current?.requestFullscreen();}catch{setMeeting(m=>!m);}};
  const quick=[{d:today,l:'Hoje'},{d:plus(today,1),l:'Amanhã'},...(wd(today)===5?[{d:plus(today,2),l:'Sábado'},{d:plus(today,3),l:'Domingo'},{d:plus(today,4),l:'Segunda'}]:[]),...(wd(today)===6?[{d:plus(today,2),l:'Segunda'}]:[])];
- const cons=data?.equinor?.consolidation as R|null|undefined;
  return <div ref={root} className={`pd-screen ${meeting?'meeting':''}`}>
   <section className="n-panel pd-head">
    <div className="segmented pd-tabs" role="group" aria-label="Visão">
     <button type="button" aria-pressed={tab==='dia'} className={tab==='dia'?'active':''} onClick={()=>setTab('dia')}>Dia</button>
     <button type="button" aria-pressed={tab==='indicadores'} className={tab==='indicadores'?'active':''} onClick={()=>setTab('indicadores')}>Indicadores</button>
    </div>
+   <div className="segmented pd-tabs" role="group" aria-label="Barra">{[['equinor','Equinor'],['ocp','OCP'],['ambas','Ambas']].map(([k,l])=><button key={k} type="button" aria-pressed={(view||'ambas')===k} className={(view||'ambas')===k?'active':''} onClick={()=>choose(k)}>{k!=='ambas'&&<span className={`pd-dot ${k}`}/>}{l}</button>)}</div>
    {tab==='dia'&&<div className="pd-day">
     <Button variant="outline" size="icon" aria-label="Dia anterior" onClick={()=>setDay(plus(day,-1))}><ChevronLeft size={16}/></Button>
     <Input type="date" aria-label="Dia" value={day} onChange={e=>e.target.value&&setDay(e.target.value)}/>
@@ -56,23 +64,13 @@ export default function D1View({manager=false}:{manager?:boolean}){
     {manager&&<Button variant="ghost" onClick={()=>setJourneys(true)}><Settings2 size={15}/> Jornadas</Button>}
    </div>}
   </section>
-  {tab==='indicadores'?<IndicatorsTab today={today}/>
+  {tab==='indicadores'?<IndicatorsTab key={view||'x'} today={today} initialBar={view==='ocp'?'ocp':'equinor'}/>
   :error&&!data?<div className="error-panel"><TriangleAlert/><h2>Programação indisponível</h2><p>{error}</p></div>
   :!data?<Skeleton className="h-72 rounded-xl"/>
   :<>
-   <section className={`n-panel pd-cons ${cons&&!cons.changed?'done':''}`}>
-    <div className="pd-cons-info"><h2>{WEEK[wd(day)]}, {dayText(day)}</h2>
-     {!cons?<p><Badge tone="muted">Não consolidado</Badge> Na reunião das 16h, ordene, ajuste e consolide o dia.</p>
-      :<p><Badge tone={cons.changed?'warning':'success'}>{cons.changed?'Mudou depois da consolidação':'Consolidado'}</Badge> Versão {cons.version} · {at(cons.at)} · {cons.by} · participantes: {(cons.participants as string[]).join(', ')}</p>}</div>
-    <div className="pd-cons-actions">
-     {cons&&<a href={`/programacao/relatorio?day=${day}`} target="_blank" rel="noopener"><FileText size={14}/> Relatório (PDF)</a>}
-     <a href={`/programacao?day=${day}`} target="_blank" rel="noopener"><Tv size={14}/> TV e celular</a>
-     {(!cons||cons.changed)&&<Button onClick={()=>setConsolidating(true)}><CheckCircle2 size={15}/> {cons?`Consolidar de novo (versão ${cons.version+1})`:'Consolidar dia'}</Button>}
-    </div>
-   </section>
-   <div className="pd-bars">{BARS.map(b=><BarColumn key={b} bar={b} day={day} data={data[b]} onRefresh={()=>void refresh()}/>)}</div>
+   <h2 className="pd-title">{WEEK[wd(day)]}, {dayText(day)}</h2>
+   <div className={`pd-bars n${shown.length}`}>{shown.map(b=><BarColumn key={b} bar={b} day={day} data={data[b]} onRefresh={()=>void refresh()}/>)}</div>
   </>}
-  {consolidating&&<ConsolidateDialog day={day} version={cons?Number(cons.version)+1:1} onClose={()=>setConsolidating(false)} onDone={()=>{setConsolidating(false);void refresh();}}/>}
   {journeys&&<JourneysDialog onClose={()=>setJourneys(false)} onDone={()=>{setJourneys(false);void refresh();}}/>}
  </div>;
 }
@@ -96,7 +94,8 @@ function HhBar({staff,demand}:{staff:R,demand:number}){
 }
 
 function BarColumn({bar,day,data,onRefresh}:{bar:string,day:string,data:R,onRefresh:()=>void}){
- const [busy,setBusy]=useState(false),[postpone,setPostpone]=useState<R|null>(null),[adjust,setAdjust]=useState(false);
+ const [busy,setBusy]=useState(false),[postpone,setPostpone]=useState<R|null>(null),[adjust,setAdjust]=useState(false),[consolidating,setConsolidating]=useState(false);
+ const cons=data.consolidation as R|null;
  const [dragging,setDragging]=useState<string|null>(null),[over,setOver]=useState<string|null>(null);
  const cards=(data.cards||[]) as R[],staff=data.staff as R,firstOver=cards.findIndex(c=>c.exceeds);
  async function saveOrder(ids:string[]){setBusy(true);try{await post('planning/d1/order',{bar,day,order:ids});onRefresh();}catch(e){toast.error((e as Error).message);onRefresh();}finally{setBusy(false)}}
@@ -109,6 +108,15 @@ function BarColumn({bar,day,data,onRefresh}:{bar:string,day:string,data:R,onRefr
  const r=data.resources as R;
  return <section className={`n-panel pd-bar bar-${bar} ${data.over?'is-over':''}`}>
   <header className="pd-bar-head"><h3><span className={`pd-dot ${bar}`}/>{data.bar.name}</h3><span className="pd-count">{cards.length} OS{data.drafts?` · ${data.drafts} rascunho${data.drafts>1?'s':''}`:''}</span></header>
+  <div className={`pd-cons ${cons&&!cons.changed?'done':''}`}>
+   {!cons?<p><Badge tone="muted">Não consolidado</Badge> Na reunião das 16h, ordene, ajuste e consolide.</p>
+    :<p><Badge tone={cons.changed?'warning':'success'}>{cons.changed?'Mudou depois da consolidação':'Consolidado'}</Badge> Versão {cons.version} · {at(cons.at)} · {cons.by} · {(cons.participants as string[]).join(', ')}</p>}
+   <div className="pd-cons-actions">
+    {cons&&<a href={`/programacao/relatorio?bar=${bar}&day=${day}`} target="_blank" rel="noopener"><FileText size={14}/> Relatório (PDF)</a>}
+    <a href={`/programacao?bar=${bar}&day=${day}`} target="_blank" rel="noopener"><Tv size={14}/> TV e celular</a>
+    {(!cons||cons.changed)&&<Button size="sm" onClick={()=>setConsolidating(true)}><CheckCircle2 size={15}/> {cons?`Consolidar de novo (v${cons.version+1})`:'Consolidar'}</Button>}
+   </div>
+  </div>
   <HhBar staff={staff} demand={Number(data.demandHh)}/>
   <div className="pd-meta">
    <span><Clock size={14}/> Duração programada: <b>{h(data.durationTotal)} h</b></span>
@@ -151,6 +159,7 @@ function BarColumn({bar,day,data,onRefresh}:{bar:string,day:string,data:R,onRefr
    </div>
   </details>
   {postpone&&<PostponeDialog card={postpone} onClose={()=>setPostpone(null)} onDone={()=>{setPostpone(null);onRefresh();}}/>}
+  {consolidating&&<ConsolidateDialog bar={bar} barName={data.bar.name} day={day} version={cons?Number(cons.version)+1:1} onClose={()=>setConsolidating(false)} onDone={()=>{setConsolidating(false);onRefresh();}}/>}
   {adjust&&<AdjustDialog bar={bar} day={day} staff={staff} onClose={()=>setAdjust(false)} onDone={()=>{setAdjust(false);onRefresh();}}/>}
  </section>;
 }
@@ -168,12 +177,12 @@ function AdjustDialog({bar,day,staff,onClose,onDone}:{bar:string,day:string,staf
  </DialogContent></Dialog>;
 }
 
-function ConsolidateDialog({day,version,onClose,onDone}:{day:string,version:number,onClose:()=>void,onDone:()=>void}){
+function ConsolidateDialog({bar,barName,day,version,onClose,onDone}:{bar:string,barName:string,day:string,version:number,onClose:()=>void,onDone:()=>void}){
  const [people,setPeople]=useState<string[]>([]),[name,setName]=useState(''),[notes,setNotes]=useState(''),[busy,setBusy]=useState(false);
  const add=()=>{const n=name.trim().replace(/\s+/g,' ');if(n.length>=2&&!people.includes(n))setPeople(p=>[...p,n]);setName('');};
- async function go(){setBusy(true);try{const r=await post('planning/d1/consolidate',{day,participants:people,notes});toast.success(r.message);onDone();}catch(e){toast.error((e as Error).message)}finally{setBusy(false)}}
- return <Dialog open onOpenChange={v=>{if(!v&&!busy)onClose()}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>Consolidar {dayText(day)}{version>1?` · versão ${version}`:''}</DialogTitle>
-  <DialogDescription>Grava as duas barras como estão agora (lista, ordem, HH e recursos) e gera o relatório. OS que entrar neste dia depois disso fica marcada como Emergencial.</DialogDescription></DialogHeader>
+ async function go(){setBusy(true);try{const r=await post('planning/d1/consolidate',{bar,day,participants:people,notes});toast.success(r.message);onDone();}catch(e){toast.error((e as Error).message)}finally{setBusy(false)}}
+ return <Dialog open onOpenChange={v=>{if(!v&&!busy)onClose()}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>Consolidar {barName} · {dayText(day)}{version>1?` · versão ${version}`:''}</DialogTitle>
+  <DialogDescription>Grava a barra {barName} como está agora (lista, ordem, HH e recursos) e gera o relatório. OS que entrar neste dia depois disso fica marcada como Emergencial.</DialogDescription></DialogHeader>
   <div className="pd-consolidate">
    <label htmlFor="pd-person">Participantes da reunião *</label>
    <div className="pd-person-row"><Input id="pd-person" maxLength={120} value={name} placeholder="Nome e Enter" onChange={e=>setName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();add();}}}/><Button type="button" variant="outline" onClick={add}>Incluir</Button></div>
@@ -235,8 +244,8 @@ function JourneysDialog({onClose,onDone}:{onClose:()=>void,onDone:()=>void}){
 }
 
 /** Indicadores: cumprimento, ocupação, precisão e emergenciais (hoje e mês até hoje), tabela por dia e Excel. */
-function IndicatorsTab({today}:{today:string}){
- const [bar,setBar]=useState<'equinor'|'ocp'>('equinor'),[month,setMonth]=useState(today.slice(0,7)),[data,setData]=useState<R|null>(null),[error,setError]=useState('');
+function IndicatorsTab({today,initialBar}:{today:string,initialBar:'equinor'|'ocp'}){
+ const [bar,setBar]=useState<'equinor'|'ocp'>(initialBar),[month,setMonth]=useState(today.slice(0,7)),[data,setData]=useState<R|null>(null),[error,setError]=useState('');
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Carrega os indicadores ao trocar barra ou mês.
  useEffect(()=>{setData(null);load<R>(`planning/indicators?bar=${bar}&month=${month}`).then(r=>{setData(r);setError('')},e=>setError((e as Error).message))},[bar,month]);
  const day=(data?.days as R[]|undefined)?.find(d=>d.day===today)||(data?.days as R[]|undefined)?.at(-1);

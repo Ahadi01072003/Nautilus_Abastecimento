@@ -27,8 +27,8 @@ function monthDays(month:string){
 type OsRow={day:string,label:string,title:string,hours:number,people:number,hh:number,emergency:boolean,consolidated:boolean,done:boolean,realHours:number|null,precision:number|null};
 
 async function dayFigures(bar:BarId,day:string){
- const [load,last,[staff]]=await Promise.all([dayLoad(bar,day),consolidationOf(day),staffFor(bar,[day])]);
- const snap=last?((last.snapshot as Row).bars as Record<string,Row>)[bar]:null;
+ const [load,last,[staff]]=await Promise.all([dayLoad(bar,day),consolidationOf(bar,day),staffFor(bar,[day])]);
+ const snap=last?(last.snapshot as Row):null;
  const base=snap?(snap.cards as Row[]).filter(c=>!c.emergency):[];
  const baseKeys=new Set(base.map(c=>c.workOrderId||c.planId));
  const woIds=[...new Set(load.map(c=>c.workOrderId).filter(Boolean))] as string[];

@@ -34,14 +34,14 @@ export default async function Separacao({searchParams}:{searchParams:Promise<Rec
  const s=await searchParams,one=(v:string|string[]|undefined)=>Array.isArray(v)?v[0]:v||'';
  const bar=one(s.bar)==='ocp'?'ocp':'equinor',barName=bar==='ocp'?'OCP':'Equinor';
  let p:Awaited<ReturnType<typeof d1Consolidated>>;
- try{p=await d1Consolidated(member,new URL(`http://x/?day=${encodeURIComponent(one(s.day))}`));}
+ try{p=await d1Consolidated(member,new URL(`http://x/?bar=${bar}&day=${encodeURIComponent(one(s.day))}`));}
  catch(e){if(!(e instanceof AppError))throw e;return <main className="sheet"><style>{css}</style><p>{e.message}</p></main>;}
- const snap=p.snapshot?((p.snapshot as R).bars as R)[bar] as R:null;
+ const snap=p.snapshot as R|null;
  return <main className="sheet"><style>{css}</style><PrintButton/>
   <div className="top">
    {/* eslint-disable-next-line @next/next/no-img-element -- logotipo estático */}
    <img src="/logo-color.svg" alt="OceanPact LOG"/><div>Lista de separação · barra {barName}<b>{dayText(p.day)}</b></div></div>
-  {!snap?<><h1>Lista de separação</h1><p className="lead">A programação de {dayText(p.day)} ainda não foi consolidada.</p></>:<>
+  {!snap?<><h1>Lista de separação</h1><p className="lead">A barra {barName} de {dayText(p.day)} ainda não foi consolidada.</p></>:<>
    <h1>Lista de separação</h1>
    <p className="lead">Consolidada por {p.consolidatedBy}{p.version!>1?` (versão ${p.version})`:''}. {(snap.cards as R[]).length} OS no dia.</p>
    <h2>Total por material</h2>

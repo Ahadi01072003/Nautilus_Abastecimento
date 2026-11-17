@@ -7,11 +7,13 @@
 .pd-chip{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);cursor:pointer;color:inherit;font-size:.85rem}
 .pd-chip.on{background:#0b1d25;border-color:#0b1d25;color:#fff}
 .pd-dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:6px}.pd-dot.ocp{background:#14254A}.pd-dot.equinor{background:#B3261E}
-.pd-cons{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between;padding:14px 20px;border-left:5px solid var(--warn)}.pd-cons.done{border-left-color:#0A7A3D}
+.pd-cons{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;justify-content:space-between;padding:8px 12px;border-radius:10px;border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 6%,var(--surface))}.pd-cons.done{border-left-color:#0A7A3D;background:color-mix(in srgb,#0A7A3D 6%,var(--surface))}
+.pd-cons p{margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:var(--ink-2);font-size:.84rem}
 .pd-cons-info h2{margin:0 0 4px;font:800 1.2rem/1.2 var(--f-display)}.pd-cons-info p{margin:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;color:var(--ink-2);font-size:.88rem}
 .pd-cons-actions{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
 .pd-cons-actions a,.pd-res a,.pd-export{display:inline-flex;gap:6px;align-items:center;font-weight:600;color:#087f77;text-decoration:none}.pd-cons-actions a:hover,.pd-export:hover{text-decoration:underline}
-.pd-bars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}
+.pd-bars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start}.pd-bars.n1{grid-template-columns:minmax(0,1fr)}
+.pd-title{margin:0;font:800 1.3rem/1.2 var(--f-display)}
 .pd-bar{--bar:#B3261E;display:grid;gap:10px;padding:16px;border-top:5px solid var(--bar);position:relative}.pd-bar.bar-ocp{--bar:#14254A}
 .pd-bar-head{display:flex;justify-content:space-between;align-items:center}.pd-bar-head h3{margin:0;font:800 1.1rem/1.2 var(--f-display);display:flex;align-items:center}.pd-count{color:var(--ink-2);font-size:.85rem}
 .pd-hh{display:grid;gap:6px}
