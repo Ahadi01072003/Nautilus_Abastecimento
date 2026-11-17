@@ -77,3 +77,5 @@
 .dbp-others{background:#9fb0ad}.dbp-mine{background:#087f77}
 .day-bar-preview.over .dbp-mine{background:#B42318}
 .day-bar-preview small{color:var(--ink-2)}.day-bar-preview.over small{color:#B42318;font-weight:600}
+.pd-tabs button[aria-pressed=true]{background:#0b1d25;color:#fff}
+.pd-card-top .n-badge{white-space:normal}

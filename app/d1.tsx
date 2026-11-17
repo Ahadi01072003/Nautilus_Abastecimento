@@ -42,9 +42,9 @@ export default function D1View({manager=false}:{manager?:boolean}){
  const cons=data?.equinor?.consolidation as R|null|undefined;
  return <div ref={root} className={`pd-screen ${meeting?'meeting':''}`}>
   <section className="n-panel pd-head">
-   <div className="segmented" role="tablist" aria-label="Visão">
-    <button type="button" role="tab" aria-selected={tab==='dia'} className={tab==='dia'?'active':''} onClick={()=>setTab('dia')}>Dia</button>
-    <button type="button" role="tab" aria-selected={tab==='indicadores'} className={tab==='indicadores'?'active':''} onClick={()=>setTab('indicadores')}>Indicadores</button>
+   <div className="segmented pd-tabs" role="group" aria-label="Visão">
+    <button type="button" aria-pressed={tab==='dia'} className={tab==='dia'?'active':''} onClick={()=>setTab('dia')}>Dia</button>
+    <button type="button" aria-pressed={tab==='indicadores'} className={tab==='indicadores'?'active':''} onClick={()=>setTab('indicadores')}>Indicadores</button>
    </div>
    {tab==='dia'&&<div className="pd-day">
     <Button variant="outline" size="icon" aria-label="Dia anterior" onClick={()=>setDay(plus(day,-1))}><ChevronLeft size={16}/></Button>
@@ -130,7 +130,7 @@ function BarColumn({bar,day,data,onRefresh}:{bar:string,day:string,data:R,onRefr
     <div className="pd-body">
      <div className="pd-card-top"><span className="pd-os">{c.label}</span>
       {c.emergency&&<Badge tone="danger"><Siren size={11}/> Emergencial</Badge>}
-      {c.status==='rascunho'&&<Badge tone="warning">{c.number!=null?'Revisão em rascunho':'Rascunho: não entra na consolidação'}</Badge>}
+      {c.status==='rascunho'&&<Badge tone="warning">{c.number!=null?'Revisão em rascunho':'Não entra na consolidação'}</Badge>}
       {c.noDuration&&<Badge tone="warning">Sem duração</Badge>}
       {c.org?.acronym&&<span className="pd-org" style={{borderColor:c.org.color||undefined}}>{c.org.acronym}</span>}
       <span className="pd-days">{c.firstDay===c.lastDay?dayText(c.firstDay):`${dayText(c.firstDay)} a ${dayText(c.lastDay)}`}{c.skipSunday?' · sem domingo':''}</span></div>

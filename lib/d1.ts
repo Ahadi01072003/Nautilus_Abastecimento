@@ -146,19 +146,20 @@ async function resourcesOf(cards:ResCard[],limit:number){
 
 type Board=Awaited<ReturnType<typeof compose>>;
 /** Só OS lançadas vão para a consolidação (rascunho não é OS). */
-function retrato(b:Board){
+async function retrato(b:Board){
  const cards=b.cards.filter(c=>c.status==='lancada');
  return {bar:{id:b.bar.id,name:b.bar.name,color:b.bar.color},staff:{hh:b.staff.hh,computedHh:b.staff.computedHh,source:b.staff.source,windows:b.staff.windows,note:b.staff.note},
   demandHh:roundHh(cards.reduce((t,c)=>t+c.hh,0)),durationTotal:roundHh(cards.reduce((t,c)=>t+c.hours,0)),extraHh:roundHh(Math.max(0,cards.reduce((t,c)=>t+c.hh,0)-b.staff.hh)),
   cards:cards.map((c,i)=>({position:i+1,planId:c.planId,workOrderId:c.workOrderId,label:c.label,title:c.title,org:c.org,location:c.location,firstDay:c.firstDay,lastDay:c.lastDay,
    steps:c.steps,byFunction:c.byFunction,people:c.people,hours:c.hours,hh:c.hh,noDuration:c.noDuration,emergency:c.emergency,equipment:c.equipment.map(e=>({tag:e.tag})),materials:c.materials})),
-  resources:{...b.resources}};
+  resources:await resourcesOf(cards,b.staff.maxShiftHours)};
 }
-const fingerprintOf=(bars:Record<string,ReturnType<typeof retrato>>)=>createHash('sha256').update(JSON.stringify(BARS.map(k=>bars[k].cards.map(c=>[keyOf(c),c.position,c.hours,c.people,c.byFunction.map(f=>[f.functionId,f.people]),c.equipment.map(e=>e.tag),c.materials.map(m=>[m.name,m.unit,m.amount])])))).digest('hex');
+type Retrato=Awaited<ReturnType<typeof retrato>>;
+const fingerprintOf=(bars:Record<string,Retrato>)=>createHash('sha256').update(JSON.stringify(BARS.map(k=>bars[k].cards.map(c=>[keyOf(c),c.position,c.hours,c.people,c.byFunction.map(f=>[f.functionId,f.people]),c.equipment.map(e=>e.tag),c.materials.map(m=>[m.name,m.unit,m.amount])])))).digest('hex');
 async function wholeDay(day:string){
  const first=await firstKeys(day);
  const boards=await Promise.all(BARS.map(async bar=>compose(bar,day,await loadPlans(bar,day,day),first)));
- const bars=Object.fromEntries(BARS.map((k,i)=>[k,retrato(boards[i])])) as Record<string,ReturnType<typeof retrato>>;
+ const bars=Object.fromEntries(await Promise.all(BARS.map(async(k,i)=>[k,await retrato(boards[i])]))) as Record<string,Retrato>;
  return {boards,bars,first};
 }
 
