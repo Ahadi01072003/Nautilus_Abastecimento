@@ -36,7 +36,7 @@ export default function Central({refreshKey,onGo}:{refreshKey:number,onGo:(view:
   <div className="ce-sev" role="group" aria-label="Gravidade dos avisos">
    {Object.entries(SEV).map(([k,[label,color,Icon]])=><button key={k} type="button" aria-pressed={sev===k} style={{['--t' as string]:color}} onClick={()=>setSev(sev===k?'':k)}><Icon size={16}/><b>{data.counts[k]}</b><span>{label}</span></button>)}
    <span className="ce-updated">Atualizado {fmt(data.generatedAt)}</span>
-   {s.operacao&&<a className="ce-present" href="/apresentacao" target="_blank" rel="noopener" title="Tela cheia para TV: todas as OS, recursos e o que está acontecendo agora"><MonitorPlay size={17}/>Apresentação</a>}
+   {(s.operacao||s.planejamento)&&<a className="ce-present" href="/programacao" target="_blank" rel="noopener" title="Tela cheia para TV: a programação consolidada do dia, Equinor e OCP"><MonitorPlay size={17}/>Programação na TV</a>}
   </div>
   <div className="ce-grid">
    <div className="ce-cards">

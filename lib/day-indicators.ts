@@ -73,7 +73,8 @@ export async function indicators(member:Member,url:URL){
  const sum=(k:'plannedHh'|'doneHh'|'programmedHh'|'availableHh'|'emergencyHh'|'emergencyCount'|'precisionSum'|'precisionN',only=false)=>days.filter(d=>!only||d.consolidated).reduce((t,d)=>t+Number(d[k]),0);
  const pn=sum('precisionN');
  return {bar,barName:barName(bar),period:month,
-  days:days.map(({rows:_r,precisionSum:_s,precisionN:_n,...d})=>d),
+  days:days.map(d=>({day:d.day,consolidated:d.consolidated,availableHh:d.availableHh,programmedHh:d.programmedHh,plannedHh:d.plannedHh,doneHh:d.doneHh,
+   emergencyCount:d.emergencyCount,emergencyHh:d.emergencyHh,compliance:d.compliance,occupancy:d.occupancy,precision:d.precision})),
   rows:days.flatMap(d=>d.rows),
   month:{compliance:pct(sum('doneHh',true),sum('plannedHh',true)),occupancy:pct(sum('programmedHh'),sum('availableHh')),
    precision:pn?Math.round(sum('precisionSum')/pn*1000)/10:null,emergencyCount:sum('emergencyCount'),emergencyHh:roundHh(sum('emergencyHh'))}};

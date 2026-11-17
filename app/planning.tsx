@@ -68,7 +68,7 @@ const toBody=(f:Form,realized=false)=>({...(realized?{uses:f.uses.filter(u=>used
  // Planejamento: dias (AAAA-MM-DD). Atividade realizada: data e hora reais.
  plannedStart:realized?toISO(f.start):f.start||null,plannedEnd:realized?toISO(f.end):f.end||null,...(realized?{}:{skipSunday:f.skipSunday,estimatedHours:f.estimatedHours.trim()===''?'':f.estimatedHours.replace(',','.')}),
  steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:realized?toISO(s.start):s.start||null,plannedEnd:realized?toISO(s.end):s.end||null,locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],
-  equipmentWindows:realized?{}:usesBody(s,f),equipmentHours:realized?undefined:hoursBody(s)}))});
+  equipmentWindows:realized?{}:usesBody(s,f)}))});
 
 /** Dias de uso enviados ao servidor (só OS sem fluxo): recortados aos dias da OS; o que ficou vazio,
  * inválido ou fora da OS volta a ser a OS inteira (nada é gravado fora dos dias da OS). */
@@ -77,12 +77,6 @@ function usesBody(s:Step,f:Form){
  const out:Record<string,{start:string,end:string}>={};
  for(const e of s.equipmentIds){const u=s.uses?.[e];if(!u||dayIssue(u.start)||dayIssue(u.end)||!u.start||!u.end)continue;
   const st=u.start>a?u.start:a,en=u.end<b?u.end:b;if(en>=st)out[e]={start:st,end:en};}
- return out;
-}
-/** Horas por dia de cada equipamento (em branco = 12 h, o dia todo). */
-function hoursBody(s:Step){
- const out:Record<string,number>={};
- for(const e of s.equipmentIds){const h=hoursNum(s.hours?.[e]);if(h!=null)out[e]=h;}
  return out;
 }
 /** Abre a revisão da OS (ou reabre a que já está em rascunho) e leva ao editor. */
@@ -430,7 +424,6 @@ export function Orders({refreshKey,planRefs,onPlanRefs,onExec,onRevise}:{refresh
  const now=useNow();
  // Agenda de recursos: terceira exibição da lista (fica na sessão, como os filtros).
  const [resources,setResources]=useState(false);
- // eslint-disable-next-line react-hooks/set-state-in-effect -- Preferência da sessão lida após montar.
  // A visão Agenda de recursos saiu da Lista de OS (recursos do dia ficam na Programação do dia).
  const showResources=(v:boolean)=>{setResources(v);try{sessionStorage.setItem('nautilus.orders.resview',v?'1':'0')}catch{}};
  const groups=useMemo(()=>rows?arrangeOrders(rows.orders as R[] as (OsItem&R)[],view.arrange,view.filter,now):[],[rows,view.arrange,view.filter,now]);

@@ -771,7 +771,9 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
   if(equipmentIds.length&&(!ps||!pe))throw new AppError(`${label}: informe os dias de início e fim antes de alocar equipamento identificado (são os dias que ficam reservados).`);
   // Horas de uso por dia de cada equipamento (padrão: o dia todo, 12 h). A soma no dia, entre as OS, não passa de 12 h.
   if(raw.equipmentHours!=null&&(typeof raw.equipmentHours!=='object'||Array.isArray(raw.equipmentHours)))throw new AppError(`${label}: horas de uso inválidas.`);
-  const hoursOf=new Map(equipmentIds.map(e=>[e,realized?EQUIPMENT_DAY_HOURS:(estimated??EQUIPMENT_DAY_HOURS)]));
+  // Horas do equipamento por dia: as informadas para ele (integrações e telas antigas) ou a duração estimada da OS (12 h sem duração).
+  const typedHours=(raw.equipmentHours as Row|undefined)||{};
+  const hoursOf=new Map(equipmentIds.map(e=>[e,realized?EQUIPMENT_DAY_HOURS:typedHours[e]!=null&&typedHours[e]!==''?dayHours(typedHours[e],`Equipamento ${equipment.find(y=>y.id===e)?.tag||''}`):(estimated??EQUIPMENT_DAY_HOURS)]));
   if(raw.needs!=null&&(!Array.isArray(raw.needs)||raw.needs.length>30))throw new AppError(`${label}: necessidades inválidas.`);
   const needs=((raw.needs||[]) as Row[]).map(n=>{
    const et=n?.equipmentTypeId?idOf(n.equipmentTypeId,'Tipo'):null,fn=n?.functionId?idOf(n.functionId,'Função'):null,mt=n?.materialId?idOf(n.materialId,'Material'):null;

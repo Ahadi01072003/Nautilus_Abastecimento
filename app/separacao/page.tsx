@@ -4,7 +4,7 @@ import type {Metadata} from 'next';
 import {cookies} from 'next/headers';
 import {redirect} from 'next/navigation';
 import {SESSION_COOKIE,sessionMember} from '@/lib/auth';
-import {d1Published} from '@/lib/d1';
+import {d1Consolidated} from '@/lib/d1';
 import {AppError} from '@/lib/domain';
 import {dayText} from '@/lib/days';
 import PrintButton from '../relatorio/[id]/print';
@@ -32,25 +32,26 @@ export default async function Separacao({searchParams}:{searchParams:Promise<Rec
  const member=await sessionMember((await cookies()).get(SESSION_COOKIE)?.value).catch(()=>null);
  if(!member||member.must_change_password)redirect('/');
  const s=await searchParams,one=(v:string|string[]|undefined)=>Array.isArray(v)?v[0]:v||'';
- let p:Awaited<ReturnType<typeof d1Published>>;
- try{p=await d1Published(member,new URL(`http://x/?bar=${encodeURIComponent(one(s.bar)||'equinor')}&day=${encodeURIComponent(one(s.day))}`));}
+ const bar=one(s.bar)==='ocp'?'ocp':'equinor',barName=bar==='ocp'?'OCP':'Equinor';
+ let p:Awaited<ReturnType<typeof d1Consolidated>>;
+ try{p=await d1Consolidated(member,new URL(`http://x/?day=${encodeURIComponent(one(s.day))}`));}
  catch(e){if(!(e instanceof AppError))throw e;return <main className="sheet"><style>{css}</style><p>{e.message}</p></main>;}
- const snap=p.snapshot as R|null,barName=p.bar==='ocp'?'OCP':'Equinor';
+ const snap=p.snapshot?((p.snapshot as R).bars as R)[bar] as R:null;
  return <main className="sheet"><style>{css}</style><PrintButton/>
   <div className="top">
    {/* eslint-disable-next-line @next/next/no-img-element -- logotipo estático */}
    <img src="/logo-color.svg" alt="OceanPact LOG"/><div>Lista de separação · barra {barName}<b>{dayText(p.day)}</b></div></div>
-  {!snap?<><h1>Lista de separação</h1><p className="lead">O D+1 da barra {barName} de {dayText(p.day)} ainda não foi publicado.</p></>:<>
+  {!snap?<><h1>Lista de separação</h1><p className="lead">A programação de {dayText(p.day)} ainda não foi consolidada.</p></>:<>
    <h1>Lista de separação</h1>
-   <p className="lead">Publicada por {p.publishedBy}{p.version! > 1?` (versão ${p.version})`:""}. {(snap.cards as R[]).length} OS no dia.</p>
+   <p className="lead">Consolidada por {p.consolidatedBy}{p.version!>1?` (versão ${p.version})`:''}. {(snap.cards as R[]).length} OS no dia.</p>
    <h2>Total por material</h2>
-   {(snap.materials as R[]).length?<table><thead><tr><th>Material</th><th className="n">Quantidade</th><th>Separado</th></tr></thead>
-    <tbody>{(snap.materials as R[]).map(m=><tr key={m.name+m.unit}><td>{m.name}</td><td className="n">{h(m.amount)} {m.unit}</td><td className="ok"><span className="box"/></td></tr>)}</tbody></table>:<p className="muted">Nenhum material informado nas OS do dia.</p>}
+   {(snap.resources.materials as R[]).length?<table><thead><tr><th>Material</th><th className="n">Quantidade</th><th>Separado</th></tr></thead>
+    <tbody>{(snap.resources.materials as R[]).map(m=><tr key={m.name+m.unit}><td>{m.name}</td><td className="n">{h(m.amount)} {m.unit}</td><td className="ok"><span className="box"/></td></tr>)}</tbody></table>:<p className="muted">Nenhum material informado nas OS do dia.</p>}
    <h2>Por OS</h2>
    <table><thead><tr><th>#</th><th>OS</th><th>Materiais</th><th>Equipamentos</th><th>Separado</th></tr></thead>
-    <tbody>{(snap.cards as R[]).map(c=><tr key={c.planId}><td>{c.position}</td><td><b>{c.label}</b><br/>{c.title}{c.location?<><br/><span className="muted">{c.location}</span></>:null}</td>
+    <tbody>{(snap.cards as R[]).map(c=><tr key={c.planId}><td>{c.position}</td><td><b>{c.label}</b>{c.emergency?' · Emergencial':''}<br/>{c.title}{c.location?<><br/><span className="muted">{c.location}</span></>:null}</td>
      <td>{(c.materials as R[]).length?(c.materials as R[]).map((m,i)=><div key={i}>{h(m.amount)} {m.unit} {m.name}</div>):<span className="muted">—</span>}</td>
-     <td>{(c.equipment as R[]).length?(c.equipment as R[]).map((e,i)=><div key={i}>{e.tag} · {h(e.hours)} h</div>):<span className="muted">—</span>}</td>
+     <td>{(c.equipment as R[]).length?(c.equipment as R[]).map((e,i)=><div key={i}>{e.tag} · {h(c.hours)} h</div>):<span className="muted">—</span>}</td>
      <td className="ok"><span className="box"/></td></tr>)}</tbody></table>
   </>}
  </main>;
