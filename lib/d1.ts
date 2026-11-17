@@ -9,7 +9,7 @@ import {db,type Executor,type Row} from './db';
 import {AppError,required,text} from './domain';
 import {type Member,isManager,requireAny} from './permissions';
 import {audit} from './registry';
-import {loadBars,barRow,barOf,barName,plusDays,weekday,staffFor,staffNumber,hoursNumber,hText,roundHh,type BarId} from './capacity';
+import {loadBars,barRow,barOf,barName,plusDays,weekday,staffFor,hText,roundHh,type BarId} from './capacity';
 import {dayStart,dayOf,dayText,lastDay,DAY_MS,EQUIPMENT_DAY_HOURS} from './days';
 import {osNumber,loadPlan} from './planning';
 import {startRevision,launchRevision} from './revision';
@@ -193,28 +193,21 @@ async function reorder(member:Member,b:Row){
  return {ok:true,message:'Ordem salva.'};
 }
 
-/** Efetivo do dia (planejador da barra): ADM e turno daquele dia (funcionários e horas). O que não vier fica
- *  como está no dia; tudo vazio volta ao padrão da barra. */
+/** Ajuste do HH de um dia (planejador da barra): troca o calculado; vazio volta ao calculado. */
 async function setStaff(member:Member,b:Row){
  const bar=barOf(b.bar),a=await planner(member,bar),day=dayParam(b.day);
- const blank=(v:unknown)=>v==null||String(v).trim()==='';
- const [cur]=await staffFor(bar,[day]);
- const reset=['admPeople','admHours','shiftPeople','shiftHours'].every(k=>blank(b[k]));
- const v={admPeople:blank(b.admPeople)?cur.adm.people:staffNumber(b.admPeople,'Funcionários do ADM no dia'),
-  admHours:blank(b.admHours)?cur.adm.hours:hoursNumber(b.admHours,'Horas do ADM no dia',0),
-  shiftPeople:blank(b.shiftPeople)?cur.shift.people:staffNumber(b.shiftPeople,'Funcionários do turno no dia'),
-  shiftHours:blank(b.shiftHours)?cur.shift.hours:hoursNumber(b.shiftHours,'Horas do turno no dia',0)};
+ const reset=b.hh==null||String(b.hh).trim()==='';
+ const hh=reset?null:Number(String(b.hh).replace(',','.'));
+ if(hh!=null&&(!Number.isFinite(hh)||hh<0||hh>5000))throw new AppError('HH do dia: informe um número de 0 a 5000.');
  const note=text(b.note,300)||null;
  await db().tx(async tx=>{
-  if(reset)await tx.run('DELETE FROM plan_day_staff WHERE bar=? AND day=?::date',bar,day);
-  else await tx.run(`INSERT INTO plan_day_staff(bar,day,adm_people,adm_hours,shift_people,shift_hours,note,updated_at,updated_by,updated_by_name) VALUES(?,?::date,?,?,?,?,?,?,?,?)
-   ON CONFLICT(bar,day) DO UPDATE SET adm_people=excluded.adm_people,adm_hours=excluded.adm_hours,shift_people=excluded.shift_people,shift_hours=excluded.shift_hours,note=excluded.note,updated_at=excluded.updated_at,updated_by=excluded.updated_by,updated_by_name=excluded.updated_by_name`,
-   bar,day,v.admPeople,v.admHours,v.shiftPeople,v.shiftHours,note,now(),a.id,a.name);
-  await audit(tx,a,'Planejamento: efetivo do dia',`${bar}:${day}`,{bar,day,...(reset?{reset:true}:v),note});
+  if(hh==null)await tx.run('DELETE FROM plan_day_staff WHERE bar=? AND day=?::date',bar,day);
+  else await tx.run(`INSERT INTO plan_day_staff(bar,day,hh,note,updated_at,updated_by,updated_by_name) VALUES(?,?::date,?,?,?,?,?)
+   ON CONFLICT(bar,day) DO UPDATE SET hh=excluded.hh,note=excluded.note,updated_at=excluded.updated_at,updated_by=excluded.updated_by,updated_by_name=excluded.updated_by_name`,bar,day,roundHh(hh),note,now(),a.id,a.name);
+  await audit(tx,a,'Planejamento: HH do dia ajustado',`${bar}:${day}`,{bar,day,hh,note});
  });
  const [s]=await staffFor(bar,[day]);
- const what=`ADM ${s.adm.people} × ${hText(s.adm.hours)} h + turno ${s.shift.people} × ${hText(s.shift.hours)} h = ${hText(s.hh)} HH`;
- return {ok:true,message:reset?`Efetivo de ${dayText(day)} na barra ${barName(bar)} voltou ao padrão: ${what}.`:`Efetivo de ${dayText(day)} na barra ${barName(bar)}: ${what}.`};
+ return {ok:true,message:hh==null?`HH de ${dayText(day)} na barra ${barName(bar)} voltou ao calculado: ${hText(s.hh)} HH.`:`HH de ${dayText(day)} na barra ${barName(bar)}: ${hText(s.hh)} HH.`};
 }
 
 async function postpone(member:Member,b:Row){

@@ -234,12 +234,16 @@ export async function registryMutate(path:string,b:Row,member:Member){
    if(!isManager(a))throw new AppError('Somente o gestor vincula colaboradores a usuários de acesso.',403);
    if(memberId&&!await first('SELECT id FROM members WHERE id=?',memberId))throw new AppError('Usuário não encontrado.',404);
   }
+  // Programação do dia: barra (OCP/Equinor) e escala (ADM, Turno A, Turno B; vazio = fora do HH).
+  const bar=b.bar===undefined?(old?.bar??null):b.bar||null,schedule=b.schedule===undefined?(old?.schedule??null):b.schedule||null;
+  if(bar&&!['ocp','equinor'].includes(bar))throw new AppError('Barra inválida: OCP ou Equinor.');
+  if(schedule&&!['adm','turno_a','turno_b'].includes(schedule))throw new AppError('Escala inválida: ADM, Turno A, Turno B ou fora do HH.');
   const oid=old?.id||id(),active=flag(b.active);
   await db().tx(async tx=>{
-   await tx.run('INSERT INTO operators(id,name,badge,active,member_id) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,badge=excluded.badge,active=excluded.active,member_id=excluded.member_id',oid,name,badge,active,memberId);
+   await tx.run('INSERT INTO operators(id,name,badge,active,member_id,bar,schedule) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,badge=excluded.badge,active=excluded.active,member_id=excluded.member_id,bar=excluded.bar,schedule=excluded.schedule',oid,name,badge,active,memberId,bar,schedule);
    await tx.run('DELETE FROM operator_functions WHERE operator_id=?',oid);
    for(const f of functionIds)await tx.run('INSERT INTO operator_functions(operator_id,function_id) VALUES(?,?)',oid,f);
-   await audit(tx,a,old?'Cadastros gerais: colaborador atualizado':'Cadastros gerais: colaborador cadastrado',oid,{before:old?{...old,functionIds:before}:null,after:{name,badge,functionIds,memberId,active}});
+   await audit(tx,a,old?'Cadastros gerais: colaborador atualizado':'Cadastros gerais: colaborador cadastrado',oid,{before:old?{...old,functionIds:before}:null,after:{name,badge,functionIds,memberId,active,bar,schedule}});
   });
   return {id:oid};
  }

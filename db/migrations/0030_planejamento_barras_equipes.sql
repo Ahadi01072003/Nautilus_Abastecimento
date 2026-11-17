@@ -1,35 +1,33 @@
--- NAUTILUS · Planejamento: barras OCP e Equinor. HH disponível do dia = ADM (funcionários × horas do dia:
--- segunda a sexta, sábado; domingo não) + Turno do dia (funcionários × horas, todos os dias, escala 2x2).
--- A Gestão define o padrão; o planejador corrige ADM e turno de um dia (falta, férias, reforço). A barra da OS
--- vem do solicitante.
+-- NAUTILUS · Programação do dia: barras OCP e Equinor. HH disponível do dia = soma das janelas do dia, cada uma com
+-- quem está presente: colaboradores com barra e escala (ADM, Turno A, Turno B; sem escala = fora do HH, como
+-- Supervisor e TST) e as jornadas da barra (início, fim e almoço por escala e tipo de dia). Turno 2x2 a partir da
+-- âncora (primeiro dia do Turno A). O planejador pode ajustar o HH de um dia. A barra da OS vem do solicitante.
 SET LOCAL lock_timeout='15s';
 
 CREATE TABLE IF NOT EXISTS plan_bars (
   id text PRIMARY KEY CHECK (id IN ('ocp','equinor')),
   name text NOT NULL,
   color text NOT NULL CHECK (color ~ '^#[0-9A-F]{6}$'),
-  adm_people integer NOT NULL DEFAULT 0 CHECK (adm_people BETWEEN 0 AND 500),
-  adm_hours numeric(4,2) NOT NULL DEFAULT 8 CHECK (adm_hours >= 0 AND adm_hours <= 24),
-  adm_saturday_hours numeric(4,2) NOT NULL DEFAULT 0 CHECK (adm_saturday_hours >= 0 AND adm_saturday_hours <= 24),
-  shift_people integer NOT NULL DEFAULT 0 CHECK (shift_people BETWEEN 0 AND 500),
-  shift_hours numeric(4,2) NOT NULL DEFAULT 12 CHECK (shift_hours > 0 AND shift_hours <= 24),
+  schedule jsonb NOT NULL CHECK (jsonb_typeof(schedule) = 'object'),
   updated_at text,
   updated_by_name text
 );
--- Equinor conforme a planilha de HH (17/11/2026): ADM 7 (8 h seg–sex, 4 h sáb) e turno 7 por dia (12 h).
-INSERT INTO plan_bars(id,name,color,adm_people,adm_hours,adm_saturday_hours,shift_people,shift_hours) VALUES
- ('ocp','OCP','#14254A',0,9,0,0,12),
- ('equinor','Equinor','#B3261E',7,8,4,7,12)
+-- Jornadas (17/11/2026): Equinor ADM seg–sex 08–17 (almoço), sáb 08–12; Turno 2x2 08–20 (almoço) todo dia, Turno A
+-- em 19/11/2026. OCP só ADM seg–sex 08–17 (almoço).
+INSERT INTO plan_bars(id,name,color,schedule) VALUES
+ ('ocp','OCP','#14254A','{"anchor":"2026-11-19","adm":{"weekday":{"start":"08:00","end":"17:00","lunch":true},"saturday":null,"sunday":null},"turno":null}'),
+ ('equinor','Equinor','#B3261E','{"anchor":"2026-11-19","adm":{"weekday":{"start":"08:00","end":"17:00","lunch":true},"saturday":{"start":"08:00","end":"12:00","lunch":false},"sunday":null},"turno":{"weekday":{"start":"08:00","end":"20:00","lunch":true},"saturday":{"start":"08:00","end":"20:00","lunch":true},"sunday":{"start":"08:00","end":"20:00","lunch":true}}}')
 ON CONFLICT (id) DO NOTHING;
 
--- Efetivo do dia: corrige o padrão da barra naquele dia (sem linha = vale o padrão).
+-- Colaborador: barra e escala (vazio = fora do HH).
+ALTER TABLE operators ADD COLUMN IF NOT EXISTS bar text REFERENCES plan_bars(id);
+ALTER TABLE operators ADD COLUMN IF NOT EXISTS schedule text CHECK (schedule IN ('adm','turno_a','turno_b'));
+
+-- Ajuste do HH de um dia (sem linha = vale o calculado).
 CREATE TABLE IF NOT EXISTS plan_day_staff (
   bar text NOT NULL REFERENCES plan_bars(id),
   day date NOT NULL,
-  adm_people integer NOT NULL CHECK (adm_people BETWEEN 0 AND 500),
-  adm_hours numeric(4,2) NOT NULL CHECK (adm_hours >= 0 AND adm_hours <= 24),
-  shift_people integer NOT NULL CHECK (shift_people BETWEEN 0 AND 500),
-  shift_hours numeric(4,2) NOT NULL CHECK (shift_hours >= 0 AND shift_hours <= 24),
+  hh numeric(7,2) NOT NULL CHECK (hh >= 0 AND hh <= 5000),
   note text CHECK (note IS NULL OR length(note) <= 300),
   updated_at text NOT NULL,
   updated_by text NOT NULL REFERENCES members(id),
