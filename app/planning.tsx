@@ -59,15 +59,23 @@ type Step={key:string,id:string,name:string,description:string,required:boolean,
 type Note={key:string,kind:string,categoryId:string,description:string,at:string,until:string};
 /** Horas de uso de um equipamento no registro de atividade realizada (horários locais de Brasília). */
 type RUse={key:string,equipmentId:string,start:string,end:string,recoverable:boolean};
-type Form={estimatedHours:string,skipSunday:boolean,title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[],notes:Note[],uses:RUse[]};
-const fromPlan=(p:R):Form=>{const realized=p.mode==='realizada',S=realized?toLocal:dayIn,E=realized?toLocal:dayInEnd;return {estimatedHours:p.estimated_hours==null?'':String(p.estimated_hours).replace('.',','),uses:((p.realized_uses||[]) as R[]).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toLocal(u.start),end:toLocal(u.end),recoverable:!!u.recoverable})),notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until)})),skipSunday:Number(p.skip_sunday)===1,title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:S(p.planned_start),end:E(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:S(s.planned_start),end:E(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,
+type TeamItem={functionId:string,quantity:number};
+type Form={estimatedHours:string,team:TeamItem[],title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[],notes:Note[],uses:RUse[]};
+/** Equipe da OS: a gravada ou, nas OS antigas, as funções das etapas incluídas (a maior quantidade de cada função). */
+const teamOfPlan=(p:R):TeamItem[]=>{
+ if(Array.isArray(p.team)&&p.team.length)return (p.team as R[]).map(t=>({functionId:t.functionId,quantity:Number(t.quantity)}));
+ const m=new Map<string,number>();
+ for(const s of (p.steps||[]) as R[])if(s.included)for(const n of (s.needs||[]) as R[])if(n.function_id)m.set(n.function_id,Math.max(m.get(n.function_id)||0,Number(n.quantity)||1));
+ return [...m.entries()].map(([functionId,quantity])=>({functionId,quantity}));
+};
+const fromPlan=(p:R):Form=>{const realized=p.mode==='realizada',S=realized?toLocal:dayIn,E=realized?toLocal:dayInEnd;return {estimatedHours:p.estimated_hours==null?'':String(p.estimated_hours).replace('.',','),team:teamOfPlan(p),uses:((p.realized_uses||[]) as R[]).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toLocal(u.start),end:toLocal(u.end),recoverable:!!u.recoverable})),notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until)})),title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:S(p.planned_start),end:E(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:S(s.planned_start),end:E(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,
   uses:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>!realized&&(r.start_at!==s.planned_start||r.end_at!==s.planned_end)).map(r=>[r.equipment_id,{start:dayIn(r.start_at),end:dayInEnd(r.end_at)}])),
   hours:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>r.hours_per_day!=null&&Number(r.hours_per_day)!==EQUIPMENT_DAY_HOURS).map(r=>[r.equipment_id,String(Number(r.hours_per_day)).replace('.',',')]))}))};};
 const usedIds=(f:Form)=>new Set(f.steps.filter(s=>s.included).flatMap(s=>s.equipmentIds));
 const toBody=(f:Form,realized=false)=>({...(realized?{uses:f.uses.filter(u=>usedIds(f).has(u.equipmentId)).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toISO(u.start),end:toISO(u.end),recoverable:u.recoverable})),notes:f.notes.map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||null,description:n.description,at:toISO(n.at),until:n.kind==='bloqueio'||(n.kind==='impacto'&&n.until)?toISO(n.until):null}))}:{}),title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,
  // Planejamento: dias (AAAA-MM-DD). Atividade realizada: data e hora reais.
- plannedStart:realized?toISO(f.start):f.start||null,plannedEnd:realized?toISO(f.end):f.end||null,...(realized?{}:{skipSunday:f.skipSunday,estimatedHours:f.estimatedHours.trim()===''?'':f.estimatedHours.replace(',','.')}),
- steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:realized?toISO(s.start):s.start||null,plannedEnd:realized?toISO(s.end):s.end||null,locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],
+ plannedStart:realized?toISO(f.start):f.start||null,plannedEnd:realized?toISO(f.end):f.end||null,...(realized?{}:{team:f.team,estimatedHours:f.estimatedHours.trim()===''?'':f.estimatedHours.replace(',','.')}),
+ steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:realized?toISO(s.start):s.start||null,plannedEnd:realized?toISO(s.end):s.end||null,locationId:s.locationId||null,needs:realized?s.needs:s.needs.filter(n=>!n.functionId),equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],
   equipmentWindows:realized?{}:usesBody(s,f)}))});
 
 /** Dias de uso enviados ao servidor (só OS sem fluxo): recortados aos dias da OS; o que ficou vazio,
@@ -148,6 +156,19 @@ function DayBarPreview({bar,day,planId,hours,people}:{bar:string,day:string,plan
   <small>{n(total)} de {n(cap)} HH · esta OS: {hours?`${n(hours)} h × ${people} pessoa${people===1?'':'s'} = ${n(mine)} HH`:'informe a duração'}{total>cap?` · passa ${n(total-cap)} HH do disponível`:''}</small></div>;
 }
 
+/** Equipe da atividade (OS inteira): funções e quantidade de pessoas. HH = duração × equipe. */
+function TeamEditor({team,refs,onRefs,editable,onChange}:{team:TeamItem[],refs:R,onRefs:()=>Promise<void>,editable:boolean,onChange:(t:TeamItem[])=>void}){
+ const name=(id:string)=>(refs.functions as R[]).find(f=>f.id===id)?.name||'Função';
+ const total=team.reduce((t,x)=>t+x.quantity,0);
+ return <div className="n-field wide team-editor"><label>Equipe da atividade *</label>
+  <div className="need-chips">{team.length?team.map((t,i)=><span key={t.functionId} className="need-chip"><Users size={13}/>
+   <input type="number" min={1} max={99} aria-label={`Quantidade de ${name(t.functionId)}`} value={t.quantity} disabled={!editable} onChange={e=>onChange(team.map((x,j)=>j===i?{...x,quantity:Math.min(99,Math.max(1,Number(e.target.value)||1))}:x))}/>× {name(t.functionId)}
+   {editable&&<button type="button" aria-label={`Remover ${name(t.functionId)}`} onClick={()=>onChange(team.filter((_,j)=>j!==i))}><X size={12}/></button>}</span>)
+   :<small className="pending-text">Informe as funções e quantas pessoas de cada uma a atividade precisa.</small>}
+   {editable&&<NeedAdder refs={refs} needs={team.map(t=>({equipmentTypeId:null,functionId:t.functionId,materialId:null,quantity:t.quantity,amount:null,unit:null}))} onRefs={onRefs} kinds={['function']} label="Adicionar função" onAdd={n=>n.functionId&&onChange([...team,{functionId:n.functionId,quantity:n.quantity||1}])}/>}</div>
+  {total>0&&<small>{total} pessoa{total===1?'':'s'} por dia da OS.</small>}</div>;
+}
+
 function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{planId:string,refs:R,onRefs:()=>Promise<void>,onClose:()=>void,onReplaced:(id:string)=>void,onLaunched:(workOrderId?:string)=>void,details?:Details}){
  const [plan,setPlan]=useState<R|null>(null),[form,setForm]=useState<Form|null>(null),[editable,setEditable]=useState(false),[loadError,setLoadError]=useState('');
  const [saveState,setSaveState]=useState<SaveState>('saved'),[savedAt,setSavedAt]=useState<string|null>(null),[saveError,setSaveError]=useState('');
@@ -186,7 +207,7 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
  const revision=!!plan?.work_order_id&&plan.status==='draft';
  // Atividade realizada (Operação): mesmo formulário, registrada depois de feita.
  const realized=plan?.mode==='realizada';
- async function launch(){setLaunching(true);try{const body={id:planId,version:version.current,launchKey:launchKey.current};const r=realized?await post('planning/realize',body):revision?await post('planning/revision/launch',{...body,reason:revisionReason}):await post('planning/launch',body);toast.success(r.message);setReview(null);onLaunched(r.workOrderId)}catch(e){toast.error((e as Error).message);setReview(null);await reload()}finally{setLaunching(false)}}
+ async function launch(){if(!realized&&form){if(!durationOk(form.estimatedHours)){toast.error('Informe a duração estimada de execução antes de lançar.');return}if(!form.team.length){toast.error('Informe a equipe da atividade (funções e quantidade) antes de lançar.');return}}setLaunching(true);try{const body={id:planId,version:version.current,launchKey:launchKey.current};const r=realized?await post('planning/realize',body):revision?await post('planning/revision/launch',{...body,reason:revisionReason}):await post('planning/launch',body);toast.success(r.message);setReview(null);onLaunched(r.workOrderId)}catch(e){toast.error((e as Error).message);setReview(null);await reload()}finally{setLaunching(false)}}
  async function discard(){try{const r=await post('planning/discard',{id:planId,version:version.current});toast.success(r.message);onClose()}catch(e){toast.error((e as Error).message)}}
  async function doChangeType(){try{if(saveState!=='saved'&&form)await save(form);const r=await post('planning/change-type',{id:planId,version:version.current,activityTypeId:changeType});toast.success(r.message);setChangeType('');onReplaced(r.id)}catch(e){toast.error((e as Error).message);setChangeType('')}}
  /** Sugestão de dias: a partir do dia de início, cada etapa depois das que ela depende (pode começar no
@@ -229,8 +250,8 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
      <Field label={free?'Dia de fim *':'Dia de fim previsto *'} hint={dayIssue(form.end)||daysText(daysCount(form.start,form.end))||undefined}><Input type="date" min={form.start||'2000-01-01'} max="2100-12-31" aria-invalid={!!dayIssue(form.end)||(daysCount(form.start,form.end)??1)<1} value={form.end} onChange={e=>update(f=>({...f,end:e.target.value}))}/></Field>
     </>}
     {!realized&&<Field label="Duração estimada de execução (h) *" hint="Quanto tempo a atividade leva por dia, sem horário. Ex.: 2 ou 1,5. HH = duração × pessoas."><Input inputMode="decimal" placeholder="Ex.: 2" aria-invalid={form.estimatedHours!==''&&!durationOk(form.estimatedHours)} value={form.estimatedHours} onChange={e=>update(f=>({...f,estimatedHours:e.target.value.replace(/[^\d,.]/g,'')}))}/></Field>}
-    {!realized&&<Toggle title="Não trabalha aos domingos" description="Na Programação do dia, a atividade não ocupa equipe aos domingos (os outros dias continuam iguais)." checked={!!form.skipSunday} onChange={v=>update(f=>({...f,skipSunday:v}))}/>}
-    {!realized&&org&&dayIssue(form.start)==null&&form.start&&<DayBarPreview bar={org.bar||'equinor'} day={form.start} planId={planId} hours={durationOk(form.estimatedHours)?Number(form.estimatedHours.replace(',','.')):0} people={form.steps.filter(x=>x.included).reduce((t,x)=>t+x.needs.filter(n=>n.functionId).reduce((u,n)=>u+(Number(n.quantity)||0),0),0)}/>}
+    {!realized&&<TeamEditor team={form.team} refs={refs} onRefs={onRefs} editable={editable} onChange={team=>update(f=>({...f,team}))}/>}
+    {!realized&&org&&dayIssue(form.start)==null&&form.start&&<DayBarPreview bar={org.bar||'equinor'} day={form.start} planId={planId} hours={durationOk(form.estimatedHours)?Number(form.estimatedHours.replace(',','.')):0} people={form.team.reduce((t,x)=>t+x.quantity,0)}/>}
     <Field label="Descrição" wide><Textarea maxLength={2000} value={form.description} onChange={e=>update(f=>({...f,description:e.target.value}))} placeholder="O que será feito, observações para a operação"/></Field>
     {org&&<div className="n-field"><label>Etiqueta</label><OrgTag org={org}/></div>}
    </div>
@@ -322,8 +343,8 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false
    <Field label="Primeiro dia" hint={dayIssue(s.start)||(started?'Etapa iniciada: o dia de início previsto é a referência do desvio e não muda.':undefined)}><Input type="date" min="2000-01-01" max="2100-12-31" aria-invalid={!!dayIssue(s.start)} disabled={started} value={s.start} onChange={e=>onChange({start:e.target.value,...(s.end&&e.target.value>s.end?{end:e.target.value}:{})})}/></Field>
    <Field label="Último dia" hint={dayIssue(s.end)||daysText(nDays)||undefined}><Input type="date" min={s.start||'2000-01-01'} max="2100-12-31" aria-invalid={!!dayIssue(s.end)||(nDays??1)<1} value={s.end} onChange={e=>onChange({end:e.target.value})}/></Field></>}
    <Field label="Local específico da etapa"><Choice value={s.locationId||'none'} onChange={v=>onChange({locationId:v==='none'?'':v})} options={[{value:'none',label:'Mesmo local da atividade'},...(refs.locations as R[]).filter(l=>l.active||l.id===s.locationId).map(l=>({value:l.id,label:paths.get(l.id)!}))]}/></Field>
-   <div className="n-field wide"><label>Necessidades de recursos</label><div className="need-chips">{s.needs.length?s.needs.map((n,i)=><span key={i} className="need-chip">{n.materialId?<Package size={13}/>:n.equipmentTypeId?<Truck size={13}/>:<Users size={13}/>}{n.materialId?<><input type="number" min={0.001} step="any" aria-label="Quantidade" className="amount" value={n.amount??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,amount:Number(e.target.value)||0}:x)})}/><input aria-label="Unidade de medida" className="unit" maxLength={12} list="units" value={n.unit??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,unit:e.target.value}:x)})}/>{name('materials',n.materialId)}</>:<><input type="number" min={1} max={99} aria-label="Quantidade" value={n.quantity??1} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,quantity:Math.min(99,Math.max(1,Number(e.target.value)||1))}:x)})}/>× {n.equipmentTypeId?name('equipmentTypes',n.equipmentTypeId):name('functions',n.functionId)}</>}<button type="button" aria-label="Remover necessidade" onClick={()=>onChange({needs:s.needs.filter((_,j)=>j!==i)})}><X size={12}/></button></span>):<small>Nenhuma necessidade informada.</small>}</div>
-    {editable&&<NeedAdder refs={refs} needs={s.needs} onRefs={onRefs} onAdd={n=>onChange({needs:[...s.needs,n]})}/>}</div>
+   <div className="n-field wide"><label>{realized?'Necessidades de recursos':'Equipamentos e materiais'}</label><div className="need-chips">{s.needs.filter(n=>realized||!n.functionId).length?s.needs.map((n,i)=>!realized&&n.functionId?null:<span key={i} className="need-chip">{n.materialId?<Package size={13}/>:n.equipmentTypeId?<Truck size={13}/>:<Users size={13}/>}{n.materialId?<><input type="number" min={0.001} step="any" aria-label="Quantidade" className="amount" value={n.amount??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,amount:Number(e.target.value)||0}:x)})}/><input aria-label="Unidade de medida" className="unit" maxLength={12} list="units" value={n.unit??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,unit:e.target.value}:x)})}/>{name('materials',n.materialId)}</>:<><input type="number" min={1} max={99} aria-label="Quantidade" value={n.quantity??1} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,quantity:Math.min(99,Math.max(1,Number(e.target.value)||1))}:x)})}/>× {n.equipmentTypeId?name('equipmentTypes',n.equipmentTypeId):name('functions',n.functionId)}</>}<button type="button" aria-label="Remover necessidade" onClick={()=>onChange({needs:s.needs.filter((_,j)=>j!==i)})}><X size={12}/></button></span>):<small>Nenhuma necessidade informada.</small>}</div>
+    {editable&&<NeedAdder refs={refs} needs={s.needs} onRefs={onRefs} kinds={realized?undefined:['equipment_type','material']} onAdd={n=>onChange({needs:[...s.needs,n]})}/>}</div>
    <fieldset className="n-field wide"><legend>Equipamentos identificados {typeNeeds.length>0&&<small>({typeNeeds.map(n=>`${n.quantity}× ${name('equipmentTypes',n.equipmentTypeId)}`).join(', ')})</small>}</legend>
     {!valid?<small className="pending-text">Informe os dias da etapa para consultar a agenda e reservar equipamentos.</small>:<div className="resource-list">{equipment.map(e=>{const a=realized?undefined:avail[e.id];const chosen=s.equipmentIds.includes(e.id);
      // Por dia: o equipamento é dividido em horas (até 12 h no dia). Só não dá para escolher o bloqueado ou o que não tem hora livre.
@@ -368,9 +389,10 @@ function EquipmentDay({tag,equipmentId,step:s,free,planId,stepId,editable,onChan
 const KINDS:[string,string,string][]=[['equipment_type','Equipamento (tipo)','equipmentTypes'],['function','Função','functions'],['material','Material','materials']];
 /** Adiciona uma necessidade (tipo de equipamento, função ou material). Se o recurso não existe,
  * é cadastrado na hora (o servidor devolve o cadastro existente quando o nome já existe). */
-export function NeedAdder({refs,needs,onRefs,onAdd,create=true}:{refs:R,needs:Need[],onRefs:()=>Promise<void>,onAdd:(n:Need)=>void,create?:boolean}){
- const [open,setOpen]=useState(false),[kind,setKind]=useState('equipment_type'),[item,setItem]=useState(''),[qty,setQty]=useState('1'),[unit,setUnit]=useState(''),[name,setName]=useState(''),[busy,setBusy]=useState(false);
- const list=KINDS.find(k=>k[0]===kind)![2];
+export function NeedAdder({refs,needs,onRefs,onAdd,create=true,kinds,label}:{refs:R,needs:Need[],onRefs:()=>Promise<void>,onAdd:(n:Need)=>void,create?:boolean,kinds?:string[],label?:string}){
+ const KS=KINDS.filter(k=>!kinds||kinds.includes(k[0]));
+ const [open,setOpen]=useState(false),[kind,setKind]=useState(KS[0][0]),[item,setItem]=useState(''),[qty,setQty]=useState('1'),[unit,setUnit]=useState(''),[name,setName]=useState(''),[busy,setBusy]=useState(false);
+ const list=KS.find(k=>k[0]===kind)![2];
  const taken=(id:string)=>needs.some(n=>(kind==='material'?n.materialId:kind==='function'?n.functionId:n.equipmentTypeId)===id);
  const options=(refs[list] as R[]||[]).filter(x=>x.active&&!taken(x.id));
  const creating=item==='__new';
@@ -386,9 +408,9 @@ export function NeedAdder({refs,needs,onRefs,onAdd,create=true}:{refs:R,needs:Ne
    reset();setOpen(false);
   }catch(e){toast.error((e as Error).message)}finally{setBusy(false)}
  }
- if(!open)return <button type="button" className="text-action" onClick={()=>setOpen(true)}><PackagePlus size={14} className="inline"/> Adicionar recurso</button>;
+ if(!open)return <button type="button" className="text-action" onClick={()=>setOpen(true)}><PackagePlus size={14} className="inline"/> {label||'Adicionar recurso'}</button>;
  return <div className="need-adder">
-  <Choice label="Tipo de recurso" value={kind} onChange={v=>{setKind(v);reset()}} options={KINDS.map(([value,label])=>({value,label}))}/>
+  {KS.length>1&&<Choice label="Tipo de recurso" value={kind} onChange={v=>{setKind(v);reset()}} options={KS.map(([value,label])=>({value,label}))}/>}
   <Choice label="Recurso" value={item} onChange={v=>{setItem(v);if(kind==='material'&&v!=='__new')setUnit((refs.materials as R[]).find(m=>m.id===v)?.unit||'')}} placeholder="Escolha" options={[...options.map(x=>({value:x.id,label:kind==='material'?`${x.name} (${x.unit})`:x.name})),...(create?[{value:'__new',label:'+ Cadastrar novo…'}]:[])]}/>
   {creating&&<Input aria-label="Nome do novo recurso" maxLength={100} placeholder={kind==='material'?'Nome do material':kind==='function'?'Nome da função':'Nome do tipo de equipamento'} value={name} onChange={e=>setName(e.target.value)}/>}
   <Input aria-label="Quantidade" className="qty" inputMode="decimal" value={qty} onChange={e=>setQty(e.target.value)}/>

@@ -149,3 +149,12 @@ Saem do teste: efetivo ADM+Turno digitado, padrão por funcionários, publicar/v
 - **Consolidação por barra** (substitui a consolidação única do §3.6 e do §6): cada barra consolida na própria reunião,
   com participantes, observações, versões e relatório próprios; só quem planeja a barra (ou a Gestão) consolida.
   Emergencial, cumprimento, alerta das 16h, TV (`/programacao?bar=`), relatório e lista de separação são por barra.
+
+## 9. Ajuste de 17/11/2026: equipe no topo e expediente automático
+
+- **Equipe da atividade** (funções e quantidade) fica num bloco no topo do Planejamento de atividade, logo depois da
+  duração, e vale para a OS inteira (gravada na OS; HH = duração × equipe). Sai das etapas, onde passava despercebida;
+  as etapas ficam com equipamentos e materiais. OS antigas: a equipe é montada a partir das funções das etapas. A tela
+  pede duração e equipe para lançar.
+- Sai "Não trabalha aos domingos": a OS só consome HH nos dias em que a barra tem expediente (pelas jornadas: OCP sem
+  sábado e domingo; Equinor todos os dias, por causa do turno).

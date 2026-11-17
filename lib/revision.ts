@@ -34,8 +34,8 @@ export async function startRevision(tx:Executor,a:Actor,workOrderId:string){
  }
  const base=(await loadPlan(wo.current_plan_id,tx))!;
  const pid=id(),t=now();
- await tx.run(`INSERT INTO plans(id,work_order_id,status,activity_type_id,flow_version_id,title,code,description,org_id,requester_person_id,location_id,planned_start,planned_end,author_id,author_name,created_at,updated_at,revision,base_plan_id,priority,skip_sunday,estimated_hours)
-  VALUES(?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,pid,wo.id,base.activity_type_id,base.flow_version_id,base.title??null,base.code??null,base.description,base.org_id,base.requester_person_id,base.location_id,base.planned_start,base.planned_end,a.id,a.name,t,t,wo.revision+1,base.id,base.priority??null,base.skip_sunday??0,base.estimated_hours??null);
+ await tx.run(`INSERT INTO plans(id,work_order_id,status,activity_type_id,flow_version_id,title,code,description,org_id,requester_person_id,location_id,planned_start,planned_end,author_id,author_name,created_at,updated_at,revision,base_plan_id,priority,team,estimated_hours)
+  VALUES(?,?,'draft',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::text::jsonb,?)`,pid,wo.id,base.activity_type_id,base.flow_version_id,base.title??null,base.code??null,base.description,base.org_id,base.requester_person_id,base.location_id,base.planned_start,base.planned_end,a.id,a.name,t,t,wo.revision+1,base.id,base.priority??null,base.team==null?null:JSON.stringify(base.team),base.estimated_hours??null);
  for(const s of base.steps){
   const sid=id();
   await tx.run('INSERT INTO plan_steps(id,plan_id,step_key,position,name,description,required,included,default_minutes,depends_on,planned_start,planned_end,location_id) VALUES(?,?,?,?,?,?,?,?,?,?::text[],?,?,?)',sid,pid,s.step_key,s.position,s.name,s.description,s.required,s.included,s.default_minutes,s.depends_on,s.planned_start,s.planned_end,s.location_id);

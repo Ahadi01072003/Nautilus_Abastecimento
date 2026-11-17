@@ -1,14 +1,16 @@
--- NAUTILUS · Programação do dia: duração estimada de execução da OS (horas; HH da OS no dia = duração × pessoas),
--- ordem da OS na lista do dia (prioridade) e opção de a atividade não trabalhar aos domingos.
+-- NAUTILUS · Programação do dia: duração estimada de execução da OS (horas), equipe da atividade (funções e
+-- quantidade, para a OS inteira; HH da OS no dia = duração × equipe) e ordem da OS na lista do dia (prioridade).
 SET LOCAL lock_timeout='15s';
 
 -- Duração estimada de execução, em horas por dia da OS (obrigatória para lançar).
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS estimated_hours numeric(5,2)
   CHECK (estimated_hours IS NULL OR (estimated_hours >= 0.25 AND estimated_hours <= 24));
 
--- Prioridade da OS na pilha (menor primeiro; vazio vai para o fim) e domingo de folga da atividade.
+-- Equipe da atividade: [{functionId, quantity}] (vazio = usa as funções das etapas, OS antigas).
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS team jsonb CHECK (team IS NULL OR jsonb_typeof(team) = 'array');
+
+-- Prioridade da OS na lista do dia (menor primeiro; vazio vai para o fim).
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS priority integer CHECK (priority IS NULL OR priority BETWEEN 0 AND 1000000000);
-ALTER TABLE plans ADD COLUMN IF NOT EXISTS skip_sunday smallint NOT NULL DEFAULT 0 CHECK (skip_sunday IN (0,1));
 CREATE INDEX IF NOT EXISTS idx_plans_priority ON plans (priority) WHERE status IN ('draft','launched');
 
 -- OS lançada continua congelada; a única mudança aceita (além de ser substituída) é a prioridade na pilha.

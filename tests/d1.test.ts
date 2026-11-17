@@ -26,10 +26,10 @@ const card=(b:Row,plan:string)=>(b.cards as Row[]).find(x=>x.planId===plan);
 const MON='2031-01-13',SUN='2031-01-12',SAT='2031-01-11';
 
 /** OS sem fluxo: duração estimada, funções com pessoas, equipamento e material opcionais. */
-async function os(org:string,start:string,end:string,hours:number|null,needs:{f:string,q:number}[],opts:{launch?:boolean,skipSunday?:boolean,title?:string,equipment?:string[],material?:number}={}){
+async function os(org:string,start:string,end:string,hours:number|null,needs:{f:string,q:number}[],opts:{launch?:boolean,title?:string,equipment?:string[],material?:number,team?:{f:string,q:number}[]}={}){
  const {id}=await planningMutate('planning/create-free',{},planner) as {id:string};
  const p=(await planDetail(planner,id)).plan;
- await planningMutate('planning/save',{id,version:p.version,title:opts.title||'OS teste',orgId:org,locationId:loc,plannedStart:start,plannedEnd:end,skipSunday:!!opts.skipSunday,
+ await planningMutate('planning/save',{id,version:p.version,title:opts.title||'OS teste',orgId:org,locationId:loc,plannedStart:start,plannedEnd:end,...(opts.team?{team:opts.team.map(t=>({functionId:fn[t.f],quantity:t.q}))}:{}),
   ...(hours!=null?{estimatedHours:hours}:{}),
   steps:p.steps.map((s:Row)=>({key:s.step_key,included:true,equipmentIds:opts.equipment||[],operatorIds:[],needs:[...needs.map(n=>({functionId:fn[n.f],quantity:n.q})),
    ...(opts.material?[{materialId:oil,amount:opts.material,unit:'L'}]:[])]}))},planner);
@@ -71,12 +71,25 @@ test('HH da OS = duração × pessoas; cada barra vê só os seus solicitantes; 
  assert.ok(!card(o,a.plan),'cada barra só vê as OS dos seus solicitantes');
 });
 
-test('domingo de folga: a OS não consome no domingo; no domingo só o turno (55 HH)',async()=>{
- const p=await os(eqnOrg,SAT,MON,4,[{f:'Líder de Operações',q:1}],{skipSunday:true,title:'Sem domingo'});
+test('expediente automático: a OS só consome nos dias em que a barra trabalha (OCP sem fim de semana; Equinor todo dia)',async()=>{
+ const FRI='2031-01-10';
+ const o=await os(ocpOrg,FRI,MON,4,[{f:'Artífice',q:1}],{title:'OCP sexta a segunda'});
+ assert.ok(card(await board('ocp',FRI),o.plan));
+ assert.ok(!card(await board('ocp',SAT),o.plan));assert.ok(!card(await board('ocp',SUN),o.plan));
+ assert.ok(card(await board('ocp',MON),o.plan));
+ const e=await os(eqnOrg,SAT,MON,4,[{f:'Líder de Operações',q:1}],{title:'Equinor fim de semana'});
  const sun=await board('equinor',SUN);
- assert.ok(!card(sun,p.plan));assert.equal(sun.staff.hh,55);
- assert.ok(card(await board('equinor',SAT),p.plan));
- assert.ok(card(await board('equinor',MON),p.plan));
+ assert.ok(card(sun,e.plan));assert.equal(sun.staff.hh,55);
+});
+
+test('equipe da atividade: funções e quantidade na OS (vale para todos os dias); HH = duração × equipe',async()=>{
+ const day='2031-02-10';
+ const t=await os(eqnOrg,day,day,2,[],{title:'Com equipe',team:[{f:'Assistente de Operações',q:3},{f:'Líder de Operações',q:1}]});
+ const c=card(await board('equinor',day),t.plan)!;
+ assert.deepEqual([c.people,c.hh],[4,8]);
+ assert.deepEqual((c.byFunction as Row[]).map(f=>[f.name,f.people]),[['Assistente de Operações',3],['Líder de Operações',1]]);
+ assert.deepEqual((await planDetail(planner,t.plan)).plan.team.map((x:Row)=>x.quantity),[3,1]);
+ await rejects(os(eqnOrg,day,day,2,[],{team:[{f:'Assistente de Operações',q:0}]}),400,/equipe/i);
 });
 
 test('passou do HH disponível: exceeds a partir da OS, extraHh; arrastar muda a ordem; ajuste do dia',async()=>{

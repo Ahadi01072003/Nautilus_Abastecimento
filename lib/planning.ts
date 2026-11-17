@@ -346,6 +346,9 @@ export async function revisionChanges(base:Plan,draft:Plan,ex:Executor=db()){
  if(base.location_id!==draft.location_id)out.push(`Local: ${nameOf(locations,base.location_id)} → ${nameOf(locations,draft.location_id)}.`);
  if(base.requester_person_id!==draft.requester_person_id)out.push(`Pessoa solicitante: ${nameOf(people,base.requester_person_id)} → ${nameOf(people,draft.requester_person_id)}.`);
  if((base.code||'')!==(draft.code||''))out.push(`Código: ${base.code||'—'} → ${draft.code||'—'}.`);
+ if(Number(base.estimated_hours??0)!==Number(draft.estimated_hours??0))out.push(`Duração estimada: ${base.estimated_hours==null?'—':String(Number(base.estimated_hours)).replace('.',',')+' h'} → ${draft.estimated_hours==null?'—':String(Number(draft.estimated_hours)).replace('.',',')+' h'}.`);
+ const teamText=(t:unknown)=>((t||[]) as Row[]).map(x=>`${x.quantity}×${x.functionId}`).sort().join(',');
+ if(teamText(base.team)!==teamText(draft.team))out.push('Equipe da atividade alterada.');
  if((base.title||'')!==(draft.title||''))out.push(`Título: ${base.title||'—'} → ${draft.title||'—'}.`);
  if(base.description!==draft.description)out.push('Descrição alterada.');
  for(const d of draft.steps){
@@ -713,6 +716,19 @@ async function activeOr(table:string,value:unknown,label:string,keep:unknown){
  return r;
 }
 
+/** Equipe da atividade (para a OS inteira): funções cadastradas e quantidade de 1 a 99, sem repetir; vazio = sem equipe. */
+async function teamOf(v:unknown,keep:unknown):Promise<{functionId:string,quantity:number}[]|null>{
+ if(v==null)return null;
+ if(!Array.isArray(v)||v.length>30)throw new AppError('Equipe da atividade inválida.');
+ const out=v.map((x:Row)=>({functionId:String(x?.functionId||''),quantity:Number(x?.quantity)}));
+ if(out.some(x=>!x.functionId||!Number.isInteger(x.quantity)||x.quantity<1||x.quantity>99))throw new AppError('Equipe da atividade: informe a função e a quantidade de pessoas (de 1 a 99).');
+ if(new Set(out.map(x=>x.functionId)).size!==out.length)throw new AppError('Equipe da atividade: função repetida.');
+ const known=new Set(((keep||[]) as Row[]).map(x=>x.functionId));
+ const rows=out.length?await all('SELECT id,active FROM job_functions WHERE id=ANY(?::text[])',out.map(x=>x.functionId)):[];
+ for(const x of out){const r=rows.find(f=>f.id===x.functionId);if(!r)throw new AppError('Equipe da atividade: função não encontrada.',404);if(!r.active&&!known.has(x.functionId))throw new AppError('Equipe da atividade: função inativa.');}
+ return out.length?out:null;
+}
+
 /** Duração estimada de execução: horas de 0,25 a 24, de quarto em quarto; vazio = sem duração. */
 function estimatedOf(v:unknown):number|null{
  if(v==null||String(v).trim()==='')return null;
@@ -724,6 +740,7 @@ function estimatedOf(v:unknown):number|null{
 async function saveDraft(a:Actor,plan:Plan,b:Row){
  // Duração estimada de execução (h por dia da OS): de 0,25 a 24, de quarto em quarto; vazio mantém a atual.
  const estimated=b.estimatedHours===undefined?(plan.estimated_hours==null?null:Number(plan.estimated_hours)):estimatedOf(b.estimatedHours);
+ const team=b.team===undefined?(plan.team??null):await teamOf(b.team,plan.team);
  const description=text(b.description,2000);
  const org=await activeOr('requester_orgs',b.orgId,'Organização',plan.org_id);
  if(org&&!inScope(a,org.id))throw new AppError('Organização fora do seu acesso.',403);
@@ -833,7 +850,7 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
  const t=now();let reservationChanges=0;
  try{
   await db().tx(async tx=>{
-   const changed=await tx.run('UPDATE plans SET description=?,org_id=?,requester_person_id=?,location_id=?,planned_start=?,planned_end=?,title=coalesce(?,title),code=?,skip_sunday=coalesce(?,skip_sunday),estimated_hours=?,updated_at=?,version=version+1 WHERE id=? AND version=? AND status=\'draft\'',description,org?.id||null,person?.id||null,location?.id||null,start,end,title,code,b.skipSunday==null?null:b.skipSunday===true?1:0,estimated,t,plan.id,plan.version);
+   const changed=await tx.run('UPDATE plans SET description=?,org_id=?,requester_person_id=?,location_id=?,planned_start=?,planned_end=?,title=coalesce(?,title),code=?,estimated_hours=?,team=?::text::jsonb,updated_at=?,version=version+1 WHERE id=? AND version=? AND status=\'draft\'',description,org?.id||null,person?.id||null,location?.id||null,start,end,title,code,estimated,team==null?null:JSON.stringify(team),t,plan.id,plan.version);
    if(!changed)throw new AppError('Este rascunho foi alterado em outra tela. Atualize para continuar.',409);
    if(notes)await tx.run('UPDATE plans SET realized_notes=?::text::jsonb WHERE id=?',JSON.stringify(notes),plan.id);
    if(uses)await tx.run('UPDATE plans SET realized_uses=?::text::jsonb WHERE id=?',JSON.stringify(uses),plan.id);

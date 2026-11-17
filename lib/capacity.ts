@@ -94,7 +94,7 @@ export async function staffFor(bar:BarId,days:string[]){
   const r=rows.find(x=>x.day===day);
   return {day,windows,computedHh,hh:r?Number(r.hh):computedHh,source:(r?'dia':'padrao') as 'dia'|'padrao',note:(r?.note as string)||null,
    byName:(r?.updated_by_name as string)||null,at:(r?.updated_at as string)||null,
-   people:{adm:adm?count('adm'):0,turno:shift&&turno?count(turno):0},turnoOfDay:turno,maxShiftHours};
+   people:{adm:adm?count('adm'):0,turno:shift&&turno?count(turno):0},turnoOfDay:turno,maxShiftHours,open:groups.length>0};
  });
 }
 

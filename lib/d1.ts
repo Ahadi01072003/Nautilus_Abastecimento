@@ -35,13 +35,13 @@ const tomorrow=()=>plusDays(dayOf(Date.now()),1);
 
 // ───────────── As OS do dia ─────────────
 type StepRow={id:string,name:string,start:string,end:string,done:boolean,needs:{functionId:string,name:string,quantity:number}[],materials:{name:string,unit:string,amount:number}[],equipment:{id:string,tag:string,start:string,end:string}[]};
-type PlanRow={id:string,status:string,workOrderId:string|null,number:number|null,title:string,priority:number|null,skipSunday:boolean,hours:number|null,start:string,end:string,createdAt:string,
+type PlanRow={id:string,status:string,workOrderId:string|null,number:number|null,title:string,priority:number|null,team:{functionId:string,name:string,quantity:number}[],hours:number|null,start:string,end:string,createdAt:string,
  org:{id:string|null,acronym:string|null,name:string|null,color:string|null},location:string|null,bar:string,started:boolean,steps:StepRow[]};
 
 /** OS (lançadas, programadas ou em andamento) e rascunhos da barra que tocam o período [from, to]. */
 async function loadPlans(bar:string,from:string,to:string,extraPlanId?:string,closed=false):Promise<PlanRow[]>{
  const lo=dayStart(from),hi=dayStart(plusDays(to,1));
- const plans=await db().all(`SELECT p.id,p.status,p.work_order_id,p.title,p.description,p.priority,p.skip_sunday,p.estimated_hours,p.planned_start,p.planned_end,p.created_at,
+ const plans=await db().all(`SELECT p.id,p.status,p.work_order_id,p.title,p.description,p.priority,p.team,p.estimated_hours,p.planned_start,p.planned_end,p.created_at,
    o.id org_id,o.acronym,o.name org_name,o.color,coalesce(o.bar,'equinor') bar,w.number,at.name type_name,l.name location_name
   FROM plans p LEFT JOIN requester_orgs o ON o.id=p.org_id LEFT JOIN work_orders w ON w.id=p.work_order_id LEFT JOIN activity_types at ON at.id=p.activity_type_id LEFT JOIN locations l ON l.id=p.location_id
   WHERE coalesce(o.bar,'equinor')=? AND p.planned_start IS NOT NULL AND p.planned_end IS NOT NULL
@@ -49,6 +49,7 @@ async function loadPlans(bar:string,from:string,to:string,extraPlanId?:string,cl
    AND ((p.planned_start<? AND p.planned_end>?) OR p.id=?)`,...[bar,...(closed?[]:[REVISABLE]),hi,lo,extraPlanId||'']);
  if(!plans.length)return [];
  const ids=plans.map(p=>p.id);
+ const fnNames=new Map((await db().all('SELECT id,name FROM job_functions')).map(f=>[f.id as string,f.name as string]));
  const [steps,needs,res,os,mats]=await Promise.all([
   db().all('SELECT id,plan_id,name,position,planned_start,planned_end FROM plan_steps WHERE plan_id=ANY(?::text[]) AND included=1 ORDER BY position',ids),
   db().all(`SELECT n.plan_step_id,n.function_id,f.name,n.quantity FROM plan_step_needs n JOIN job_functions f ON f.id=n.function_id WHERE n.plan_id=ANY(?::text[]) AND n.function_id IS NOT NULL`,ids),
@@ -63,7 +64,7 @@ async function loadPlans(bar:string,from:string,to:string,extraPlanId?:string,cl
    materials:mats.filter(m=>m.plan_step_id===s.id).map(m=>({name:m.name,unit:m.unit,amount:Number(m.amount)})),
    equipment:res.filter(r=>r.plan_step_id===s.id).map(r=>({id:r.equipment_id,tag:r.tag,start:r.start_at,end:r.end_at}))}));
   return {id:p.id,status:p.status,workOrderId:p.work_order_id||null,number:p.number==null?null:Number(p.number),title:(p.title||'').trim()||p.type_name||p.description||'Sem título',
-   priority:p.priority==null?null:Number(p.priority),skipSunday:Number(p.skip_sunday)===1,hours:p.estimated_hours==null?null:Number(p.estimated_hours),
+   priority:p.priority==null?null:Number(p.priority),team:((p.team||[]) as Row[]).map(t=>({functionId:t.functionId,name:fnNames.get(t.functionId)||'Função',quantity:Number(t.quantity)})),hours:p.estimated_hours==null?null:Number(p.estimated_hours),
    start:p.planned_start,end:p.planned_end,createdAt:p.created_at,
    org:{id:p.org_id||null,acronym:p.acronym||null,name:p.org_name||null,color:p.color||null},location:p.location_name||null,bar:p.bar,
    started:st.some(s=>{const x=osOf.get(s.id);return !!x&&x!=='nao_iniciada';}),steps:st};
@@ -74,14 +75,16 @@ function shifted(p:PlanRow,days:number):PlanRow{
  const mv=(iso:string)=>new Date(Date.parse(iso)+days*DAY_MS).toISOString();
  return {...p,start:mv(p.start),end:mv(p.end),steps:p.steps.map(s=>({...s,start:mv(s.start),end:mv(s.end),equipment:s.equipment.map(e=>({...e,start:mv(e.start),end:mv(e.end)}))}))};
 }
-/** O que a OS ocupa no dia: etapas do dia (não encerradas), pessoas por função, HH (duração × pessoas), equipamento e materiais. */
-function onDay(p:PlanRow,day:string,keepDone=false){
- if(p.skipSunday&&weekday(day)===0)return null;
+/** O que a OS ocupa no dia: etapas do dia (não encerradas), equipe (a da OS; nas antigas, as funções das etapas do dia),
+ *  HH (duração × pessoas), equipamento e materiais. Dia sem expediente na barra (open=false): a OS não consome. */
+function onDay(p:PlanRow,day:string,open:boolean,keepDone=false){
+ if(!open)return null;
  const t=Date.parse(dayStart(day));
  const steps=p.steps.filter(s=>(keepDone||!s.done)&&Date.parse(s.start)<=t&&t<Date.parse(s.end));
  if(!steps.length)return null;
  const by=new Map<string,{functionId:string,name:string,people:number}>();
- for(const s of steps)for(const n of s.needs){const f=by.get(n.functionId)||{functionId:n.functionId,name:n.name,people:0};f.people+=n.quantity;by.set(n.functionId,f);}
+ if(p.team.length)for(const n of p.team){const f=by.get(n.functionId)||{functionId:n.functionId,name:n.name,people:0};f.people+=n.quantity;by.set(n.functionId,f);}
+ else for(const s of steps)for(const n of s.needs){const f=by.get(n.functionId)||{functionId:n.functionId,name:n.name,people:0};f.people+=n.quantity;by.set(n.functionId,f);}
  const eq=new Map<string,{id:string,tag:string}>();
  for(const s of steps)for(const e of s.equipment)if(Date.parse(e.start)<=t&&t<Date.parse(e.end))eq.set(e.id,{id:e.id,tag:e.tag});
  const mats=new Map<string,{name:string,unit:string,amount:number}>();
@@ -91,7 +94,7 @@ function onDay(p:PlanRow,day:string,keepDone=false){
  return {steps:steps.map(s=>s.name),byFunction,people,hours,hh:roundHh(hours*people),equipment:[...eq.values()],materials:[...mats.values()]};
 }
 const order=(a:PlanRow,b:PlanRow)=>(a.priority??Infinity)-(b.priority??Infinity)||Date.parse(a.start)-Date.parse(b.start)||(a.number??Infinity)-(b.number??Infinity)||a.createdAt.localeCompare(b.createdAt);
-const demandOn=(plans:PlanRow[],day:string)=>roundHh(plans.reduce((n,p)=>n+(onDay(p,day)?.hh||0),0));
+const demandOn=(plans:PlanRow[],day:string,open:boolean)=>roundHh(plans.reduce((n,p)=>n+(onDay(p,day,open)?.hh||0),0));
 const keyOf=(c:{workOrderId:string|null,planId:string})=>c.workOrderId||c.planId;
 
 // ───────────── Consolidações ─────────────
@@ -108,10 +111,10 @@ async function firstKeys(bar:string,day:string):Promise<Set<string>|null>{
 async function compose(bar:BarId,day:string,plans:PlanRow[],first:Set<string>|null){
  const [[staff],bars]=await Promise.all([staffFor(bar,[day]),loadBars()]);
  let total=0;
- const cards=plans.map(p=>({p,d:onDay(p,day)})).filter(x=>x.d).sort((x,y)=>order(x.p,y.p)).map(({p,d})=>{
+ const cards=plans.map(p=>({p,d:onDay(p,day,staff.open)})).filter(x=>x.d).sort((x,y)=>order(x.p,y.p)).map(({p,d})=>{
   total=roundHh(total+d!.hh);
   const c={planId:p.id,workOrderId:p.workOrderId,number:p.number,label:p.number!=null?osNumber(p.number):'Rascunho',title:p.title,status:p.status==='launched'?'lancada':'rascunho',
-   org:p.org,location:p.location,priority:p.priority,firstDay:dayOf(p.start),lastDay:lastDay(p.end),started:p.started,skipSunday:p.skipSunday,
+   org:p.org,location:p.location,priority:p.priority,firstDay:dayOf(p.start),lastDay:lastDay(p.end),started:p.started,
    steps:d!.steps,byFunction:d!.byFunction,people:d!.people,hours:d!.hours,hh:d!.hh,noDuration:p.hours==null,equipment:d!.equipment,materials:d!.materials,
    cumulative:total,exceeds:total>staff.hh,emergency:false};
   c.emergency=c.status==='lancada'&&!!first&&!first.has(keyOf(c));
@@ -162,8 +165,8 @@ async function barDay(bar:BarId,day:string){
 
 /** Para os indicadores: as OS lançadas do dia (inclusive as já concluídas), com o HH e a marca de emergencial. */
 export async function dayLoad(bar:BarId,day:string){
- const first=await firstKeys(bar,day);
- return (await loadPlans(bar,day,day,undefined,true)).map(p=>({p,d:onDay(p,day,true)})).filter(x=>x.d).map(({p,d})=>{
+ const [first,[staff]]=await Promise.all([firstKeys(bar,day),staffFor(bar,[day])]);
+ return (await loadPlans(bar,day,day,undefined,true)).map(p=>({p,d:onDay(p,day,staff.open,true)})).filter(x=>x.d).map(({p,d})=>{
   const c={planId:p.id,workOrderId:p.workOrderId,label:p.number!=null?osNumber(p.number):'Rascunho',title:p.title,hours:d!.hours,people:d!.people,hh:d!.hh,
    noDuration:p.hours==null,firstDay:dayOf(p.start),lastDay:lastDay(p.end),emergency:false};
   c.emergency=!!first&&!first.has(keyOf(c));return c;
@@ -200,7 +203,8 @@ export async function d1Late(nowMs=Date.now()){
  const day=plusDays(dayOf(nowMs),1),out:{bar:string,barName:string,day:string,cards:number}[]=[];
  for(const bar of BARS){
   if(await consolidationOf(bar,day))continue;
-  const n=(await loadPlans(bar,day,day)).filter(p=>onDay(p,day)).length;
+  const [staff]=await staffFor(bar,[day]);
+  const n=(await loadPlans(bar,day,day)).filter(p=>onDay(p,day,staff.open)).length;
   if(n)out.push({bar,barName:barName(bar),day,cards:n});
  }
  return out;
@@ -215,7 +219,7 @@ export async function d1Preview(member:Member,url:URL){
  const all=await loadPlans(plan.bar,newDays[0],newDays[newDays.length-1],plan.id);
  const others=all.filter(p=>p.id!==plan.id);
  const staff=await staffFor(plan.bar as BarId,newDays);
- const out=newDays.map((day,i)=>{const before=demandOn(all,day),after=demandOn([...others,target],day);return {day,staff:staff[i].hh,before,after,over:after>staff[i].hh};});
+ const out=newDays.map((day,i)=>{const o=staff[i].open,before=demandOn(all,day,o),after=demandOn([...others,target],day,o);return {day,staff:staff[i].hh,before,after,over:after>staff[i].hh};});
  return {plan:{id:plan.id,label:plan.number!=null?osNumber(plan.number):'Rascunho',title:plan.title,status:plan.status,started:plan.started},
   from:{first:dayOf(plan.start),last:lastDay(plan.end)},to:{first:dayOf(target.start),last:lastDay(target.end)},days:out,
   needsReason:plan.status==='launched',blocked:plan.started?'OS já iniciada: ajuste as datas pela revisão da OS.':null};

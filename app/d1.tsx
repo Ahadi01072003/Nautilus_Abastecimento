@@ -141,7 +141,7 @@ function BarColumn({bar,day,data,onRefresh}:{bar:string,day:string,data:R,onRefr
       {c.status==='rascunho'&&<Badge tone="warning">{c.number!=null?'Revisão em rascunho':'Não entra na consolidação'}</Badge>}
       {c.noDuration&&<Badge tone="warning">Sem duração</Badge>}
       {c.org?.acronym&&<span className="pd-org" style={{borderColor:c.org.color||undefined}}>{c.org.acronym}</span>}
-      <span className="pd-days">{c.firstDay===c.lastDay?dayText(c.firstDay):`${dayText(c.firstDay)} a ${dayText(c.lastDay)}`}{c.skipSunday?' · sem domingo':''}</span></div>
+      <span className="pd-days">{c.firstDay===c.lastDay?dayText(c.firstDay):`${dayText(c.firstDay)} a ${dayText(c.lastDay)}`}</span></div>
      <h4>{c.title}</h4>
      <div className="pd-needs">{(c.byFunction as R[]).map(f=><span key={f.functionId}><Users size={12}/> {f.people}× {f.name}</span>)}
       {(c.equipment as R[]).map(e=><span key={e.id}><Truck size={12}/> {e.tag}</span>)}</div>
