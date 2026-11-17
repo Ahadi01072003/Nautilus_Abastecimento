@@ -18,6 +18,7 @@ import {toolsGet,toolsMutate} from '@/lib/tools';
 import {loansGet,loansMutate,uploadLoanFile,downloadLoanFile} from '@/lib/tools-loans';
 import {capacityGet,capacityMutate} from '@/lib/capacity';
 import {d1Get,d1Mutate} from '@/lib/d1';
+import {indicatorsGet} from '@/lib/day-indicators';
 import {orderDetail,operationMutate,startCheck} from '@/lib/operation';
 import {opsBoard,opsDashboard} from '@/lib/board';
 import {orderWorkbook} from '@/lib/reports';
@@ -100,6 +101,8 @@ export async function GET(req:Request){try{
  if(path==='planning/availability'){await rateLimit(member.id,'read');return json(await availability(member,url));}
  if(path==='planning/validate'){await rateLimit(member.id,'read');return json(await validateRealized(member,url.searchParams.get('id')||''));}
  if(path==='planning/recoverable'){await rateLimit(member.id,'read');return json(await recoverableEquipment(member,url));}
+ if(path==='planning/indicators'){await rateLimit(member.id,'read');return json(await indicatorsGet(path,url,member));}
+ if(path==='planning/indicators/export'){await rateLimit(member.id,'export');return await indicatorsGet(path,url,member) as Response;}
  if(path==='planning/d1'||path==='planning/d1/preview'||path==='planning/d1/consolidated'){await rateLimit(member.id,'read');return json(await d1Get(path,url,member));}
  if(path==='planning/bars'){await rateLimit(member.id,'read');return json(await capacityGet(path,url,member));}
  if(path==='orders'){await rateLimit(member.id,'read');return json(await ordersList(member,url));}

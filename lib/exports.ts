@@ -165,7 +165,7 @@ export async function exportPreview(member:Member,url:URL){
 }
 
 /** Tempo efetivo das OS: união dos intervalos ativos de todas as etapas (paralelas não contam em dobro). */
-async function effective(ids:string[]){
+export async function effective(ids:string[]){
  const out=new Map<string,number>();if(!ids.length)return out;
  const rows=await db().all(`SELECT s.work_order_id,i.start_at,i.end_at FROM step_intervals i JOIN os_steps s ON s.id=i.os_step_id WHERE i.kind='ativo' AND s.work_order_id = ANY(?::text[]) ORDER BY s.work_order_id,i.start_at::timestamptz`,ids);
  const now=Date.now();let id='',total=0,cur:number[]|null=null;

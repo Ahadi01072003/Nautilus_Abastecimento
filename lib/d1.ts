@@ -39,14 +39,14 @@ type PlanRow={id:string,status:string,workOrderId:string|null,number:number|null
  org:{id:string|null,acronym:string|null,name:string|null,color:string|null},location:string|null,bar:string,started:boolean,steps:StepRow[]};
 
 /** OS (lançadas, programadas ou em andamento) e rascunhos da barra que tocam o período [from, to]. */
-async function loadPlans(bar:string,from:string,to:string,extraPlanId?:string):Promise<PlanRow[]>{
+async function loadPlans(bar:string,from:string,to:string,extraPlanId?:string,closed=false):Promise<PlanRow[]>{
  const lo=dayStart(from),hi=dayStart(plusDays(to,1));
  const plans=await db().all(`SELECT p.id,p.status,p.work_order_id,p.title,p.description,p.priority,p.skip_sunday,p.estimated_hours,p.planned_start,p.planned_end,p.created_at,
    o.id org_id,o.acronym,o.name org_name,o.color,coalesce(o.bar,'equinor') bar,w.number,at.name type_name,l.name location_name
   FROM plans p LEFT JOIN requester_orgs o ON o.id=p.org_id LEFT JOIN work_orders w ON w.id=p.work_order_id LEFT JOIN activity_types at ON at.id=p.activity_type_id LEFT JOIN locations l ON l.id=p.location_id
   WHERE coalesce(o.bar,'equinor')=? AND p.planned_start IS NOT NULL AND p.planned_end IS NOT NULL
-   AND ((p.status='launched' AND w.status = ANY(?::text[])) OR (p.status='draft' AND p.base_plan_id IS NULL AND p.mode IS DISTINCT FROM 'realizada'))
-   AND ((p.planned_start<? AND p.planned_end>?) OR p.id=?)`,bar,REVISABLE,hi,lo,extraPlanId||'');
+   AND (${closed?"(p.status='launched' AND w.status<>'cancelada')":"(p.status='launched' AND w.status = ANY(?::text[])) OR (p.status='draft' AND p.base_plan_id IS NULL AND p.mode IS DISTINCT FROM 'realizada')"})
+   AND ((p.planned_start<? AND p.planned_end>?) OR p.id=?)`,...[bar,...(closed?[]:[REVISABLE]),hi,lo,extraPlanId||'']);
  if(!plans.length)return [];
  const ids=plans.map(p=>p.id);
  const [steps,needs,res,os,mats]=await Promise.all([
@@ -75,10 +75,10 @@ function shifted(p:PlanRow,days:number):PlanRow{
  return {...p,start:mv(p.start),end:mv(p.end),steps:p.steps.map(s=>({...s,start:mv(s.start),end:mv(s.end),equipment:s.equipment.map(e=>({...e,start:mv(e.start),end:mv(e.end)}))}))};
 }
 /** O que a OS ocupa no dia: etapas do dia (não encerradas), pessoas por função, HH (duração × pessoas), equipamento e materiais. */
-function onDay(p:PlanRow,day:string){
+function onDay(p:PlanRow,day:string,keepDone=false){
  if(p.skipSunday&&weekday(day)===0)return null;
  const t=Date.parse(dayStart(day));
- const steps=p.steps.filter(s=>!s.done&&Date.parse(s.start)<=t&&t<Date.parse(s.end));
+ const steps=p.steps.filter(s=>(keepDone||!s.done)&&Date.parse(s.start)<=t&&t<Date.parse(s.end));
  if(!steps.length)return null;
  const by=new Map<string,{functionId:string,name:string,people:number}>();
  for(const s of steps)for(const n of s.needs){const f=by.get(n.functionId)||{functionId:n.functionId,name:n.name,people:0};f.people+=n.quantity;by.set(n.functionId,f);}
@@ -161,6 +161,17 @@ async function wholeDay(day:string){
  const bars=Object.fromEntries(BARS.map((k,i)=>[k,retrato(boards[i])])) as Record<string,ReturnType<typeof retrato>>;
  return {boards,bars,first};
 }
+
+/** Para os indicadores: as OS lançadas do dia (inclusive as já concluídas), com o HH e a marca de emergencial. */
+export async function dayLoad(bar:BarId,day:string){
+ const first=await firstKeys(day);
+ return (await loadPlans(bar,day,day,undefined,true)).map(p=>({p,d:onDay(p,day,true)})).filter(x=>x.d).map(({p,d})=>{
+  const c={planId:p.id,workOrderId:p.workOrderId,label:p.number!=null?osNumber(p.number):'Rascunho',title:p.title,hours:d!.hours,people:d!.people,hh:d!.hh,
+   noDuration:p.hours==null,firstDay:dayOf(p.start),lastDay:lastDay(p.end),emergency:false};
+  c.emergency=!!first&&!first.has(keyOf(c));return c;
+ });
+}
+export {consolidationOf};
 
 export async function d1Board(member:Member,url:URL){
  await viewer(member);
