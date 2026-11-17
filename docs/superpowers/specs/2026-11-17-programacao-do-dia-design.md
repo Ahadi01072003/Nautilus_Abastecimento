@@ -1,6 +1,6 @@
 # Programação do dia (reformulação do planejamento) — desenho
 
-Data: 17/11/2026 · Substitui as seções 12 a 14 de `2026-11-11-planejamento-dmais1-design.md` (o modelo por dia do P0 continua).
+Data: 17/11/2026 · Aprovado pelo usuário em 17/11/2026 · Substitui as seções 12 a 14 de `2026-11-11-planejamento-dmais1-design.md` (o modelo por dia do P0 continua).
 
 ## 1. Intenção
 
@@ -39,6 +39,10 @@ Turno B ou *fora do HH*). Supervisor e TST ficam *fora do HH*.
 | ADM OCP | 08–17, 1 h de almoço = 8 h | — | — |
 | Turno A/B (Equinor) | 08–20, 1 h de almoço = 11 h, só no dia de escala | idem | idem |
 
+- **Janelas do dia:** o HH do dia é a soma das janelas, cada uma com quem está presente (almoço de 1 h descontado na janela
+  em que cai): seg–sex 08–17 ADM + turno (7×8 + 7×8 = 112) e 17–20 só turno (7×3 = 21) = 133; sábado 08–12 ADM + turno
+  (14×4 = 56) e 12–20 só turno (7×7 = 49) = 105; domingo 08–20 só turno (7×11 = 77); OCP seg–sex 08–17 ADM (5×8 = 40).
+  A barra de HH mostra os trechos de cada janela (rótulo e HH), sem horário das atividades: as OS enchem o total.
 - Escala 2x2: Turno B trabalha 17 e 18/11/2026; Turno A, 19 e 20/11; e assim por diante (âncora: **Turno A em 19/11/2026**).
 - Resultado com a planilha de 17/11 (7 ADM, 7 Turno A, 7 Turno B na Equinor; 5 ADM na OCP):
   Equinor 133 HH (seg–sex), 105 (sábado), 77 (domingo); OCP 40 HH (seg–sex), 0 no fim de semana.
