@@ -42,7 +42,7 @@ const inScope=(a:Actor,orgId:string|null)=>{const s=scopeOf(a);return !s||(!!org
 async function refs(){
  const [activityTypes,orgs,people,locations,equipment,equipmentTypes,operators,functions,impediments,materials,codes,categories]=await Promise.all([
   all('SELECT t.id,t.code,t.name,t.active,t.system,t.current_version,v.id flow_version_id FROM activity_types t JOIN flow_versions v ON v.activity_type_id=t.id AND v.version=t.current_version ORDER BY t.name'),
-  all('SELECT id,name,acronym,category,color,active FROM requester_orgs ORDER BY name'),
+  all("SELECT id,name,acronym,category,color,active,coalesce(bar,'equinor') bar FROM requester_orgs ORDER BY name"),
   all('SELECT id,org_id,name,role,active FROM requester_people ORDER BY name'),
   all('SELECT id,parent_id,kind,name,code,active FROM locations ORDER BY name'),
   all('SELECT id,tag,description,type_id,location_id,capacity,active FROM equipment ORDER BY tag'),

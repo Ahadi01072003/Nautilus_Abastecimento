@@ -1,8 +1,8 @@
 'use client';
 // Planejamento de atividade (rascunho com salvamento automático, reservas, documentos,
 // revisão e lançamento) com a lista de rascunhos, e Lista de OS (também usada na Operação).
-import {Fragment,useCallback,useEffect,useMemo,useRef,useState,FormEvent} from 'react';
-import {Package,PackagePlus,Shapes,ClipboardCheck,Plus,AlertTriangle,LoaderCircle,CheckCircle2,CircleDashed,CloudOff,Rocket,Trash2,X,Wand2,ClipboardList,CalendarRange,Lock,Info,Unlock,Filter,Clock,Users,Truck,MapPin,MonitorPlay,Ban,Pencil} from 'lucide-react';
+import {Fragment,createContext,useCallback,useContext,useEffect,useMemo,useRef,useState,FormEvent} from 'react';
+import {Package,PackagePlus,Shapes,ClipboardCheck,Plus,AlertTriangle,LoaderCircle,CheckCircle2,CircleDashed,CloudOff,Rocket,Trash2,X,Wand2,ClipboardList,CalendarRange,Lock,Info,Unlock,Filter,Clock,Users,Truck,MapPin,Ban,Pencil} from 'lucide-react';
 import {toast} from 'sonner';
 import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {Table,TableHeader,TableRow,TableHead,TableBody,TableCell} from '@/components/ui/table';
@@ -50,7 +50,7 @@ const statusNames:Record<string,[string,string]>={programada:['Programada','info
 /** Período numa linha só (início e fim lado a lado). */
 const range=(a?:string|null,b?:string|null)=><Period a={a} b={b}/>;
 
-export type Need={equipmentTypeId:string|null,functionId:string|null,materialId:string|null,quantity:number|null,amount:number|null,unit:string|null,hoursPerDay?:number|null};
+export type Need={equipmentTypeId:string|null,functionId:string|null,materialId:string|null,quantity:number|null,amount:number|null,unit:string|null};
 /** Dias de uso de um equipamento (OS sem fluxo), AAAA-MM-DD; ausente = a OS inteira. */
 type Use={start:string,end:string};
 /** hours: horas de uso por dia de cada equipamento (texto do campo; vazio = 12 h, o dia todo). */
@@ -59,14 +59,14 @@ type Step={key:string,id:string,name:string,description:string,required:boolean,
 type Note={key:string,kind:string,categoryId:string,description:string,at:string,until:string};
 /** Horas de uso de um equipamento no registro de atividade realizada (horários locais de Brasília). */
 type RUse={key:string,equipmentId:string,start:string,end:string,recoverable:boolean};
-type Form={skipSunday:boolean,title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[],notes:Note[],uses:RUse[]};
-const fromPlan=(p:R):Form=>{const realized=p.mode==='realizada',S=realized?toLocal:dayIn,E=realized?toLocal:dayInEnd;return {uses:((p.realized_uses||[]) as R[]).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toLocal(u.start),end:toLocal(u.end),recoverable:!!u.recoverable})),notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until)})),skipSunday:Number(p.skip_sunday)===1,title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:S(p.planned_start),end:E(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:S(s.planned_start),end:E(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit,hoursPerDay:n.hours_per_day??null})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,
+type Form={estimatedHours:string,skipSunday:boolean,title:string,code:string,description:string,orgId:string,personId:string,locationId:string,start:string,end:string,steps:Step[],notes:Note[],uses:RUse[]};
+const fromPlan=(p:R):Form=>{const realized=p.mode==='realizada',S=realized?toLocal:dayIn,E=realized?toLocal:dayInEnd;return {estimatedHours:p.estimated_hours==null?'':String(p.estimated_hours).replace('.',','),uses:((p.realized_uses||[]) as R[]).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toLocal(u.start),end:toLocal(u.end),recoverable:!!u.recoverable})),notes:((p.realized_notes||[]) as R[]).map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||'',description:n.description,at:toLocal(n.at),until:toLocal(n.until)})),skipSunday:Number(p.skip_sunday)===1,title:p.title||'',code:p.code||'',description:p.description||'',orgId:p.org_id||'',personId:p.requester_person_id||'',locationId:p.location_id||'',start:S(p.planned_start),end:E(p.planned_end),steps:p.steps.map((s:R)=>({key:s.step_key,id:s.id,name:s.name,description:s.description,required:!!s.required,included:!!s.included,dependsOn:s.depends_on,defaultMinutes:s.default_minutes,start:S(s.planned_start),end:E(s.planned_end),locationId:s.location_id||'',needs:s.needs.map((n:R)=>({equipmentTypeId:n.equipment_type_id,functionId:n.function_id,materialId:n.material_id,quantity:n.quantity,amount:n.amount,unit:n.unit})),equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,
   uses:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>!realized&&(r.start_at!==s.planned_start||r.end_at!==s.planned_end)).map(r=>[r.equipment_id,{start:dayIn(r.start_at),end:dayInEnd(r.end_at)}])),
   hours:Object.fromEntries(((s.reservations||[]) as R[]).filter(r=>r.hours_per_day!=null&&Number(r.hours_per_day)!==EQUIPMENT_DAY_HOURS).map(r=>[r.equipment_id,String(Number(r.hours_per_day)).replace('.',',')]))}))};};
 const usedIds=(f:Form)=>new Set(f.steps.filter(s=>s.included).flatMap(s=>s.equipmentIds));
 const toBody=(f:Form,realized=false)=>({...(realized?{uses:f.uses.filter(u=>usedIds(f).has(u.equipmentId)).map(u=>({key:u.key,equipmentId:u.equipmentId,start:toISO(u.start),end:toISO(u.end),recoverable:u.recoverable})),notes:f.notes.map(n=>({key:n.key,kind:n.kind,categoryId:n.categoryId||null,description:n.description,at:toISO(n.at),until:n.kind==='bloqueio'||(n.kind==='impacto'&&n.until)?toISO(n.until):null}))}:{}),title:f.title,code:f.code,description:f.description,orgId:f.orgId||null,requesterPersonId:f.personId||null,locationId:f.locationId||null,
  // Planejamento: dias (AAAA-MM-DD). Atividade realizada: data e hora reais.
- plannedStart:realized?toISO(f.start):f.start||null,plannedEnd:realized?toISO(f.end):f.end||null,...(realized?{}:{skipSunday:f.skipSunday}),
+ plannedStart:realized?toISO(f.start):f.start||null,plannedEnd:realized?toISO(f.end):f.end||null,...(realized?{}:{skipSunday:f.skipSunday,estimatedHours:f.estimatedHours.trim()===''?'':f.estimatedHours.replace(',','.')}),
  steps:f.steps.map(s=>({key:s.key,included:s.included,plannedStart:realized?toISO(s.start):s.start||null,plannedEnd:realized?toISO(s.end):s.end||null,locationId:s.locationId||null,needs:s.needs,equipmentIds:s.included?s.equipmentIds:[],operatorIds:s.included?s.operatorIds:[],
   equipmentWindows:realized?{}:usesBody(s,f),equipmentHours:realized?undefined:hoursBody(s)}))});
 
@@ -138,6 +138,22 @@ function SaveBadge({state,at,message}:{state:SaveState,at:string|null,message:st
 const REVISABLE_OS=['programada','em_andamento'];
 /** Detalhes da OS lançada (Lista de OS e Gantt): o mesmo editor, só leitura, com as ações da OS. */
 type Details={order:R,current:boolean,canPlan:boolean,canCancel:boolean,onExec:()=>void,onEdit:()=>void,onCancel:()=>void,onVersion:(planId:string)=>void};
+/** Duração estimada da OS em edição: o equipamento usa essa duração por dia. */
+const DurationCtx=createContext<number|null>(null);
+const durationOk=(v:string)=>{const h=Number(v.replace(',','.'));return v.trim()!==''&&Number.isFinite(h)&&h>=0.25&&h<=24&&Math.round(h*4)===h*4;};
+/** Barra de HH do dia ao vivo: o que já está programado na barra e o que esta OS acrescenta (duração × pessoas). */
+function DayBarPreview({bar,day,planId,hours,people}:{bar:string,day:string,planId:string,hours:number,people:number}){
+ const [d,setD]=useState<R|null>(null);
+ useEffect(()=>{let live=true;const t=setTimeout(()=>{load<R>(`planning/d1?bar=${bar}&day=${day}`).then(r=>{if(live)setD(r)},()=>{if(live)setD(null)})},350);return()=>{live=false;clearTimeout(t)};},[bar,day]);
+ if(!d)return null;
+ const others=(d.cards as R[]).filter(c=>c.planId!==planId).reduce((t,c)=>t+Number(c.hh),0),mine=Math.round(hours*people*100)/100,cap=Number(d.staff.hh),total=others+mine;
+ const w=(x:number)=>`${cap>0?Math.min(100,x*100/Math.max(cap,total)):0}%`;
+ const n=(x:number)=>String(Math.round(x*100)/100).replace('.',',');
+ return <div className={`n-field wide day-bar-preview ${total>cap?'over':''}`}><label>Barra de HH · {bar==='ocp'?'OCP':'Equinor'} · {dayText(day)}</label>
+  <div className="dbp-track"><span className="dbp-others" style={{width:w(others)}}/><span className="dbp-mine" style={{width:w(mine)}}/></div>
+  <small>{n(total)} de {n(cap)} HH · esta OS: {hours?`${n(hours)} h × ${people} pessoa${people===1?'':'s'} = ${n(mine)} HH`:'informe a duração'}{total>cap?` · passa ${n(total-cap)} HH do disponível`:''}</small></div>;
+}
+
 function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{planId:string,refs:R,onRefs:()=>Promise<void>,onClose:()=>void,onReplaced:(id:string)=>void,onLaunched:(workOrderId?:string)=>void,details?:Details}){
  const [plan,setPlan]=useState<R|null>(null),[form,setForm]=useState<Form|null>(null),[editable,setEditable]=useState(false),[loadError,setLoadError]=useState('');
  const [saveState,setSaveState]=useState<SaveState>('saved'),[savedAt,setSavedAt]=useState<string|null>(null),[saveError,setSaveError]=useState('');
@@ -191,7 +207,7 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
   setSuggest(out);
  }
 
- return <div className="plan-editor"><datalist id="units">{UNITS.map(u=><option key={u} value={u}/>)}</datalist>
+ return <DurationCtx.Provider value={durationOk(form.estimatedHours)?Number(form.estimatedHours.replace(',','.')):null}><div className="plan-editor"><datalist id="units">{UNITS.map(u=><option key={u} value={u}/>)}</datalist>
   <div className="plan-bar"><div><Badge tone={plan.status==='draft'&&!revision?'warning':'info'}>{revision?`Revisão ${plan.revision} · ${osLabel(plan.os_number)}`:realized&&plan.status==='draft'?'Atividade realizada':plan.status==='draft'?'Rascunho':plan.os_number?osLabel(plan.os_number):plan.status}</Badge><b>{free?(form.title||'Atividade sem título'):`${plan.activity_code} · ${plan.activity_name}`}</b><small>{realized?'Registro sem planejamento prévio':free?'OS sem fluxo':`Fluxo v${plan.flow_version}`}{form.code?` · ${form.code}`:''} · responsável {plan.author_name}</small></div>
    <div className="plan-bar-actions">{editable&&<SaveBadge state={saveState} at={savedAt} message={saveError}/>}<Button variant="outline" onClick={onClose}>{details?'Voltar à lista':'Fechar'}</Button>
     {details&&<><Button variant="outline" onClick={details.onExec}><ClipboardCheck size={16}/> Abrir em Apontamentos</Button>
@@ -218,7 +234,9 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
      <Field label={free?'Dia de início *':'Dia de início previsto *'} hint={dayIssue(form.start)||'Planejamento por dia: a hora fica com a Operação.'}><Input type="date" min="2000-01-01" max="2100-12-31" aria-invalid={!!dayIssue(form.start)} value={form.start} onChange={e=>update(f=>({...f,start:e.target.value,end:f.end&&e.target.value>f.end?e.target.value:f.end}))}/></Field>
      <Field label={free?'Dia de fim *':'Dia de fim previsto *'} hint={dayIssue(form.end)||daysText(daysCount(form.start,form.end))||undefined}><Input type="date" min={form.start||'2000-01-01'} max="2100-12-31" aria-invalid={!!dayIssue(form.end)||(daysCount(form.start,form.end)??1)<1} value={form.end} onChange={e=>update(f=>({...f,end:e.target.value}))}/></Field>
     </>}
-    {!realized&&<Toggle title="Não trabalha aos domingos" description="No D+1, a atividade não ocupa equipe aos domingos (os outros dias continuam iguais)." checked={!!form.skipSunday} onChange={v=>update(f=>({...f,skipSunday:v}))}/>}
+    {!realized&&<Field label="Duração estimada de execução (h) *" hint="Quanto tempo a atividade leva por dia, sem horário. Ex.: 2 ou 1,5. HH = duração × pessoas."><Input inputMode="decimal" placeholder="Ex.: 2" aria-invalid={form.estimatedHours!==''&&!durationOk(form.estimatedHours)} value={form.estimatedHours} onChange={e=>update(f=>({...f,estimatedHours:e.target.value.replace(/[^\d,.]/g,'')}))}/></Field>}
+    {!realized&&<Toggle title="Não trabalha aos domingos" description="Na Programação do dia, a atividade não ocupa equipe aos domingos (os outros dias continuam iguais)." checked={!!form.skipSunday} onChange={v=>update(f=>({...f,skipSunday:v}))}/>}
+    {!realized&&org&&dayIssue(form.start)==null&&form.start&&<DayBarPreview bar={org.bar||'equinor'} day={form.start} planId={planId} hours={durationOk(form.estimatedHours)?Number(form.estimatedHours.replace(',','.')):0} people={form.steps.filter(x=>x.included).reduce((t,x)=>t+x.needs.filter(n=>n.functionId).reduce((u,n)=>u+(Number(n.quantity)||0),0),0)}/>}
     <Field label="Descrição" wide><Textarea maxLength={2000} value={form.description} onChange={e=>update(f=>({...f,description:e.target.value}))} placeholder="O que será feito, observações para a operação"/></Field>
     {org&&<div className="n-field"><label>Etiqueta</label><OrgTag org={org}/></div>}
    </div>
@@ -250,7 +268,7 @@ function PlanEditor({planId,refs,onRefs,onClose,onReplaced,onLaunched,details}:{
    </div>}
    <div className="modal-footer"><Button variant="outline" onClick={()=>setReview(null)} disabled={launching}>Voltar e corrigir</Button><Button className="primary-action" onClick={()=>void launch()} disabled={launching||!!review?.errors.length||(revision&&!revisionReason.trim())}>{launching?<><LoaderCircle className="animate-spin" size={16}/> {realized?'Registrando…':'Lançando…'}</>:<>{realized?<ClipboardCheck size={16}/>:<Rocket size={16}/>} {realized?'Registrar atividade':revision?(review?.changes?.length?'Lançar revisão':'Relançar sem alterações'):'Lançar OS'}</>}</Button></div>
   </DialogContent></Dialog>
- </div>;
+ </div></DurationCtx.Provider>;
 }
 
 /** Avisos da revisão: não impedem o lançamento. Agrupados por tipo, com a etapa em destaque e o
@@ -310,7 +328,7 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false
    <Field label="Primeiro dia" hint={dayIssue(s.start)||(started?'Etapa iniciada: o dia de início previsto é a referência do desvio e não muda.':undefined)}><Input type="date" min="2000-01-01" max="2100-12-31" aria-invalid={!!dayIssue(s.start)} disabled={started} value={s.start} onChange={e=>onChange({start:e.target.value,...(s.end&&e.target.value>s.end?{end:e.target.value}:{})})}/></Field>
    <Field label="Último dia" hint={dayIssue(s.end)||daysText(nDays)||undefined}><Input type="date" min={s.start||'2000-01-01'} max="2100-12-31" aria-invalid={!!dayIssue(s.end)||(nDays??1)<1} value={s.end} onChange={e=>onChange({end:e.target.value})}/></Field></>}
    <Field label="Local específico da etapa"><Choice value={s.locationId||'none'} onChange={v=>onChange({locationId:v==='none'?'':v})} options={[{value:'none',label:'Mesmo local da atividade'},...(refs.locations as R[]).filter(l=>l.active||l.id===s.locationId).map(l=>({value:l.id,label:paths.get(l.id)!}))]}/></Field>
-   <div className="n-field wide"><label>Necessidades de recursos</label><div className="need-chips">{s.needs.length?s.needs.map((n,i)=><span key={i} className="need-chip">{n.materialId?<Package size={13}/>:n.equipmentTypeId?<Truck size={13}/>:<Users size={13}/>}{n.materialId?<><input type="number" min={0.001} step="any" aria-label="Quantidade" className="amount" value={n.amount??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,amount:Number(e.target.value)||0}:x)})}/><input aria-label="Unidade de medida" className="unit" maxLength={12} list="units" value={n.unit??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,unit:e.target.value}:x)})}/>{name('materials',n.materialId)}</>:<><input type="number" min={1} max={99} aria-label="Quantidade" value={n.quantity??1} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,quantity:Math.min(99,Math.max(1,Number(e.target.value)||1))}:x)})}/>× {n.equipmentTypeId?name('equipmentTypes',n.equipmentTypeId):name('functions',n.functionId)}{n.functionId&&!realized&&<><input type="number" min={0.25} max={24} step={0.25} className="hours" aria-label={`Horas por dia de ${name('functions',n.functionId)}`} title="Horas por dia de cada funcionário (vazio: jornada do dia da barra)" placeholder="h" value={n.hoursPerDay??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,hoursPerDay:e.target.value===''?null:Math.min(24,Math.max(0.25,Number(e.target.value)))}:x)})}/>h/dia</>}</>}<button type="button" aria-label="Remover necessidade" onClick={()=>onChange({needs:s.needs.filter((_,j)=>j!==i)})}><X size={12}/></button></span>):<small>Nenhuma necessidade informada.</small>}</div>
+   <div className="n-field wide"><label>Necessidades de recursos</label><div className="need-chips">{s.needs.length?s.needs.map((n,i)=><span key={i} className="need-chip">{n.materialId?<Package size={13}/>:n.equipmentTypeId?<Truck size={13}/>:<Users size={13}/>}{n.materialId?<><input type="number" min={0.001} step="any" aria-label="Quantidade" className="amount" value={n.amount??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,amount:Number(e.target.value)||0}:x)})}/><input aria-label="Unidade de medida" className="unit" maxLength={12} list="units" value={n.unit??''} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,unit:e.target.value}:x)})}/>{name('materials',n.materialId)}</>:<><input type="number" min={1} max={99} aria-label="Quantidade" value={n.quantity??1} onChange={e=>onChange({needs:s.needs.map((x,j)=>j===i?{...x,quantity:Math.min(99,Math.max(1,Number(e.target.value)||1))}:x)})}/>× {n.equipmentTypeId?name('equipmentTypes',n.equipmentTypeId):name('functions',n.functionId)}</>}<button type="button" aria-label="Remover necessidade" onClick={()=>onChange({needs:s.needs.filter((_,j)=>j!==i)})}><X size={12}/></button></span>):<small>Nenhuma necessidade informada.</small>}</div>
     {editable&&<NeedAdder refs={refs} needs={s.needs} onRefs={onRefs} onAdd={n=>onChange({needs:[...s.needs,n]})}/>}</div>
    <fieldset className="n-field wide"><legend>Equipamentos identificados {typeNeeds.length>0&&<small>({typeNeeds.map(n=>`${n.quantity}× ${name('equipmentTypes',n.equipmentTypeId)}`).join(', ')})</small>}</legend>
     {!valid?<small className="pending-text">Informe os dias da etapa para consultar a agenda e reservar equipamentos.</small>:<div className="resource-list">{equipment.map(e=>{const a=realized?undefined:avail[e.id];const chosen=s.equipmentIds.includes(e.id);
@@ -318,7 +336,7 @@ function StepCard({step:s,steps,refs,paths,planId,serverStep,osStatus,free=false
      const freeH=a?Number(a.freeHours??0):EQUIPMENT_DAY_HOURS,blocked=a&&!chosen&&(a.status==='bloqueado'||(a.status==='reservado'&&freeH<=0&&!free));
      return <label key={e.id} className={`resource ${a?.status||''} ${chosen?'chosen':''}`}><Checkbox checked={chosen} disabled={!!blocked} onCheckedChange={v=>onChange({equipmentIds:v?[...s.equipmentIds,e.id]:s.equipmentIds.filter(x=>x!==e.id),...(v&&a&&freeH>0&&freeH<EQUIPMENT_DAY_HOURS?{hours:{...s.hours,[e.id]:String(freeH).replace('.',',')}}:{})})}/><span><b>{e.tag}</b><small>{name('equipmentTypes',e.type_id)}{e.capacity?` · ${e.capacity}`:''}</small>{a&&a.status!=='livre'&&<em>{a.detail}</em>}</span>
       {!realized&&<Badge tone={!a?'muted':a.status==='livre'?'success':a.status==='bloqueado'?'danger':'warning'}>{!a?(editable?'Consultando…':chosen?'Reservado aqui':'—'):a.status==='livre'?'Livre':a.status==='bloqueado'?'Bloqueado':chosen?'Reservado aqui':freeH>0?`${String(freeH).replace('.',',')} h livres/dia`:'Sem horas livres'}</Badge>}</label>})}{neededTypes.length>0&&<button type="button" className="text-action" onClick={()=>setShowAll(v=>!v)}>{showAll?'Mostrar só os tipos necessários':'Mostrar todos os equipamentos'}</button>}</div>}
-    {valid&&!realized&&s.equipmentIds.length>0&&<div className="equip-uses"><b>{free?'Dias e horas de uso de cada equipamento':'Horas de uso por dia de cada equipamento'}</b><small>Padrão: 12 h por dia (o dia todo). Diminua quando o uso for menor: o restante do dia fica livre para outras OS (a soma no dia, entre as OS, vai até 12 h).{free?' Na OS sem fluxo, informe também os dias de uso para reservar só esses dias.':''}</small>
+    {valid&&!realized&&s.equipmentIds.length>0&&<div className="equip-uses"><b>{free?'Dias de uso de cada equipamento':'Equipamentos da OS'}</b><small>O equipamento fica reservado pela duração estimada da OS em cada dia de uso (a soma no dia, entre as OS, vai até 12 h).{free?' Na OS sem fluxo, informe os dias de uso para reservar só esses dias.':''}</small>
      {s.equipmentIds.map(id=><EquipmentDay key={id} tag={(refs.equipment as R[]).find(x=>x.id===id)?.tag||'—'} equipmentId={id} step={s} free={free} planId={planId} stepId={serverStep?.id} editable={editable} onChange={p=>{const patch:Partial<Step>={};if('use' in p){const uses={...s.uses};if(p.use)uses[id]=p.use;else delete uses[id];patch.uses=uses;}if(p.hours!==undefined)patch.hours={...s.hours,[id]:p.hours};onChange(patch)}}/>)}</div>}
     {valid&&(realized?<small>Registro do que foi usado: sem conferência de agenda, reserva ou bloqueio.</small>:<small>O rascunho não segura o equipamento: as horas ficam reservadas quando a OS é lançada, e outra OS lançada antes no mesmo dia tem prioridade. A ordem dentro do dia é combinada com o líder.</small>)}
    </fieldset>
@@ -338,7 +356,7 @@ function EquipmentDay({tag,equipmentId,step:s,free,planId,stepId,editable,onChan
  const u=free?s.uses?.[equipmentId]:undefined;
  const first=u?.start&&!dayIssue(u.start)?(u.start<s.start?s.start:u.start):s.start,last=u?.end&&!dayIssue(u.end)?(u.end>s.end?s.end:u.end):s.end;
  const ok=!!first&&!!last&&!dayIssue(first)&&!dayIssue(last)&&last>=first,whole=!u||(first===s.start&&last===s.end);
- const raw=s.hours?.[equipmentId]??'',typed=hoursNum(raw),badH=raw!==''&&(typed==null||typed>EQUIPMENT_DAY_HOURS),h=badH?EQUIPMENT_DAY_HOURS:typed??EQUIPMENT_DAY_HOURS;
+ const dur=useContext(DurationCtx),badH=false,h=dur??EQUIPMENT_DAY_HOURS;
  const [status,setStatus]=useState<R|null>(null);
  useEffect(()=>{if(!ok||!editable||badH)return;const t=setTimeout(async()=>{try{const r=await load<R>(`planning/availability?start=${first}&end=${last}&hours=${h}&planId=${planId}&stepId=${stepId||''}`);setStatus((r.equipment as R[]).find(x=>x.id===equipmentId)||null)}catch{setStatus(null)}},450);return()=>clearTimeout(t)},[ok,first,last,h,badH,editable,planId,stepId,equipmentId]);
  const setDays=(a:string,b:string)=>{if(!a||!b||dayIssue(a)||dayIssue(b))return;const x=a<s.start?s.start:a,y=b>s.end?s.end:b;if(y<x)return;onChange({use:x===s.start&&y===s.end?null:{start:x,end:y}});};
@@ -346,8 +364,7 @@ function EquipmentDay({tag,equipmentId,step:s,free,planId,stepId,editable,onChan
  return <div className="equip-use"><b>{tag}</b>
   {free&&<><label><span>Primeiro dia de uso</span><Input type="date" min={s.start} max={s.end} value={first} disabled={!editable} onChange={e=>setDays(e.target.value,last<e.target.value?e.target.value:last)}/></label>
    <label><span>Último dia de uso</span><Input type="date" min={first} max={s.end} value={last} disabled={!editable} onChange={e=>setDays(first,e.target.value)}/></label></>}
-  <label><span>Horas por dia</span><Input type="number" min={0.25} max={EQUIPMENT_DAY_HOURS} step={0.25} inputMode="decimal" placeholder={String(EQUIPMENT_DAY_HOURS)} aria-invalid={badH} value={raw} disabled={!editable} onChange={e=>onChange({hours:e.target.value})}/></label>
-  <span className="equip-use-until">{ok?(first===last?dayText(first):`${dayText(first)} a ${dayText(last)}`):'—'}<small>{badH?`Horas por dia de 0,25 a ${EQUIPMENT_DAY_HOURS}`:`${hText(h)} h por dia${h===EQUIPMENT_DAY_HOURS?' (o dia todo)':''}`}{free&&whole?' · OS inteira':''}</small></span>
+  <span className="equip-use-until">{ok?(first===last?dayText(first):`${dayText(first)} a ${dayText(last)}`):'—'}<small>{`${hText(h)} h por dia (duração da OS)`}{free&&whole?' · OS inteira':''}</small></span>
   <Badge tone={!status?'muted':status.status==='livre'||status.status==='parcial'?'success':status.status==='bloqueado'?'danger':'warning'}>{!status?(editable?'Consultando…':'—'):status.status==='livre'?'Livre':status.status==='parcial'?`Cabe · ${hText(Number(status.freeHours))} h livres`:status.status==='bloqueado'?'Bloqueado':'Não cabe'}</Badge>
   {free&&!whole&&editable&&<button type="button" className="text-action" onClick={()=>onChange({use:null})}>OS inteira</button>}
   {status&&status.status!=='livre'&&<em>{status.detail}</em>}
@@ -414,7 +431,7 @@ export function Orders({refreshKey,planRefs,onPlanRefs,onExec,onRevise}:{refresh
  // Agenda de recursos: terceira exibição da lista (fica na sessão, como os filtros).
  const [resources,setResources]=useState(false);
  // eslint-disable-next-line react-hooks/set-state-in-effect -- Preferência da sessão lida após montar.
- useEffect(()=>{try{if(sessionStorage.getItem('nautilus.orders.resview')==='1')setResources(true)}catch{}},[]);
+ // A visão Agenda de recursos saiu da Lista de OS (recursos do dia ficam na Programação do dia).
  const showResources=(v:boolean)=>{setResources(v);try{sessionStorage.setItem('nautilus.orders.resview',v?'1':'0')}catch{}};
  const groups=useMemo(()=>rows?arrangeOrders(rows.orders as R[] as (OsItem&R)[],view.arrange,view.filter,now):[],[rows,view.arrange,view.filter,now]);
  const shown=useMemo(()=>flatRows(groups),[groups]);
@@ -434,7 +451,6 @@ export function Orders({refreshKey,planRefs,onPlanRefs,onExec,onRevise}:{refresh
  const status=(o:R,fl?:Flags)=><span className="status-cell"><Badge tone={statusNames[o.status]?.[1]}>{statusNames[o.status]?.[0]||o.status}</Badge>{o.origin==='realizada'&&<Badge>Realizada sem planejamento</Badge>}{o.late&&<Badge tone="danger">Início vencido</Badge>}{o.blocked_resources>0&&<Badge tone="danger"><Lock size={11}/> Equipamento bloqueado</Badge>}{fl&&flagBadges(fl)}</span>;
  const head=(g:OsGroup<OsItem&R>)=>g.label?<><b>{g.label}</b><span>{g.rows.length} OS</span>{g.note&&<small>{g.note}</small>}</>:null;
  const filtering=view.filter.orgs.length>0||view.filter.sectors.length>0;
- const presentation='/apresentacao?'+viewToParams(view.arrange,view.filter,view.display).toString();
  // PDF da agenda de recursos: filtros da lista (sem o período, escolhido ao exportar) + solicitante e setor.
  const resExport=new URLSearchParams(Object.entries({type:filters.type,location:filters.location,status:filters.status,number:filters.number,code:filters.code}).filter(([,v])=>v));
  for(const [k,v] of viewToParams(view.arrange,view.filter))if(k==='sol'||k==='setor')resExport.set(k,v);
@@ -451,9 +467,9 @@ export function Orders({refreshKey,planRefs,onPlanRefs,onExec,onRevise}:{refresh
    {Object.values(filters).some(Boolean)&&<button className="text-action" onClick={()=>setFilters(EMPTY_FILTERS)}>Limpar</button>}
   </div>
   <ArrangeControls view={view} onChange={setView} orgs={refs.orgs} sectors={refs.sectors||[]}/>
-  <div className="display-toggle"><div className="segmented" role="group" aria-label="Exibição"><button type="button" aria-pressed={!resources&&view.display==='lista'} onClick={()=>{showResources(false);setView({display:'lista'})}}>Lista</button><button type="button" aria-pressed={!resources&&view.display==='gantt'} onClick={()=>{showResources(false);setView({display:'gantt'})}}>Gantt</button><button type="button" aria-pressed={resources} onClick={()=>showResources(true)}>Agenda de recursos</button></div>
+  <div className="display-toggle"><div className="segmented" role="group" aria-label="Exibição"><button type="button" aria-pressed={!resources&&view.display==='lista'} onClick={()=>{showResources(false);setView({display:'lista'})}}>Lista</button><button type="button" aria-pressed={!resources&&view.display==='gantt'} onClick={()=>{showResources(false);setView({display:'gantt'})}}>Gantt</button></div>
    <small>{resources?'Uso de equipamentos, funções e materiais das OS desta lista, por data.':view.display==='gantt'?'Mesmas OS e mesma ordem da lista; a posição das barras segue as datas.':'Mesmas OS e mesma ordem do Gantt.'}</small>
-   <a className="chip present-link" href={presentation} target="_blank" rel="noopener" title="Abre a Apresentação (TV) com esta organização e estes filtros"><MonitorPlay size={14} className="inline"/> Apresentação</a></div>
+</div>
   <div className="org-counts" aria-label="OS por organização solicitante">{[...counts.entries()].sort((a,b)=>b[1]-a[1]).map(([org,n])=><span key={org}><OrgTag org={orgOf(org)}/><b>{n}</b><small>{Math.round(100*n/Math.max(1,shown.length))}%</small></span>)}<span className="org-total">{shown.length} OS{filtering?` de ${rows.total} (filtros de solicitante e setor)`:''}{rows.scoped?' no seu escopo':''}{filters.from||filters.to?' com programação no período':''}{rows.more?' · lista limitada às 1.000 primeiras':''}</span></div>
   {!shown.length?<Empty icon={ClipboardList} title="Nenhuma OS encontrada" description={filtering?'Nenhuma OS atende aos filtros de solicitante e setor. Limpe os filtros ou escolha outros valores.':'OS lançadas aparecem aqui. Rascunhos ficam no Planejamento de atividade.'}/>
   :resources?<ResourceAgenda query={query} orderIds={shown.map(r=>r.item.id)} period={{from:filters.from,to:filters.to}} exportParams={resExport} exportFilters={resFilters}/>
