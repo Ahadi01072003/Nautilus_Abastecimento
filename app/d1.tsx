@@ -1,6 +1,6 @@
 'use client';
 // Planejamento › D+1, na forma simples: para cada barra (OCP ou Equinor) e dia, o HH das OS (funcionários ×
-// horas por dia) contra o HH disponível (funcionários do dia × horas trabalhadas): “96 de 120 HH”, vermelho
+// horas por dia) contra o HH disponível (ADM + turno do dia: funcionários × horas): “96 de 120 HH”, vermelho
 // quando passa. O planejador corrige o efetivo do dia, ordena a pilha (arrastar ou setas), adia com prévia e
 // publica com um clique. Azul-marinho e vermelho identificam a barra.
 import {useCallback,useEffect,useRef,useState,type DragEvent} from 'react';
@@ -68,7 +68,7 @@ export default function D1View({manager=false}:{manager?:boolean}){
      {data.over?<p className="d1-over"><TriangleAlert size={16}/> Passou {h(data.missing)} HH do disponível. Adie ou reordene, ou corrija o efetivo do dia.</p>
       :<p className="d1-fine"><CheckCircle2 size={16}/> {data.staff.hh-data.demand===0?'HH do dia todo ocupado.':`Sobram ${h(data.staff.hh-data.demand)} HH.`}</p>}
     </div>
-    <StaffEditor key={`${bar}-${day}-${data.staff.people}-${data.staff.hours}-${data.staff.source}`} bar={bar} day={day} staff={data.staff} manager={manager} onStandard={()=>setStandard(true)} onDone={()=>void refresh()}/>
+    <StaffEditor key={`${bar}-${day}-${data.staff.hh}-${data.staff.adm.people}-${data.staff.shift.people}-${data.staff.source}`} bar={bar} day={day} staff={data.staff} manager={manager} onStandard={()=>setStandard(true)} onDone={()=>void refresh()}/>
    </section>
    <PublishBar data={data} bar={bar} day={day} onDone={()=>void refresh()}/>
    <section className="n-panel d1-stack-panel">
@@ -103,45 +103,59 @@ export default function D1View({manager=false}:{manager?:boolean}){
  </div>;
 }
 
-/** Efetivo do dia: funcionários × horas trabalhadas = HH disponível, para o planejador corrigir ou voltar ao padrão. */
+/** Uma linha do efetivo (ADM ou Turno): funcionários × horas = HH. */
+function GroupRow({label,people,hours,onPeople,onHours,onEnter}:{label:string,people:string,hours:string,onPeople:(v:string)=>void,onHours:(v:string)=>void,onEnter:()=>void}){
+ const hh=people!==''&&hours!==''?Number(people)*hNum(hours):null;
+ const key=(e:React.KeyboardEvent)=>{if(e.key==='Enter')onEnter();};
+ return <div className="d1-group"><span className="d1-group-name">{label}</span>
+  <Input aria-label={`Funcionários do ${label}`} inputMode="numeric" value={people} onChange={e=>onPeople(e.target.value.replace(/\D/g,''))} onKeyDown={key}/>
+  <span>×</span>
+  <Input aria-label={`Horas do ${label}`} inputMode="decimal" value={hours} onChange={e=>onHours(e.target.value.replace(/[^\d,.]/g,''))} onKeyDown={key}/>
+  <span>h = <b>{hh==null?'—':h(hh)}</b></span></div>;
+}
+
+/** Efetivo do dia: ADM + Turno (funcionários × horas) = HH disponível; o planejador corrige ou volta ao padrão. */
 function StaffEditor({bar,day,staff,manager,onStandard,onDone}:{bar:string,day:string,staff:R,manager:boolean,onStandard:()=>void,onDone:()=>void}){
- const [people,setPeople]=useState(String(staff.people)),[hours,setHours]=useState(h(staff.hours)),[busy,setBusy]=useState(false);
- async function save(p:string,hr:string){
+ const [f,setF]=useState({ap:String(staff.adm.people),ah:h(staff.adm.hours),sp:String(staff.shift.people),sh:h(staff.shift.hours)}),[busy,setBusy]=useState(false);
+ async function save(body:R){
   setBusy(true);
-  try{const r=await post('planning/d1/staff',{bar,day,people:p,hours:hr});toast.success(r.message);onDone();}catch(e){toast.error((e as Error).message)}finally{setBusy(false)}
+  try{const r=await post('planning/d1/staff',{bar,day,...body});toast.success(r.message);onDone();}catch(e){toast.error((e as Error).message)}finally{setBusy(false)}
  }
- const changed=people!==String(staff.people)||hNum(hours)!==Number(staff.hours),valid=people!==''&&hours!==''&&hNum(hours)>0;
- const preview=valid?Number(people)*hNum(hours):null;
- const kind=wd(day)===0||wd(day)===6?'fim de semana':'dia útil';
- const enter=(e:React.KeyboardEvent)=>{if(e.key==='Enter'&&changed&&valid)void save(people,hours);};
+ const valid=Object.values(f).every(v=>v!=='');
+ const changed=f.ap!==String(staff.adm.people)||hNum(f.ah)!==Number(staff.adm.hours)||f.sp!==String(staff.shift.people)||hNum(f.sh)!==Number(staff.shift.hours);
+ const total=valid?Number(f.ap)*hNum(f.ah)+Number(f.sp)*hNum(f.sh):null;
+ const go=()=>{if(changed&&valid)void save({admPeople:f.ap,admHours:f.ah,shiftPeople:f.sp,shiftHours:f.sh});};
+ const std=staff.standard;
  return <div className="d1-staff">
-  <label htmlFor="d1-staff">Efetivo do dia</label>
-  <div className="d1-staff-row">
-   <Input id="d1-staff" aria-label="Funcionários do dia" inputMode="numeric" value={people} onChange={e=>setPeople(e.target.value.replace(/\D/g,''))} onKeyDown={enter}/>
-   <span>func. ×</span>
-   <Input aria-label="Horas trabalhadas no dia" inputMode="decimal" className="d1-hours" value={hours} onChange={e=>setHours(e.target.value.replace(/[^\d,.]/g,''))} onKeyDown={enter}/>
-   <span>h = <b>{preview==null?'—':h(preview)}</b> HH</span>
-   <Button variant="outline" disabled={busy||!changed||!valid} onClick={()=>void save(people,hours)}>{busy&&<LoaderCircle className="spin" size={14}/>} Salvar</Button>
-  </div>
-  <small>{staff.source==='dia'?<>Corrigido por {staff.byName} (padrão de {kind}: {staff.standard.people} func. × {h(staff.standard.hours)} h). <button type="button" className="text-action" disabled={busy} onClick={()=>void save('','')}>Voltar ao padrão</button></>
-   :staff.standard.people===0?<b className="d1-unset">Funcionários padrão ainda não definidos{manager?'.':': peça à Gestão.'}</b>
-   :<>Padrão da barra para {kind}. Mude só se o dia for diferente (falta, férias, reforço, jornada menor).</>}
+  <label>Efetivo do dia</label>
+  <GroupRow label="ADM" people={f.ap} hours={f.ah} onPeople={v=>setF(x=>({...x,ap:v}))} onHours={v=>setF(x=>({...x,ah:v}))} onEnter={go}/>
+  <GroupRow label="Turno" people={f.sp} hours={f.sh} onPeople={v=>setF(x=>({...x,sp:v}))} onHours={v=>setF(x=>({...x,sh:v}))} onEnter={go}/>
+  <div className="d1-staff-total"><span>Total: <b>{total==null?'—':h(total)} HH</b></span>
+   <Button variant="outline" disabled={busy||!changed||!valid} onClick={go}>{busy&&<LoaderCircle className="spin" size={14}/>} Salvar</Button></div>
+  <small>{staff.source==='dia'?<>Corrigido por {staff.byName} (padrão: ADM {std.adm.people} × {h(std.adm.hours)} h + turno {std.shift.people} × {h(std.shift.hours)} h). <button type="button" className="text-action" disabled={busy} onClick={()=>void save({})}>Voltar ao padrão</button></>
+   :std.adm.people+std.shift.people===0?<b className="d1-unset">Funcionários padrão ainda não definidos{manager?'.':': peça à Gestão.'}</b>
+   :<>Padrão da barra para este dia. Mude só se o dia for diferente (falta, férias, reforço).</>}
    {manager&&<> <button type="button" className="text-action" onClick={onStandard}><Settings2 size={12}/> Padrão da barra</button></>}</small>
  </div>;
 }
 
-/** Padrão da barra (só a Gestão): funcionários em dia útil e no fim de semana e horas trabalhadas por dia. */
+/** Padrão da barra (só a Gestão): ADM (funcionários, horas de segunda a sexta e de sábado) e turno do dia. */
 function StandardDialog({bar,onClose,onDone}:{bar:R,onClose:()=>void,onDone:()=>void}){
- const [w,setW]=useState(String(bar.staffWeekday)),[e,setE]=useState(String(bar.staffWeekend)),[hr,setHr]=useState(h(bar.hours)),[busy,setBusy]=useState(false);
- async function go(){setBusy(true);try{const r=await post('planning/bars/save',{id:bar.id,staffWeekday:w,staffWeekend:e,hours:hr});toast.success(r.message);onDone();}catch(x){toast.error((x as Error).message)}finally{setBusy(false)}}
+ const [f,setF]=useState({admPeople:String(bar.admPeople),admHours:h(bar.admHours),admSaturdayHours:h(bar.admSaturdayHours),shiftPeople:String(bar.shiftPeople),shiftHours:h(bar.shiftHours)}),[busy,setBusy]=useState(false);
+ async function go(){setBusy(true);try{const r=await post('planning/bars/save',{id:bar.id,...f});toast.success(r.message);onDone();}catch(x){toast.error((x as Error).message)}finally{setBusy(false)}}
+ const num=(k:keyof typeof f,dec=false)=><Input inputMode={dec?'decimal':'numeric'} value={f[k]} onChange={x=>{const v=x.target.value.replace(dec?/[^\d,.]/g:/\D/g,'');setF(y=>({...y,[k]:v}));}}/>;
+ const weekdayHh=Number(f.admPeople)*hNum(f.admHours)+Number(f.shiftPeople)*hNum(f.shiftHours);
  return <Dialog open onOpenChange={v=>{if(!v&&!busy)onClose()}}><DialogContent className="n-dialog"><DialogHeader><DialogTitle>Padrão da barra {bar.name}</DialogTitle>
-  <DialogDescription>Quantos funcionários a barra tem normalmente e quantas horas cada um trabalha por dia. HH disponível = funcionários × horas. O planejador corrige um dia específico na tela do D+1.</DialogDescription></DialogHeader>
+  <DialogDescription>HH disponível = ADM (funcionários × horas do dia) + turno do dia (funcionários × horas). O ADM não trabalha no domingo; o turno trabalha todos os dias. O planejador corrige um dia específico na tela do D+1.</DialogDescription></DialogHeader>
   <div className="form-grid">
-   <Field label="Funcionários em dia útil (segunda a sexta)"><Input inputMode="numeric" value={w} onChange={x=>setW(x.target.value.replace(/\D/g,''))}/></Field>
-   <Field label="Funcionários no fim de semana (sábado e domingo)"><Input inputMode="numeric" value={e} onChange={x=>setE(x.target.value.replace(/\D/g,''))}/></Field>
-   <Field label="Horas trabalhadas por dia" hint="Também vale para a função da OS sem horas informadas."><Input inputMode="decimal" value={hr} onChange={x=>setHr(x.target.value.replace(/[^\d,.]/g,''))}/></Field>
+   <Field label="ADM · funcionários">{num('admPeople')}</Field>
+   <Field label="ADM · horas de segunda a sexta">{num('admHours',true)}</Field>
+   <Field label="ADM · horas no sábado" hint="0 se não trabalha.">{num('admSaturdayHours',true)}</Field>
+   <Field label="Turno · funcionários por dia" hint="Quem está de serviço no dia (escala 2x2).">{num('shiftPeople')}</Field>
+   <Field label="Turno · horas por dia" hint="Também vale para a função da OS sem horas informadas.">{num('shiftHours',true)}</Field>
   </div>
-  <div className="step-actions"><Button variant="outline" disabled={busy} onClick={onClose}>Cancelar</Button><Button disabled={busy||w===''||e===''||hr===''} onClick={()=>void go()}>{busy&&<LoaderCircle className="spin" size={15}/>} Salvar</Button></div>
+  <p className="d1-std-total">Dia útil: <b>{Number.isFinite(weekdayHh)?h(weekdayHh):'—'} HH</b></p>
+  <div className="step-actions"><Button variant="outline" disabled={busy} onClick={onClose}>Cancelar</Button><Button disabled={busy||Object.values(f).some(v=>v==='')} onClick={()=>void go()}>{busy&&<LoaderCircle className="spin" size={15}/>} Salvar</Button></div>
  </DialogContent></Dialog>;
 }
 

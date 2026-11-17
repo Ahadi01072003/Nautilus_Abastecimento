@@ -47,7 +47,7 @@ before(async()=>{
  loc=(await reg('locations',{kind:'unidade',name:'Base Açu'})).id as string;
  oil=(await reg('materials',{name:'Óleo hidráulico',unit:'L'})).id as string;
  fn.a=(await reg('functions',{name:'Assistente de Operações'})).id as string;
- await capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:6,staffWeekend:4,hours:12},manager);
+ await capacityMutate('planning/bars/save',{id:'equinor',admPeople:0,admHours:8,admSaturdayHours:4,shiftPeople:6,shiftHours:12},manager);
 });
 after(async()=>{await ctx.drop();});
 

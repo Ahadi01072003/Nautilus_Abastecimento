@@ -119,3 +119,12 @@ A medida volta a ser HH, sem configuração extra: **HH disponível do dia = fun
 funcionários e horas de um dia no D+1). **HH da OS = funcionários × horas por dia de cada função** (campo h/dia ao
 lado da quantidade; vazio = jornada do dia da barra). O resto da seção 14 continua valendo (só avisa, publicar com
 um clique).
+
+### 14.2 Ajuste de 17/11/2026: ADM + Turno (planilha de HH)
+
+A planilha de HH mostrou duas escalas na mesma barra. O HH disponível do dia passa a ser **ADM + Turno**:
+ADM = funcionários × horas do dia (8 h de segunda a sexta, 4 h no sábado, 0 no domingo; expediente 8–17 com
+1 h de almoço e sábado 8–12); Turno = funcionários de serviço no dia × 12 h (8–20, escala 2x2, todos os dias).
+Equinor (planilha): ADM 7 e turno 7 por dia, sem contar Supervisor e TST → 140 HH em dia útil, 112 no sábado,
+84 no domingo. O planejador corrige as duas linhas do dia no D+1. Na OS, h/dia vazio = horas do turno do dia
+(sem turno, as do ADM).

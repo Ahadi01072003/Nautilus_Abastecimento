@@ -2,7 +2,7 @@
 -- da OS na pilha do dia (prioridade) e opção de a atividade não trabalhar aos domingos.
 SET LOCAL lock_timeout='15s';
 
--- Horas por dia de cada função necessária (vazio = jornada do dia da barra).
+-- Horas por dia de cada função necessária (vazio = horas do turno do dia da barra).
 ALTER TABLE plan_step_needs ADD COLUMN IF NOT EXISTS hours_per_day numeric(4,2)
   CHECK (hours_per_day IS NULL OR (hours_per_day >= 0.25 AND hours_per_day <= 24));
 

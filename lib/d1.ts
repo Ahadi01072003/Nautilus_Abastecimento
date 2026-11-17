@@ -1,6 +1,6 @@
 // Planejamento · tela do D+1, na forma simples. Por barra (OCP ou Equinor) e dia: o HH das OS do dia
-// (funcionários × horas por dia de cada função das etapas do dia; sem horas, a jornada do dia) contra o HH
-// disponível (funcionários do dia × horas trabalhadas). Passou: só avisa, em vermelho, e marca a partir de
+// (funcionários × horas por dia de cada função das etapas do dia; sem horas, as do turno do dia) contra o HH
+// disponível (ADM + turno do dia: funcionários × horas). Passou: só avisa, em vermelho, e marca a partir de
 // qual OS da pilha. Ações: ordem da pilha (prioridade da OS), efetivo do dia, adiar com
 // prévia (rascunho muda direto; OS lançada vira revisão automática com motivo) e publicar (retrato imutável
 // do que a TV, o celular e a lista de separação mostram; publicar de novo cria a versão seguinte).
@@ -21,7 +21,6 @@ const REVISABLE=['programada','em_andamento'];
 const DONE=['concluida','dispensada'];
 type Actor=Member&{planning_bars?:string[]};
 const round=(n:number)=>Math.round(n*1000)/1000;
-const funcionarios=(n:number)=>`${n} funcionário${n===1?'':'s'}`;
 
 const viewer=(m:Member)=>requireAny(m,['planejamento','operacao','acompanhamento']);
 /** Quem planeja só uma barra mexe só nela (a Gestão e o planejador sem restrição mexem nas duas). */
@@ -99,7 +98,7 @@ const demandOn=(plans:PlanRow[],day:string,hours:number)=>roundHh(plans.reduce((
 async function compose(bar:BarId,day:string,plans:PlanRow[]){
  const [[staff],bars]=await Promise.all([staffFor(bar,[day]),loadBars()]);
  let total=0;
- const cards=plans.map(p=>({p,d:onDay(p,day,staff.hours)})).filter(x=>x.d).sort((x,y)=>order(x.p,y.p)).map(({p,d})=>{
+ const cards=plans.map(p=>({p,d:onDay(p,day,staff.osHours)})).filter(x=>x.d).sort((x,y)=>order(x.p,y.p)).map(({p,d})=>{
   total=roundHh(total+d!.hh);
   return {planId:p.id,workOrderId:p.workOrderId,number:p.number,label:p.number!=null?osNumber(p.number):'Rascunho',title:p.title,status:p.status==='launched'?'lancada':'rascunho',
    org:p.org,location:p.location,priority:p.priority,firstDay:dayOf(p.start),lastDay:lastDay(p.end),started:p.started,skipSunday:p.skipSunday,
@@ -158,7 +157,7 @@ export async function d1Preview(member:Member,url:URL){
  const all=await loadPlans(plan.bar,newDays[0],newDays[newDays.length-1],plan.id);
  const others=all.filter(p=>p.id!==plan.id);
  const staff=await staffFor(plan.bar as BarId,newDays);
- const out=newDays.map((day,i)=>{const h=staff[i].hours,before=demandOn(all,day,h),after=demandOn([...others,target],day,h);return {day,staff:staff[i].hh,before,after,over:after>staff[i].hh};});
+ const out=newDays.map((day,i)=>{const h=staff[i].osHours,before=demandOn(all,day,h),after=demandOn([...others,target],day,h);return {day,staff:staff[i].hh,before,after,over:after>staff[i].hh};});
  return {plan:{id:plan.id,label:plan.number!=null?osNumber(plan.number):'Rascunho',title:plan.title,status:plan.status,started:plan.started},
   from:{first:dayOf(plan.start),last:lastDay(plan.end)},to:{first:dayOf(target.start),last:lastDay(target.end)},days:out,
   needsReason:plan.status==='launched',blocked:plan.started?'OS já iniciada: ajuste as datas pela revisão da OS.':null};
@@ -194,24 +193,27 @@ async function reorder(member:Member,b:Row){
  return {ok:true,message:'Ordem salva.'};
 }
 
-/** Efetivo do dia (planejador da barra): funcionários e horas trabalhadas daquele dia. O que não vier fica como
- *  está no dia; os dois vazios voltam ao padrão da barra. */
+/** Efetivo do dia (planejador da barra): ADM e turno daquele dia (funcionários e horas). O que não vier fica
+ *  como está no dia; tudo vazio volta ao padrão da barra. */
 async function setStaff(member:Member,b:Row){
  const bar=barOf(b.bar),a=await planner(member,bar),day=dayParam(b.day);
  const blank=(v:unknown)=>v==null||String(v).trim()==='';
  const [cur]=await staffFor(bar,[day]);
- const reset=blank(b.people)&&blank(b.hours);
- const people=blank(b.people)?cur.people:staffNumber(b.people,'Funcionários do dia');
- const hours=blank(b.hours)?cur.hours:hoursNumber(b.hours,'Horas trabalhadas no dia');
+ const reset=['admPeople','admHours','shiftPeople','shiftHours'].every(k=>blank(b[k]));
+ const v={admPeople:blank(b.admPeople)?cur.adm.people:staffNumber(b.admPeople,'Funcionários do ADM no dia'),
+  admHours:blank(b.admHours)?cur.adm.hours:hoursNumber(b.admHours,'Horas do ADM no dia',0),
+  shiftPeople:blank(b.shiftPeople)?cur.shift.people:staffNumber(b.shiftPeople,'Funcionários do turno no dia'),
+  shiftHours:blank(b.shiftHours)?cur.shift.hours:hoursNumber(b.shiftHours,'Horas do turno no dia',0)};
  const note=text(b.note,300)||null;
  await db().tx(async tx=>{
   if(reset)await tx.run('DELETE FROM plan_day_staff WHERE bar=? AND day=?::date',bar,day);
-  else await tx.run(`INSERT INTO plan_day_staff(bar,day,people,hours,note,updated_at,updated_by,updated_by_name) VALUES(?,?::date,?,?,?,?,?,?)
-   ON CONFLICT(bar,day) DO UPDATE SET people=excluded.people,hours=excluded.hours,note=excluded.note,updated_at=excluded.updated_at,updated_by=excluded.updated_by,updated_by_name=excluded.updated_by_name`,bar,day,people,hours,note,now(),a.id,a.name);
-  await audit(tx,a,'Planejamento: efetivo do dia',`${bar}:${day}`,{bar,day,people:reset?null:people,hours:reset?null:hours,note});
+  else await tx.run(`INSERT INTO plan_day_staff(bar,day,adm_people,adm_hours,shift_people,shift_hours,note,updated_at,updated_by,updated_by_name) VALUES(?,?::date,?,?,?,?,?,?,?,?)
+   ON CONFLICT(bar,day) DO UPDATE SET adm_people=excluded.adm_people,adm_hours=excluded.adm_hours,shift_people=excluded.shift_people,shift_hours=excluded.shift_hours,note=excluded.note,updated_at=excluded.updated_at,updated_by=excluded.updated_by,updated_by_name=excluded.updated_by_name`,
+   bar,day,v.admPeople,v.admHours,v.shiftPeople,v.shiftHours,note,now(),a.id,a.name);
+  await audit(tx,a,'Planejamento: efetivo do dia',`${bar}:${day}`,{bar,day,...(reset?{reset:true}:v),note});
  });
  const [s]=await staffFor(bar,[day]);
- const what=`${funcionarios(s.people)} × ${hText(s.hours)} h = ${hText(s.hh)} HH`;
+ const what=`ADM ${s.adm.people} × ${hText(s.adm.hours)} h + turno ${s.shift.people} × ${hText(s.shift.hours)} h = ${hText(s.hh)} HH`;
  return {ok:true,message:reset?`Efetivo de ${dayText(day)} na barra ${barName(bar)} voltou ao padrão: ${what}.`:`Efetivo de ${dayText(day)} na barra ${barName(bar)}: ${what}.`};
 }
 
@@ -259,7 +261,7 @@ async function publish(member:Member,b:Row){
  const cards=publishable(board),version=last?Number(last.version)+1:1;
  const mats=new Map<string,{name:string,unit:string,amount:number}>();
  for(const c of cards)for(const m of c.materials){const k=m.name+'|'+m.unit,x=mats.get(k)||{name:m.name,unit:m.unit,amount:0};x.amount=round(x.amount+m.amount);mats.set(k,x);}
- const snapshot={bar:{id:bar,name:board.bar.name,color:board.bar.color},day,weekday:board.weekday,staff:{people:board.staff.people,hours:board.staff.hours,hh:board.staff.hh},
+ const snapshot={bar:{id:bar,name:board.bar.name,color:board.bar.color},day,weekday:board.weekday,staff:{people:board.staff.people,adm:board.staff.adm,shift:board.staff.shift,hh:board.staff.hh},
   people:cards.reduce((n,c)=>n+c.people,0),hh:roundHh(cards.reduce((n,c)=>n+c.hh,0)),
   cards:cards.map((c,i)=>({position:i+1,planId:c.planId,workOrderId:c.workOrderId,label:c.label,title:c.title,org:c.org,location:c.location,firstDay:c.firstDay,lastDay:c.lastDay,
    steps:c.steps,byFunction:c.byFunction,people:c.people,hh:c.hh,equipment:c.equipment,materials:c.materials})),
