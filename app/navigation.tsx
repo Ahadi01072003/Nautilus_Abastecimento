@@ -24,7 +24,7 @@ export const MODULES:Module[]=[
   {id:'plan-fluxos',label:'Cadastro de fluxo',icon:Workflow,subtitle:'Tipos de atividade, etapas, dependências e necessidades padrão, com versões.'},
   {id:'plan-atividade',label:'Planejamento de atividade',icon:CalendarPlus,subtitle:'Rascunho com dias, recursos (equipamento em horas por dia) e equipe; revise e lance a OS.'},
   {id:'plan-os',label:'Lista de OS programadas',icon:ListOrdered,subtitle:'OS lançadas, com filtros por período, solicitante, local e situação.'},
-  {id:'plan-d1',label:'D+1',icon:Layers,subtitle:'Amanhã por barra: as OS do dia somam pessoas contra o efetivo; ordene, adie e publique.'},
+  {id:'plan-d1',label:'D+1',icon:Layers,subtitle:'Amanhã por barra: o HH das OS contra o HH disponível (funcionários × horas); ordene, adie e publique.'},
  ]},
  {id:'operacao',label:'Operação',icon:HardHat,screens:[
   {id:'op-painel',label:'Painel de OS',icon:Gauge,subtitle:'Cada OS em andamento com a régua e o cronômetro do tempo efetivo.'},

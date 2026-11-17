@@ -47,7 +47,7 @@ before(async()=>{
  loc=(await reg('locations',{kind:'unidade',name:'Base Açu'})).id as string;
  oil=(await reg('materials',{name:'Óleo hidráulico',unit:'L'})).id as string;
  fn.a=(await reg('functions',{name:'Assistente de Operações'})).id as string;
- await capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:6,staffWeekend:4},manager);
+ await capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:6,staffWeekend:4,hours:12},manager);
 });
 after(async()=>{await ctx.drop();});
 
@@ -72,8 +72,8 @@ test('programação publicada e lista de separação: retrato do dia, só OS lan
  const day='2031-06-02';
  const p=await published(day);
  assert.equal(p.version,1);
- assert.deepEqual((p.snapshot.cards as Row[]).map(c=>[c.title,c.people]),[['A',4],['B',3]]);
- assert.deepEqual([p.snapshot.staff,p.snapshot.people],[6,7]);
+ assert.deepEqual((p.snapshot.cards as Row[]).map(c=>[c.title,c.people,c.hh]),[['A',4,48],['B',3,36]]);
+ assert.deepEqual([p.snapshot.staff.people,p.snapshot.staff.hh,p.snapshot.hh],[6,72,84]);
  assert.deepEqual((p.snapshot.materials as Row[]).map(m=>[m.name,m.unit,m.amount]),[['Óleo hidráulico','L',20]]);
  const none=await published(day,'ocp');
  assert.equal(none.version,null);

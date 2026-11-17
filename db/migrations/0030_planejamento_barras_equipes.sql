@@ -1,5 +1,6 @@
--- NAUTILUS · Planejamento: barras OCP e Equinor. Cada barra tem um efetivo padrão em pessoas (dia útil e
--- fim de semana) que o planejador corrige por dia (falta, férias, reforço). A barra da OS vem do solicitante.
+-- NAUTILUS · Planejamento: barras OCP e Equinor. HH disponível do dia = funcionários × horas trabalhadas.
+-- Cada barra tem o padrão (funcionários em dia útil e fim de semana, jornada em horas) que o planejador corrige
+-- por dia (falta, férias, reforço, jornada menor). A barra da OS vem do solicitante.
 SET LOCAL lock_timeout='15s';
 
 CREATE TABLE IF NOT EXISTS plan_bars (
@@ -8,10 +9,11 @@ CREATE TABLE IF NOT EXISTS plan_bars (
   color text NOT NULL CHECK (color ~ '^#[0-9A-F]{6}$'),
   staff_weekday integer NOT NULL DEFAULT 0 CHECK (staff_weekday BETWEEN 0 AND 500),
   staff_weekend integer NOT NULL DEFAULT 0 CHECK (staff_weekend BETWEEN 0 AND 500),
+  hours numeric(4,2) NOT NULL DEFAULT 12 CHECK (hours > 0 AND hours <= 24),
   updated_at text,
   updated_by_name text
 );
-INSERT INTO plan_bars(id,name,color) VALUES ('ocp','OCP','#14254A'),('equinor','Equinor','#B3261E')
+INSERT INTO plan_bars(id,name,color,hours) VALUES ('ocp','OCP','#14254A',9),('equinor','Equinor','#B3261E',12)
 ON CONFLICT (id) DO NOTHING;
 
 -- Efetivo do dia: corrige o padrão da barra naquele dia (sem linha = vale o padrão).
@@ -19,6 +21,7 @@ CREATE TABLE IF NOT EXISTS plan_day_staff (
   bar text NOT NULL REFERENCES plan_bars(id),
   day date NOT NULL,
   people integer NOT NULL CHECK (people BETWEEN 0 AND 500),
+  hours numeric(4,2) NOT NULL CHECK (hours > 0 AND hours <= 24),
   note text CHECK (note IS NULL OR length(note) <= 300),
   updated_at text NOT NULL,
   updated_by text NOT NULL REFERENCES members(id),

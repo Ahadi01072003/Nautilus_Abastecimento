@@ -69,7 +69,7 @@ export async function loadPlan(planId:string,ex:Executor=db()):Promise<Plan|null
   ex.all('SELECT * FROM plan_step_people WHERE plan_id=?',planId),
   ex.all("SELECT * FROM reservations WHERE plan_id=? AND status<>'liberada'",planId),
  ]);
- return {...plan,steps:steps.map(s=>({...s,needs:needs.filter(n=>n.plan_step_id===s.id).map(n=>({equipment_type_id:n.equipment_type_id,function_id:n.function_id,material_id:n.material_id,quantity:n.quantity,amount:n.amount==null?null:Number(n.amount),unit:n.unit})),operator_ids:people.filter(p=>p.plan_step_id===s.id).map(p=>p.operator_id),equipment_ids:reservations.filter(r=>r.plan_step_id===s.id).map(r=>r.equipment_id),reservations:reservations.filter(r=>r.plan_step_id===s.id)}))};
+ return {...plan,steps:steps.map(s=>({...s,needs:needs.filter(n=>n.plan_step_id===s.id).map(n=>({equipment_type_id:n.equipment_type_id,function_id:n.function_id,material_id:n.material_id,quantity:n.quantity,amount:n.amount==null?null:Number(n.amount),unit:n.unit,hours_per_day:n.hours_per_day==null?null:Number(n.hours_per_day)})),operator_ids:people.filter(p=>p.plan_step_id===s.id).map(p=>p.operator_id),equipment_ids:reservations.filter(r=>r.plan_step_id===s.id).map(r=>r.equipment_id),reservations:reservations.filter(r=>r.plan_step_id===s.id)}))};
 }
 
 /** Quem vê o planejamento: rascunho só o autor e o gestor; lançado, quem consulta OS no escopo. */
@@ -361,7 +361,7 @@ export async function revisionChanges(base:Plan,draft:Plan,ex:Executor=db()){
    if(added.length)out.push(`${label}: ${what} incluído(s): ${added.map(x=>nameOf(list,x)).join(', ')}.`);
    if(removed.length)out.push(`${label}: ${what} retirado(s): ${removed.map(x=>nameOf(list,x)).join(', ')}.`);
   };
-  const needs=(x:PlanStep)=>JSON.stringify((x.needs as Row[]).map(n=>[n.equipment_type_id,n.function_id,n.material_id,n.quantity,n.amount,n.unit]).sort());
+  const needs=(x:PlanStep)=>JSON.stringify((x.needs as Row[]).map(n=>[n.equipment_type_id,n.function_id,n.material_id,n.quantity,n.amount,n.unit,n.hours_per_day??null]).sort());
   if(b.included&&needs(b)!==needs(d))out.push(`${label}: necessidades de recursos alteradas.`);
   diff(equipment,b.included?b.equipment_ids:[],d.equipment_ids,'equipamento');
   diff(operators,b.included?b.operator_ids:[],d.operator_ids,'colaborador');
@@ -743,7 +743,7 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
   const label=`Etapa “${s.name}”`;
   const os=revision?.osSteps.find(o=>o.step_key===s.step_key);
   // Revisão: etapa concluída ou dispensada fica como está (o que vier da tela é ignorado).
-  if(os&&revision!.frozen.has(s.step_key))return {s,included:s.included,ps:s.planned_start,pe:s.planned_end,loc:s.location_id,equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,needs:(s.needs as Row[]).map(n=>({et:n.equipment_type_id,fn:n.function_id,mt:n.material_id,q:n.quantity,amount:n.amount,unit:n.unit})),label,frozen:true,
+  if(os&&revision!.frozen.has(s.step_key))return {s,included:s.included,ps:s.planned_start,pe:s.planned_end,loc:s.location_id,equipmentIds:s.equipment_ids,operatorIds:s.operator_ids,needs:(s.needs as Row[]).map(n=>({et:n.equipment_type_id,fn:n.function_id,mt:n.material_id,q:n.quantity,amount:n.amount,unit:n.unit,h:n.hours_per_day??null})),label,frozen:true,
    win:(e:string):[string|null,string|null]=>{const r=(s.reservations as Row[]).find(x=>x.equipment_id===e);return r?[r.start_at,r.end_at]:[s.planned_start,s.planned_end];},
    hrs:(e:string)=>Number((s.reservations as Row[]).find(x=>x.equipment_id===e)?.hours_per_day??EQUIPMENT_DAY_HOURS)};
   const included=s.required?1:raw.included===false?0:1;
@@ -771,13 +771,16 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
     const amount=Number(n.amount),unit=required(n.unit,`${label} · unidade de medida`,12);
     if(!Number.isFinite(amount)||amount<=0||amount>99999999||Math.round(amount*1000)!==amount*1000)throw new AppError(`${label}: quantidade do material inválida (maior que zero, até 3 casas decimais).`);
     if(!materials.some(x=>x.id===mt))throw new AppError(`${label}: material inexistente.`);
-    return {et,fn,mt,q:null,amount,unit};
+    return {et,fn,mt,q:null,amount,unit,h:null};
    }
    const q=Number(n?.quantity);
    if(!Number.isInteger(q)||q<1||q>99)throw new AppError(`${label}: quantidade deve ser de 1 a 99.`);
    if(et&&!types.some(x=>x.id===et))throw new AppError(`${label}: tipo de equipamento inexistente.`);
    if(fn&&!functions.some(x=>x.id===fn))throw new AppError(`${label}: função inexistente.`);
-   return {et,fn,mt:null,q,amount:null,unit:null};
+   // Horas por dia da função (HH = pessoas × horas × dias). Vazio: jornada padrão da barra.
+   let h:number|null=null;
+   if(fn&&n.hoursPerDay!=null&&n.hoursPerDay!==''){h=Number(n.hoursPerDay);if(!Number.isFinite(h)||h<0.25||h>24||Math.round(h*4)!==h*4)throw new AppError(`${label}: horas por dia da função de 0,25 a 24 (de quarto em quarto de hora).`);}
+   return {et,fn,mt:null,q,amount:null,unit:null,h};
   });
   if(new Set(needs.map(n=>(n.et||'')+'|'+(n.fn||'')+'|'+(n.mt||''))).size!==needs.length)throw new AppError(`${label}: recurso repetido.`);
   // OS sem fluxo: cada equipamento pode ter os próprios dias de uso (dentro dos dias da OS); sem dias
@@ -829,7 +832,7 @@ async function saveDraft(a:Actor,plan:Plan,b:Row){
     if(x.frozen)continue;
     await tx.run('UPDATE plan_steps SET included=?,planned_start=?,planned_end=?,location_id=? WHERE id=?',x.included,x.ps,x.pe,x.loc,x.s.id);
     await tx.run('DELETE FROM plan_step_needs WHERE plan_step_id=?',x.s.id);
-    for(const n of x.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit) VALUES(?,?,?,?,?,?,?,?,?)',id(),plan.id,x.s.id,n.et,n.fn,n.mt,n.q,n.amount,n.unit);
+    for(const n of x.needs)await tx.run('INSERT INTO plan_step_needs(id,plan_id,plan_step_id,equipment_type_id,function_id,material_id,quantity,amount,unit,hours_per_day) VALUES(?,?,?,?,?,?,?,?,?,?)',id(),plan.id,x.s.id,n.et,n.fn,n.mt,n.q,n.amount,n.unit,n.h??null);
     await tx.run('DELETE FROM plan_step_people WHERE plan_step_id=?',x.s.id);
     for(const o of x.operatorIds)await tx.run('INSERT INTO plan_step_people(plan_id,plan_step_id,operator_id) VALUES(?,?,?)',plan.id,x.s.id,o);
     // Reservas: retira as que saíram, ajusta intervalo das que ficaram e cria as novas.

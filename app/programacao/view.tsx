@@ -9,8 +9,8 @@ type R=Record<string,any>;// eslint-disable-line @typescript-eslint/no-explicit-
 const WEEK=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 const plus=(d:string,n:number)=>new Date(Date.parse(d+'T12:00:00Z')+n*86_400_000).toISOString().slice(0,10);
 const h=(n:number)=>Number(n).toLocaleString('pt-BR',{maximumFractionDigits:2});
-const cardPeople=(c:R)=>c.people??(c.byFunction as R[]).reduce((n,f)=>n+Number(f.people||0),0);
-const people=(snap:R)=>snap.people??(snap.cards as R[]).reduce((n,c)=>n+cardPeople(c),0);
+const cardHh=(c:R)=>c.hh??(c.byFunction as R[]).reduce((n,f)=>n+Number(f.hh||0),0);
+const dayHh=(snap:R)=>snap.hh??(snap.cards as R[]).reduce((n,c)=>n+cardHh(c),0);
 const at=(iso:string)=>new Date(iso).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).replace(',','');
 
 export default function ProgramView({bar,day:initial}:{bar:string,day:string}){
@@ -36,7 +36,7 @@ export default function ProgramView({bar,day:initial}:{bar:string,day:string}){
   {error&&<p className="pg-error">{error}</p>}
   <div className={`pg-bars n${bars.length}`}>{bars.map(b=>{const p=data[b],snap=p?.snapshot as R|undefined;
    return <section key={b} className={`pg-bar bar-${b}`}>
-    <header><h2>{b==='ocp'?'OCP':'Equinor'}</h2>{p?.version?<p>Publicado {at(p.publishedAt)} · {p.publishedBy}{snap?.staff!=null?` · ${people(snap)} de ${snap.staff} pessoas`:''}</p>:<p>{p?'Ainda não publicado para este dia.':'Carregando…'}</p>}</header>
+    <header><h2>{b==='ocp'?'OCP':'Equinor'}</h2>{p?.version?<p>Publicado {at(p.publishedAt)} · {p.publishedBy}{snap?.staff?.hh!=null?` · ${h(dayHh(snap))} de ${h(snap.staff.hh)} HH`:''}</p>:<p>{p?'Ainda não publicado para este dia.':'Carregando…'}</p>}</header>
     {snap&&<>
      <ol className="pg-cards">{(snap.cards as R[]).map(c=><li key={c.planId}>
       <span className="pg-pos">{c.position}</span>
@@ -46,7 +46,7 @@ export default function ProgramView({bar,day:initial}:{bar:string,day:string}){
         {(c.equipment as R[]).map((e,i)=><span key={i}><Truck size={13}/> {e.tag}</span>)}
         {(c.materials as R[]).map((m,i)=><span key={'m'+i}><Package size={13}/> {h(m.amount)} {m.unit} {m.name}</span>)}</div>
 </div>
-      <b className="pg-hh">{cardPeople(c)} {cardPeople(c)===1?"pessoa":"pessoas"}</b>
+      <b className="pg-hh">{h(cardHh(c))} HH</b>
      </li>)}</ol>
      {!(snap.cards as R[]).length&&<p className="pg-empty">Nenhuma OS publicada para este dia.</p>}
     </>}

@@ -1,6 +1,10 @@
--- NAUTILUS · Planejamento: tela do D+1. Ordem da OS na pilha do dia (prioridade) e opção de a atividade não
--- trabalhar aos domingos.
+-- NAUTILUS · Planejamento: tela do D+1. Horas por dia de cada função da OS (HH = funcionários × horas), ordem
+-- da OS na pilha do dia (prioridade) e opção de a atividade não trabalhar aos domingos.
 SET LOCAL lock_timeout='15s';
+
+-- Horas por dia de cada função necessária (vazio = jornada do dia da barra).
+ALTER TABLE plan_step_needs ADD COLUMN IF NOT EXISTS hours_per_day numeric(4,2)
+  CHECK (hours_per_day IS NULL OR (hours_per_day >= 0.25 AND hours_per_day <= 24));
 
 -- Prioridade da OS na pilha (menor primeiro; vazio vai para o fim) e domingo de folga da atividade.
 ALTER TABLE plans ADD COLUMN IF NOT EXISTS priority integer CHECK (priority IS NULL OR priority BETWEEN 0 AND 1000000000);

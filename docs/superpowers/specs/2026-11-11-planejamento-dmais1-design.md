@@ -111,3 +111,11 @@ O usuário achou o conjunto confuso e pediu o mais simples possível. Decisões 
 - **Publicar é um clique**: grava o retrato imutável (só OS lançadas; rascunho não entra). Publicar de novo cria a versão seguinte, sem justificativa. Saem Confirmado/Ajustar, a lista de pendências e as lideranças obrigatórias.
 - Continuam: barra pelo solicitante, planejador por barra, ordem da pilha, adiar com prévia (OS lançada vira revisão com motivo), domingo de folga, TV/celular, lista de separação e o alerta das 16:00.
 - As migrações 0030, 0034 e 0035 (nunca aplicadas em produção) foram reescritas nessa forma; o banco de teste foi adaptado por um script à parte.
+
+### 14.1 Ajuste de 17/11/2026: HH automático
+
+A medida volta a ser HH, sem configuração extra: **HH disponível do dia = funcionários do dia × horas trabalhadas**
+(padrão da barra: funcionários em dia útil e fim de semana e jornada, Equinor 12 h e OCP 9 h; o planejador corrige
+funcionários e horas de um dia no D+1). **HH da OS = funcionários × horas por dia de cada função** (campo h/dia ao
+lado da quantidade; vazio = jornada do dia da barra). O resto da seção 14 continua valendo (só avisa, publicar com
+um clique).

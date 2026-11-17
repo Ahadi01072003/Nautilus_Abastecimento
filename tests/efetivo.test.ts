@@ -1,5 +1,5 @@
-// Planejamento simplificado: efetivo do dia em pessoas por barra (OCP e Equinor). A Gestão define o padrão
-// (dia útil e fim de semana); o planejador da barra corrige um dia específico (falta, férias, reforço).
+// Planejamento simplificado: HH disponível da barra = funcionários do dia × horas trabalhadas. A Gestão define o
+// padrão (funcionários em dia útil e fim de semana, jornada da barra); o planejador corrige um dia específico.
 import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {freshDatabase,addMember,seedOperation} from './helpers';
@@ -32,30 +32,38 @@ before(async()=>{
 });
 after(async()=>{await ctx.drop();});
 
-test('efetivo padrão: a Gestão define dia útil e fim de semana; o planejador não',async()=>{
- await rejects(capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:14,staffWeekend:8},planner),403);
- await rejects(capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:-1,staffWeekend:8},manager),400,/efetivo/i);
- await rejects(capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:2.5,staffWeekend:8},manager),400,/efetivo/i);
- await capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:14,staffWeekend:8},manager);
- await capacityMutate('planning/bars/save',{id:'ocp',staffWeekday:4,staffWeekend:0},manager);
+test('efetivo padrão: a Gestão define funcionários (dia útil e fim de semana) e jornada; HH = funcionários × horas',async()=>{
+ const bars0=(await capacityGet('planning/bars',new URL('http://x/'),planner) as Row).bars as Row[];
+ assert.deepEqual(bars0.map(b=>[b.id,b.hours]),[['equinor',12],['ocp',9]],'jornada inicial: Equinor 12 h, OCP 9 h');
+ await rejects(capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:14,staffWeekend:8,hours:12},planner),403);
+ await rejects(capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:-1,staffWeekend:8,hours:12},manager),400,/funcionários/i);
+ await rejects(capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:2.5,staffWeekend:8,hours:12},manager),400,/funcionários/i);
+ await rejects(capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:14,staffWeekend:8,hours:25},manager),400,/horas/i);
+ await capacityMutate('planning/bars/save',{id:'equinor',staffWeekday:14,staffWeekend:8,hours:12},manager);
+ await capacityMutate('planning/bars/save',{id:'ocp',staffWeekday:4,staffWeekend:0,hours:'8,5'},manager);
  const bars=(await capacityGet('planning/bars',new URL('http://x/'),planner) as Row).bars as Row[];
- assert.deepEqual(bars.map(b=>[b.id,b.staffWeekday,b.staffWeekend]),[['equinor',14,8],['ocp',4,0]]);
- assert.deepEqual((await staffFor('equinor',[FRI,SAT,SUN,MON])).map(d=>[d.day,d.people,d.source]),
-  [[FRI,14,'padrao'],[SAT,8,'padrao'],[SUN,8,'padrao'],[MON,14,'padrao']]);
- assert.deepEqual((await staffFor('ocp',[FRI,SAT])).map(d=>d.people),[4,0]);
+ assert.deepEqual(bars.map(b=>[b.id,b.staffWeekday,b.staffWeekend,b.hours]),[['equinor',14,8,12],['ocp',4,0,8.5]]);
+ assert.deepEqual((await staffFor('equinor',[FRI,SAT,SUN,MON])).map(d=>[d.day,d.people,d.hours,d.hh,d.source]),
+  [[FRI,14,12,168,'padrao'],[SAT,8,12,96,'padrao'],[SUN,8,12,96,'padrao'],[MON,14,12,168,'padrao']]);
+ assert.deepEqual((await staffFor('ocp',[FRI,SAT])).map(d=>d.hh),[34,0]);
 });
 
-test('efetivo do dia: o planejador da barra corrige um dia; vazio volta ao padrão',async()=>{
+test('efetivo do dia: o planejador da barra corrige funcionários e horas de um dia; vazio volta ao padrão',async()=>{
  await rejects(d1Mutate('planning/d1/staff',{bar:'equinor',day:MON,people:12},ocpPlanner),403,/barra/);
- await rejects(d1Mutate('planning/d1/staff',{bar:'equinor',day:MON,people:1000},planner),400,/efetivo/i);
- const r=await d1Mutate('planning/d1/staff',{bar:'equinor',day:MON,people:12,note:'2 de férias'},planner) as Row;
- assert.match(r.message,/12 pessoas/);
+ await rejects(d1Mutate('planning/d1/staff',{bar:'equinor',day:MON,people:1000},planner),400,/funcionários/i);
+ await rejects(d1Mutate('planning/d1/staff',{bar:'equinor',day:MON,people:12,hours:0},planner),400,/horas/i);
+ const r=await d1Mutate('planning/d1/staff',{bar:'equinor',day:MON,people:12,hours:10,note:'2 de férias'},planner) as Row;
+ assert.match(r.message,/12 funcionários × 10 h = 120 HH/);
  let d=(await staffFor('equinor',[MON]))[0];
- assert.deepEqual([d.people,d.source,d.standard,d.note],[12,'dia',14,'2 de férias']);
- assert.equal((await staffFor('equinor',[FRI]))[0].people,14,'só o dia corrigido muda');
- await d1Mutate('planning/d1/staff',{bar:'equinor',day:MON,people:''},planner);
+ assert.deepEqual([d.people,d.hours,d.hh,d.source,d.standard.people,d.standard.hours,d.note],[12,10,120,'dia',14,12,'2 de férias']);
+ assert.equal((await staffFor('equinor',[FRI]))[0].hh,168,'só o dia corrigido muda');
+ // Só funcionários: as horas continuam as que valiam no dia.
+ await d1Mutate('planning/d1/staff',{bar:'equinor',day:FRI,people:13},planner);
+ d=(await staffFor('equinor',[FRI]))[0];
+ assert.deepEqual([d.people,d.hours,d.hh],[13,12,156]);
+ await d1Mutate('planning/d1/staff',{bar:'equinor',day:MON,people:'',hours:''},planner);
  d=(await staffFor('equinor',[MON]))[0];
- assert.deepEqual([d.people,d.source],[14,'padrao']);
+ assert.deepEqual([d.people,d.hours,d.source],[14,12,'padrao']);
  const op=await set(await addMember(db,'operator'),['operacao'],'operator');
  await rejects(d1Mutate('planning/d1/staff',{bar:'equinor',day:MON,people:10},op),403);
 });
