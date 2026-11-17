@@ -1,16 +1,14 @@
-// Planejamento · tela do D+1, na forma simples. Por barra (OCP ou Equinor) e dia: o HH das OS do dia
-// (funcionários × horas por dia de cada função das etapas do dia; sem horas, as do turno do dia) contra o HH
-// disponível (ADM + turno do dia: funcionários × horas). Passou: só avisa, em vermelho, e marca a partir de
-// qual OS da pilha. Ações: ordem da pilha (prioridade da OS), efetivo do dia, adiar com
-// prévia (rascunho muda direto; OS lançada vira revisão automática com motivo) e publicar (retrato imutável
-// do que a TV, o celular e a lista de separação mostram; publicar de novo cria a versão seguinte).
+// Programação do dia · o dia de cada barra (OCP ou Equinor): as OS do dia em ordem, o HH de cada uma (duração estimada ×
+// pessoas) contra o HH disponível (janelas do cadastro e da escala), a barra de duração (informativa), os recursos do dia
+// e a consolidação da reunião das 16h (retrato imutável das duas barras, com participantes e observações). OS que entra
+// no dia depois da 1ª consolidação é Emergencial. Passar do limite só avisa.
 import {createHash} from 'node:crypto';
 import {db,type Executor,type Row} from './db';
 import {AppError,required,text} from './domain';
 import {type Member,isManager,requireAny} from './permissions';
 import {audit} from './registry';
-import {loadBars,barRow,barOf,barName,plusDays,weekday,staffFor,hText,roundHh,type BarId} from './capacity';
-import {dayStart,dayOf,dayText,lastDay,DAY_MS,EQUIPMENT_DAY_HOURS} from './days';
+import {loadBars,barRow,barOf,barName,plusDays,weekday,staffFor,hText,roundHh,BARS,type BarId} from './capacity';
+import {dayStart,dayOf,dayText,lastDay,DAY_MS} from './days';
 import {osNumber,loadPlan} from './planning';
 import {startRevision,launchRevision} from './revision';
 
@@ -35,16 +33,15 @@ function dayParam(v:unknown,label='Dia'){
 }
 const tomorrow=()=>plusDays(dayOf(Date.now()),1);
 
-// ───────────── Demanda ─────────────
-type Need={functionId:string,name:string,quantity:number,hours:number|null};
-type StepRow={id:string,name:string,start:string,end:string,done:boolean,needs:Need[],materials:{name:string,unit:string,amount:number}[],equipment:{tag:string,hours:number,start:string,end:string}[]};
-type PlanRow={id:string,status:string,workOrderId:string|null,number:number|null,title:string,priority:number|null,skipSunday:boolean,start:string,end:string,createdAt:string,
+// ───────────── As OS do dia ─────────────
+type StepRow={id:string,name:string,start:string,end:string,done:boolean,needs:{functionId:string,name:string,quantity:number}[],materials:{name:string,unit:string,amount:number}[],equipment:{id:string,tag:string,start:string,end:string}[]};
+type PlanRow={id:string,status:string,workOrderId:string|null,number:number|null,title:string,priority:number|null,skipSunday:boolean,hours:number|null,start:string,end:string,createdAt:string,
  org:{id:string|null,acronym:string|null,name:string|null,color:string|null},location:string|null,bar:string,started:boolean,steps:StepRow[]};
 
 /** OS (lançadas, programadas ou em andamento) e rascunhos da barra que tocam o período [from, to]. */
 async function loadPlans(bar:string,from:string,to:string,extraPlanId?:string):Promise<PlanRow[]>{
  const lo=dayStart(from),hi=dayStart(plusDays(to,1));
- const plans=await db().all(`SELECT p.id,p.status,p.work_order_id,p.title,p.description,p.priority,p.skip_sunday,p.planned_start,p.planned_end,p.created_at,
+ const plans=await db().all(`SELECT p.id,p.status,p.work_order_id,p.title,p.description,p.priority,p.skip_sunday,p.estimated_hours,p.planned_start,p.planned_end,p.created_at,
    o.id org_id,o.acronym,o.name org_name,o.color,coalesce(o.bar,'equinor') bar,w.number,at.name type_name,l.name location_name
   FROM plans p LEFT JOIN requester_orgs o ON o.id=p.org_id LEFT JOIN work_orders w ON w.id=p.work_order_id LEFT JOIN activity_types at ON at.id=p.activity_type_id LEFT JOIN locations l ON l.id=p.location_id
   WHERE coalesce(o.bar,'equinor')=? AND p.planned_start IS NOT NULL AND p.planned_end IS NOT NULL
@@ -54,19 +51,20 @@ async function loadPlans(bar:string,from:string,to:string,extraPlanId?:string):P
  const ids=plans.map(p=>p.id);
  const [steps,needs,res,os,mats]=await Promise.all([
   db().all('SELECT id,plan_id,name,position,planned_start,planned_end FROM plan_steps WHERE plan_id=ANY(?::text[]) AND included=1 ORDER BY position',ids),
-  db().all(`SELECT n.plan_step_id,n.function_id,f.name,n.quantity,n.hours_per_day FROM plan_step_needs n JOIN job_functions f ON f.id=n.function_id WHERE n.plan_id=ANY(?::text[]) AND n.function_id IS NOT NULL`,ids),
-  db().all(`SELECT r.plan_step_id,r.start_at,r.end_at,r.hours_per_day,e.tag FROM reservations r JOIN equipment e ON e.id=r.equipment_id WHERE r.plan_id=ANY(?::text[]) AND r.status<>'liberada'`,ids),
+  db().all(`SELECT n.plan_step_id,n.function_id,f.name,n.quantity FROM plan_step_needs n JOIN job_functions f ON f.id=n.function_id WHERE n.plan_id=ANY(?::text[]) AND n.function_id IS NOT NULL`,ids),
+  db().all(`SELECT r.plan_step_id,r.start_at,r.end_at,e.id equipment_id,e.tag FROM reservations r JOIN equipment e ON e.id=r.equipment_id WHERE r.plan_id=ANY(?::text[]) AND r.status<>'liberada'`,ids),
   db().all('SELECT plan_step_id,status FROM os_steps WHERE plan_step_id IN (SELECT id FROM plan_steps WHERE plan_id=ANY(?::text[]))',ids),
   db().all('SELECT n.plan_step_id,m.name,n.unit,n.amount FROM plan_step_needs n JOIN materials m ON m.id=n.material_id WHERE n.plan_id=ANY(?::text[]) AND n.material_id IS NOT NULL',ids),
  ]);
  const osOf=new Map(os.map(o=>[o.plan_step_id as string,o.status as string]));
  return plans.map(p=>{
   const st=steps.filter(s=>s.plan_id===p.id).map(s=>({id:s.id,name:s.name,start:s.planned_start||p.planned_start,end:s.planned_end||p.planned_end,done:DONE.includes(osOf.get(s.id)||''),
-   needs:needs.filter(n=>n.plan_step_id===s.id).map(n=>({functionId:n.function_id,name:n.name,quantity:Number(n.quantity),hours:n.hours_per_day==null?null:Number(n.hours_per_day)})),
+   needs:needs.filter(n=>n.plan_step_id===s.id).map(n=>({functionId:n.function_id,name:n.name,quantity:Number(n.quantity)})),
    materials:mats.filter(m=>m.plan_step_id===s.id).map(m=>({name:m.name,unit:m.unit,amount:Number(m.amount)})),
-   equipment:res.filter(r=>r.plan_step_id===s.id).map(r=>({tag:r.tag,hours:Number(r.hours_per_day??EQUIPMENT_DAY_HOURS),start:r.start_at,end:r.end_at}))}));
+   equipment:res.filter(r=>r.plan_step_id===s.id).map(r=>({id:r.equipment_id,tag:r.tag,start:r.start_at,end:r.end_at}))}));
   return {id:p.id,status:p.status,workOrderId:p.work_order_id||null,number:p.number==null?null:Number(p.number),title:(p.title||'').trim()||p.type_name||p.description||'Sem título',
-   priority:p.priority==null?null:Number(p.priority),skipSunday:Number(p.skip_sunday)===1,start:p.planned_start,end:p.planned_end,createdAt:p.created_at,
+   priority:p.priority==null?null:Number(p.priority),skipSunday:Number(p.skip_sunday)===1,hours:p.estimated_hours==null?null:Number(p.estimated_hours),
+   start:p.planned_start,end:p.planned_end,createdAt:p.created_at,
    org:{id:p.org_id||null,acronym:p.acronym||null,name:p.org_name||null,color:p.color||null},location:p.location_name||null,bar:p.bar,
    started:st.some(s=>{const x=osOf.get(s.id);return !!x&&x!=='nao_iniciada';}),steps:st};
  });
@@ -76,73 +74,124 @@ function shifted(p:PlanRow,days:number):PlanRow{
  const mv=(iso:string)=>new Date(Date.parse(iso)+days*DAY_MS).toISOString();
  return {...p,start:mv(p.start),end:mv(p.end),steps:p.steps.map(s=>({...s,start:mv(s.start),end:mv(s.end),equipment:s.equipment.map(e=>({...e,start:mv(e.start),end:mv(e.end)}))}))};
 }
-/** O que a OS ocupa no dia: etapas do dia (não encerradas), funcionários e HH por função (sem horas, a
- *  jornada do dia), equipamento e materiais. */
-function onDay(p:PlanRow,day:string,dayHours:number){
+/** O que a OS ocupa no dia: etapas do dia (não encerradas), pessoas por função, HH (duração × pessoas), equipamento e materiais. */
+function onDay(p:PlanRow,day:string){
  if(p.skipSunday&&weekday(day)===0)return null;
  const t=Date.parse(dayStart(day));
  const steps=p.steps.filter(s=>!s.done&&Date.parse(s.start)<=t&&t<Date.parse(s.end));
  if(!steps.length)return null;
- const by=new Map<string,{functionId:string,name:string,people:number,hh:number}>();
- for(const s of steps)for(const n of s.needs){const f=by.get(n.functionId)||{functionId:n.functionId,name:n.name,people:0,hh:0};f.people+=n.quantity;f.hh=roundHh(f.hh+n.quantity*(n.hours??dayHours));by.set(n.functionId,f);}
- const equipment=steps.flatMap(s=>s.equipment.filter(e=>Date.parse(e.start)<=t&&t<Date.parse(e.end)).map(e=>({tag:e.tag,hours:e.hours})));
+ const by=new Map<string,{functionId:string,name:string,people:number}>();
+ for(const s of steps)for(const n of s.needs){const f=by.get(n.functionId)||{functionId:n.functionId,name:n.name,people:0};f.people+=n.quantity;by.set(n.functionId,f);}
+ const eq=new Map<string,{id:string,tag:string}>();
+ for(const s of steps)for(const e of s.equipment)if(Date.parse(e.start)<=t&&t<Date.parse(e.end))eq.set(e.id,{id:e.id,tag:e.tag});
  const mats=new Map<string,{name:string,unit:string,amount:number}>();
  for(const s of steps)for(const m of s.materials){const k=m.name+'|'+m.unit,x=mats.get(k)||{name:m.name,unit:m.unit,amount:0};x.amount=round(x.amount+m.amount);mats.set(k,x);}
- const byFunction=[...by.values()].sort((x,y)=>y.hh-x.hh||x.name.localeCompare(y.name,'pt-BR'));
- return {steps:steps.map(s=>s.name),byFunction,people:byFunction.reduce((n,f)=>n+f.people,0),hh:roundHh(byFunction.reduce((n,f)=>n+f.hh,0)),equipment,materials:[...mats.values()]};
+ const byFunction=[...by.values()].sort((x,y)=>y.people-x.people||x.name.localeCompare(y.name,'pt-BR'));
+ const people=byFunction.reduce((n,f)=>n+f.people,0),hours=p.hours??0;
+ return {steps:steps.map(s=>s.name),byFunction,people,hours,hh:roundHh(hours*people),equipment:[...eq.values()],materials:[...mats.values()]};
 }
 const order=(a:PlanRow,b:PlanRow)=>(a.priority??Infinity)-(b.priority??Infinity)||Date.parse(a.start)-Date.parse(b.start)||(a.number??Infinity)-(b.number??Infinity)||a.createdAt.localeCompare(b.createdAt);
-const demandOn=(plans:PlanRow[],day:string,hours:number)=>roundHh(plans.reduce((n,p)=>n+(onDay(p,day,hours)?.hh||0),0));
+const demandOn=(plans:PlanRow[],day:string)=>roundHh(plans.reduce((n,p)=>n+(onDay(p,day)?.hh||0),0));
+const keyOf=(c:{workOrderId:string|null,planId:string})=>c.workOrderId||c.planId;
 
-/** Monta o dia: HH disponível, pilha em ordem com o HH acumulado e o aviso de quem passa do disponível. */
-async function compose(bar:BarId,day:string,plans:PlanRow[]){
+// ───────────── Consolidações ─────────────
+async function consolidationOf(day:string,version?:number){
+ return await db().first(`SELECT * FROM plan_day_consolidations WHERE day=?::date${version?' AND version=?':''} ORDER BY version ${version?'DESC':'DESC'} LIMIT 1`,day,...(version?[version]:[]));
+}
+/** OS consolidadas na 1ª versão do dia (as duas barras): quem não está nela entrou depois = Emergencial. */
+async function firstKeys(day:string):Promise<Set<string>|null>{
+ const v1=await consolidationOf(day,1);if(!v1)return null;
+ const bars=(v1.snapshot as Row).bars as Record<string,Row>;
+ return new Set(Object.values(bars).flatMap(b=>(b.cards as Row[]).map(c=>c.workOrderId||c.planId)));
+}
+
+/** Monta o dia da barra: HH disponível, lista em ordem com o HH acumulado, barra de duração e recursos. */
+async function compose(bar:BarId,day:string,plans:PlanRow[],first:Set<string>|null){
  const [[staff],bars]=await Promise.all([staffFor(bar,[day]),loadBars()]);
  let total=0;
- const cards=plans.map(p=>({p,d:onDay(p,day,staff.osHours)})).filter(x=>x.d).sort((x,y)=>order(x.p,y.p)).map(({p,d})=>{
+ const cards=plans.map(p=>({p,d:onDay(p,day)})).filter(x=>x.d).sort((x,y)=>order(x.p,y.p)).map(({p,d})=>{
   total=roundHh(total+d!.hh);
-  return {planId:p.id,workOrderId:p.workOrderId,number:p.number,label:p.number!=null?osNumber(p.number):'Rascunho',title:p.title,status:p.status==='launched'?'lancada':'rascunho',
+  const c={planId:p.id,workOrderId:p.workOrderId,number:p.number,label:p.number!=null?osNumber(p.number):'Rascunho',title:p.title,status:p.status==='launched'?'lancada':'rascunho',
    org:p.org,location:p.location,priority:p.priority,firstDay:dayOf(p.start),lastDay:lastDay(p.end),started:p.started,skipSunday:p.skipSunday,
-   steps:d!.steps,byFunction:d!.byFunction,people:d!.people,hh:d!.hh,equipment:d!.equipment,materials:d!.materials,cumulative:total,exceeds:total>staff.hh};
+   steps:d!.steps,byFunction:d!.byFunction,people:d!.people,hours:d!.hours,hh:d!.hh,noDuration:p.hours==null,equipment:d!.equipment,materials:d!.materials,
+   cumulative:total,exceeds:total>staff.hh,emergency:false};
+  c.emergency=c.status==='lancada'&&!!first&&!first.has(keyOf(c));
+  return c;
  });
- return {bar:barRow(bars.find(x=>x.id===bar)!),day,weekday:weekday(day),staff,demand:total,over:total>staff.hh,missing:roundHh(Math.max(0,total-staff.hh)),
-  drafts:cards.filter(c=>c.status==='rascunho').length,cards};
+ const limit=staff.maxShiftHours;
+ const long=cards.filter(c=>c.hours>0).sort((x,y)=>y.hours-x.hours)[0];
+ return {bar:barRow(bars.find(x=>x.id===bar)!),day,weekday:weekday(day),staff,demandHh:total,over:total>staff.hh,extraHh:roundHh(Math.max(0,total-staff.hh)),
+  durationTotal:roundHh(cards.reduce((t,c)=>t+c.hours,0)),longest:long&&limit>0&&long.hours>limit?{title:long.title,hours:long.hours,limit}:null,
+  drafts:cards.filter(c=>c.status==='rascunho').length,cards,resources:await resourcesOf(cards,limit)};
+}
+
+/** Recursos do dia: funções (em quantas OS e o maior número de pessoas), equipamento (OS, horas somadas, acima da jornada,
+ *  impedimento técnico aberto) e materiais somados. */
+type ResCard={hours:number,byFunction:{functionId:string,name:string,people:number}[],equipment:{id:string,tag:string}[],materials:{name:string,unit:string,amount:number}[]};
+async function resourcesOf(cards:ResCard[],limit:number){
+ const fns=new Map<string,{name:string,activities:number,maxPeople:number,people:number}>();
+ const eq=new Map<string,{id:string,tag:string,activities:number,hours:number}>();
+ const mats=new Map<string,{name:string,unit:string,amount:number}>();
+ for(const c of cards){
+  for(const f of c.byFunction){const x=fns.get(f.functionId)||{name:f.name,activities:0,maxPeople:0,people:0};x.activities++;x.maxPeople=Math.max(x.maxPeople,f.people);x.people+=f.people;fns.set(f.functionId,x);}
+  for(const e of c.equipment){const x=eq.get(e.id)||{id:e.id,tag:e.tag,activities:0,hours:0};x.activities++;x.hours=roundHh(x.hours+c.hours);eq.set(e.id,x);}
+  for(const m of c.materials){const k=m.name+'|'+m.unit,x=mats.get(k)||{name:m.name,unit:m.unit,amount:0};x.amount=round(x.amount+m.amount);mats.set(k,x);}
+ }
+ const ids=[...eq.keys()];
+ const blocked=ids.length?await db().all('SELECT DISTINCT equipment_id FROM equipment_impediments WHERE released_at IS NULL AND equipment_id=ANY(?::text[])',ids):[];
+ return {functions:[...fns.values()].sort((x,y)=>y.activities-x.activities||x.name.localeCompare(y.name,'pt-BR')),
+  equipment:[...eq.values()].map(e=>({tag:e.tag,activities:e.activities,hours:e.hours,over:limit>0&&e.hours>limit,impeded:blocked.some(b=>b.equipment_id===e.id)})).sort((x,y)=>x.tag.localeCompare(y.tag)),
+  materials:[...mats.values()].sort((x,y)=>x.name.localeCompare(y.name,'pt-BR'))};
 }
 
 type Board=Awaited<ReturnType<typeof compose>>;
-/** Só OS lançadas vão para a publicação (rascunho não é OS). */
-const publishable=(b:Board)=>b.cards.filter(c=>c.status==='lancada');
-/** Retrato comparável do que seria publicado: muda quando o dia muda. */
-const fingerprint=(b:Board)=>createHash('sha256').update(JSON.stringify(publishable(b).map(c=>[c.planId,c.people,c.hh,c.byFunction.map(f=>[f.functionId,f.people,f.hh]),c.equipment.map(e=>[e.tag,e.hours]),c.materials.map(m=>[m.name,m.unit,m.amount]),c.steps]))).digest('hex');
-async function lastPublication(bar:string,day:string,version?:number){
- return await db().first(`SELECT * FROM plan_d1_publications WHERE bar=? AND day=?::date${version?' AND version=?':''} ORDER BY version DESC LIMIT 1`,bar,day,...(version?[version]:[]));
+/** Só OS lançadas vão para a consolidação (rascunho não é OS). */
+function retrato(b:Board){
+ const cards=b.cards.filter(c=>c.status==='lancada');
+ return {bar:{id:b.bar.id,name:b.bar.name,color:b.bar.color},staff:{hh:b.staff.hh,computedHh:b.staff.computedHh,source:b.staff.source,windows:b.staff.windows,note:b.staff.note},
+  demandHh:roundHh(cards.reduce((t,c)=>t+c.hh,0)),durationTotal:roundHh(cards.reduce((t,c)=>t+c.hours,0)),extraHh:roundHh(Math.max(0,cards.reduce((t,c)=>t+c.hh,0)-b.staff.hh)),
+  cards:cards.map((c,i)=>({position:i+1,planId:c.planId,workOrderId:c.workOrderId,label:c.label,title:c.title,org:c.org,location:c.location,firstDay:c.firstDay,lastDay:c.lastDay,
+   steps:c.steps,byFunction:c.byFunction,people:c.people,hours:c.hours,hh:c.hh,noDuration:c.noDuration,emergency:c.emergency,equipment:c.equipment.map(e=>({tag:e.tag})),materials:c.materials})),
+  resources:{...b.resources}};
+}
+const fingerprintOf=(bars:Record<string,ReturnType<typeof retrato>>)=>createHash('sha256').update(JSON.stringify(BARS.map(k=>bars[k].cards.map(c=>[keyOf(c),c.position,c.hours,c.people,c.byFunction.map(f=>[f.functionId,f.people]),c.equipment.map(e=>e.tag),c.materials.map(m=>[m.name,m.unit,m.amount])])))).digest('hex');
+async function wholeDay(day:string){
+ const first=await firstKeys(day);
+ const boards=await Promise.all(BARS.map(async bar=>compose(bar,day,await loadPlans(bar,day,day),first)));
+ const bars=Object.fromEntries(BARS.map((k,i)=>[k,retrato(boards[i])])) as Record<string,ReturnType<typeof retrato>>;
+ return {boards,bars,first};
 }
 
 export async function d1Board(member:Member,url:URL){
  await viewer(member);
  const bar=barOf(url.searchParams.get('bar')||'equinor'),day=url.searchParams.get('day')?dayParam(url.searchParams.get('day')):tomorrow();
- const [board,pub]=await Promise.all([loadPlans(bar,day,day).then(p=>compose(bar,day,p)),lastPublication(bar,day)]);
- return {...board,publication:pub?{version:Number(pub.version),publishedAt:pub.published_at,by:pub.published_by_name,changed:pub.fingerprint!==fingerprint(board)}:null,generatedAt:now()};
+ const last=await consolidationOf(day);
+ const first=await firstKeys(day);
+ const board=await compose(bar,day,await loadPlans(bar,day,day),first);
+ let consolidation=null;
+ if(last){const {bars}=await wholeDay(day);consolidation={version:Number(last.version),at:last.consolidated_at,by:last.consolidated_by_name,participants:last.participants,changed:last.fingerprint!==fingerprintOf(bars)};}
+ return {...board,consolidation,generatedAt:now()};
 }
 
-/** Programação publicada (a versão pedida ou a última): para a TV, o celular do líder e a lista de separação. */
-export async function d1Published(member:Member,url:URL){
+/** Dia consolidado (a versão pedida ou a última): TV, celular, relatório e lista de separação. */
+export async function d1Consolidated(member:Member,url:URL){
  await viewer(member);
- const bar=barOf(url.searchParams.get('bar')||'equinor'),day=url.searchParams.get('day')?dayParam(url.searchParams.get('day')):tomorrow();
+ const day=url.searchParams.get('day')?dayParam(url.searchParams.get('day')):tomorrow();
  const v=url.searchParams.get('version')?Number(url.searchParams.get('version')):undefined;
  if(v!==undefined&&(!Number.isInteger(v)||v<1))throw new AppError('Versão inválida.');
- const [pub,versions]=await Promise.all([lastPublication(bar,day,v),db().all('SELECT version,published_at,published_by_name FROM plan_d1_publications WHERE bar=? AND day=?::date ORDER BY version DESC',bar,day)]);
- return {bar,day,version:pub?Number(pub.version):null,publishedAt:pub?.published_at||null,publishedBy:pub?.published_by_name||null,
-  snapshot:pub?.snapshot||null,versions:versions.map(x=>({version:Number(x.version),publishedAt:x.published_at,by:x.published_by_name}))};
+ const [c,versions]=await Promise.all([consolidationOf(day,v),db().all('SELECT version,consolidated_at,consolidated_by_name FROM plan_day_consolidations WHERE day=?::date ORDER BY version DESC',day)]);
+ return {day,version:c?Number(c.version):null,consolidatedAt:c?.consolidated_at||null,consolidatedBy:c?.consolidated_by_name||null,participants:c?.participants||[],notes:c?.notes||null,
+  snapshot:c?.snapshot||null,versions:versions.map(x=>({version:Number(x.version),at:x.consolidated_at,by:x.consolidated_by_name}))};
 }
 
-/** Alerta das 16:00 (Brasília): barras com OS no dia seguinte e sem publicação. */
+/** Alerta das 16h (Brasília): dia seguinte com OS e ainda não consolidado, por barra. */
 export async function d1Late(nowMs=Date.now()){
  const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'America/Sao_Paulo',hour:'2-digit',hourCycle:'h23'}).format(new Date(nowMs)));
  if(hour<16)return [];
  const day=plusDays(dayOf(nowMs),1),out:{bar:string,barName:string,day:string,cards:number}[]=[];
- for(const bar of ['equinor','ocp'] as BarId[]){
-  if(await lastPublication(bar,day))continue;
-  const plans=await loadPlans(bar,day,day),n=plans.filter(p=>onDay(p,day,1)).length;
+ if(await consolidationOf(day))return out;
+ for(const bar of BARS){
+  const n=(await loadPlans(bar,day,day)).filter(p=>onDay(p,day)).length;
   if(n)out.push({bar,barName:barName(bar),day,cards:n});
  }
  return out;
@@ -157,7 +206,7 @@ export async function d1Preview(member:Member,url:URL){
  const all=await loadPlans(plan.bar,newDays[0],newDays[newDays.length-1],plan.id);
  const others=all.filter(p=>p.id!==plan.id);
  const staff=await staffFor(plan.bar as BarId,newDays);
- const out=newDays.map((day,i)=>{const h=staff[i].osHours,before=demandOn(all,day,h),after=demandOn([...others,target],day,h);return {day,staff:staff[i].hh,before,after,over:after>staff[i].hh};});
+ const out=newDays.map((day,i)=>{const before=demandOn(all,day),after=demandOn([...others,target],day);return {day,staff:staff[i].hh,before,after,over:after>staff[i].hh};});
  return {plan:{id:plan.id,label:plan.number!=null?osNumber(plan.number):'Rascunho',title:plan.title,status:plan.status,started:plan.started},
   from:{first:dayOf(plan.start),last:lastDay(plan.end)},to:{first:dayOf(target.start),last:lastDay(target.end)},days:out,
   needsReason:plan.status==='launched',blocked:plan.started?'OS já iniciada: ajuste as datas pela revisão da OS.':null};
@@ -248,37 +297,37 @@ async function postpone(member:Member,b:Row){
  }
 }
 
-async function publish(member:Member,b:Row){
- const bar=barOf(b.bar),a=await planner(member,bar),day=dayParam(b.day);
- const [board,last]=await Promise.all([loadPlans(bar,day,day).then(p=>compose(bar,day,p)),lastPublication(bar,day)]);
- const cards=publishable(board),version=last?Number(last.version)+1:1;
- const mats=new Map<string,{name:string,unit:string,amount:number}>();
- for(const c of cards)for(const m of c.materials){const k=m.name+'|'+m.unit,x=mats.get(k)||{name:m.name,unit:m.unit,amount:0};x.amount=round(x.amount+m.amount);mats.set(k,x);}
- const snapshot={bar:{id:bar,name:board.bar.name,color:board.bar.color},day,weekday:board.weekday,staff:{people:board.staff.people,adm:board.staff.adm,shift:board.staff.shift,hh:board.staff.hh},
-  people:cards.reduce((n,c)=>n+c.people,0),hh:roundHh(cards.reduce((n,c)=>n+c.hh,0)),
-  cards:cards.map((c,i)=>({position:i+1,planId:c.planId,workOrderId:c.workOrderId,label:c.label,title:c.title,org:c.org,location:c.location,firstDay:c.firstDay,lastDay:c.lastDay,
-   steps:c.steps,byFunction:c.byFunction,people:c.people,hh:c.hh,equipment:c.equipment,materials:c.materials})),
-  materials:[...mats.values()].sort((x,y)=>x.name.localeCompare(y.name,'pt-BR'))};
+/** Consolidar o dia (reunião das 16h): as duas barras, com participantes e observações. Nova versão a cada consolidação. */
+async function consolidate(member:Member,b:Row){
+ const a=await requireAny(member,['planejamento']);
+ const day=dayParam(b.day);
+ if(!Array.isArray(b.participants))throw new AppError('Informe os participantes da reunião.');
+ const participants=[...new Set(b.participants.map((x:unknown)=>text(x,120).replace(/\s+/g,' ')).filter((x:string)=>x.length>=2))] as string[];
+ if(!participants.length||participants.length>30)throw new AppError('Informe os participantes da reunião (de 1 a 30 nomes).');
+ const notes=text(b.notes,2000)||null;
+ const {bars}=await wholeDay(day);
+ const last=await consolidationOf(day),version=last?Number(last.version)+1:1;
+ const snapshot={day,weekday:weekday(day),bars};
  try{
   await db().tx(async tx=>{
-   await tx.run('INSERT INTO plan_d1_publications(id,bar,day,version,fingerprint,snapshot,published_at,published_by,published_by_name) VALUES(?,?,?::date,?,?,?::text::jsonb,?,?,?)',
-    id(),bar,day,version,fingerprint(board),JSON.stringify(snapshot),now(),a.id,a.name);
-   await audit(tx,a,'Planejamento: D+1 publicado',`${bar}:${day}`,{bar,day,version,cards:cards.length,hh:snapshot.hh,staffHh:snapshot.staff.hh});
+   await tx.run('INSERT INTO plan_day_consolidations(id,day,version,fingerprint,snapshot,participants,notes,consolidated_at,consolidated_by,consolidated_by_name) VALUES(?,?::date,?,?,?::text::jsonb,?::text[],?,?,?,?)',
+    id(),day,version,fingerprintOf(bars),JSON.stringify(snapshot),participants,notes,now(),a.id,a.name);
+   await audit(tx,a,'Planejamento: dia consolidado',day,{day,version,participants,notes,equinor:bars.equinor.cards.length,ocp:bars.ocp.cards.length});
   });
- }catch(e){if((e as {code?:string}).code==='23505')throw new AppError('Outra pessoa acabou de publicar este dia. Atualize a tela.',409);throw e;}
- return {ok:true,version,message:`D+1 da barra ${barName(bar)} de ${dayText(day)} publicado${version>1?` (versão ${version})`:''}.`};
+ }catch(e){if((e as {code?:string}).code==='23505')throw new AppError('Outra pessoa acabou de consolidar este dia. Atualize a tela.',409);throw e;}
+ return {ok:true,version,message:`Dia ${dayText(day)} consolidado${version>1?` (versão ${version})`:''}.`};
 }
 
 export async function d1Get(path:string,url:URL,member:Member):Promise<unknown|null>{
  if(path==='planning/d1')return d1Board(member,url);
  if(path==='planning/d1/preview')return d1Preview(member,url);
- if(path==='planning/d1/published')return d1Published(member,url);
+ if(path==='planning/d1/consolidated')return d1Consolidated(member,url);
  return null;
 }
 export async function d1Mutate(path:string,b:Row,member:Member):Promise<unknown|null>{
  if(path==='planning/d1/order')return reorder(member,b);
  if(path==='planning/d1/staff')return setStaff(member,b);
  if(path==='planning/d1/postpone')return postpone(member,b);
- if(path==='planning/d1/publish')return publish(member,b);
+ if(path==='planning/d1/consolidate')return consolidate(member,b);
  return null;
 }

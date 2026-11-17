@@ -1,32 +1,31 @@
--- NAUTILUS · Planejamento: publicação do D+1 por barra e dia. Publicar grava um retrato imutável (o que a TV,
--- o celular do líder e a lista de separação mostram). Publicar de novo cria a versão seguinte; as anteriores
--- ficam como histórico.
+-- NAUTILUS · Programação do dia: consolidação da reunião das 16h. Consolidar grava um retrato imutável do dia (as duas
+-- barras: lista, ordem, HH, duração e recursos), com participantes e observações; é o que a TV, o celular, o relatório e
+-- a lista de separação mostram e a base do indicador de cumprimento. Consolidar de novo cria a versão seguinte.
 SET LOCAL lock_timeout='15s';
 
-CREATE TABLE IF NOT EXISTS plan_d1_publications (
+CREATE TABLE IF NOT EXISTS plan_day_consolidations (
   id text PRIMARY KEY,
-  bar text NOT NULL REFERENCES plan_bars(id),
   day date NOT NULL,
   version integer NOT NULL CHECK (version >= 1),
   fingerprint text NOT NULL,
   snapshot jsonb NOT NULL CHECK (jsonb_typeof(snapshot) = 'object'),
-  published_at text NOT NULL,
-  published_by text NOT NULL REFERENCES members(id),
-  published_by_name text NOT NULL,
-  UNIQUE (bar, day, version)
+  participants text[] NOT NULL CHECK (cardinality(participants) BETWEEN 1 AND 30),
+  notes text CHECK (notes IS NULL OR length(notes) <= 2000),
+  consolidated_at text NOT NULL,
+  consolidated_by text NOT NULL REFERENCES members(id),
+  consolidated_by_name text NOT NULL,
+  UNIQUE (day, version)
 );
-CREATE INDEX IF NOT EXISTS idx_plan_d1_publications_day ON plan_d1_publications (day, bar, version DESC);
+CREATE INDEX IF NOT EXISTS idx_plan_day_consolidations_day ON plan_day_consolidations (day, version DESC);
 
-CREATE OR REPLACE FUNCTION nautilus_d1_publication_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN RAISE EXCEPTION 'Publicação do D+1 não pode ser alterada nem apagada'; END $$;
-CREATE OR REPLACE TRIGGER plan_d1_publications_immutable BEFORE UPDATE OR DELETE ON plan_d1_publications FOR EACH ROW EXECUTE FUNCTION nautilus_d1_publication_immutable();
+CREATE OR REPLACE FUNCTION nautilus_day_consolidation_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN RAISE EXCEPTION 'Consolidação do dia não pode ser alterada nem apagada'; END $$;
+CREATE OR REPLACE TRIGGER plan_day_consolidations_immutable BEFORE UPDATE OR DELETE ON plan_day_consolidations FOR EACH ROW EXECUTE FUNCTION nautilus_day_consolidation_immutable();
 
-DO $$ DECLARE t text; r text; BEGIN
-  FOREACH t IN ARRAY ARRAY['plan_d1_publications'] LOOP
-    EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
-    FOREACH r IN ARRAY ARRAY['anon','authenticated'] LOOP
-      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN EXECUTE format('REVOKE ALL ON TABLE %I FROM %I', t, r); END IF;
-    END LOOP;
+DO $$ DECLARE r text; BEGIN
+  EXECUTE 'ALTER TABLE plan_day_consolidations ENABLE ROW LEVEL SECURITY';
+  FOREACH r IN ARRAY ARRAY['anon','authenticated'] LOOP
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN EXECUTE format('REVOKE ALL ON TABLE plan_day_consolidations FROM %I', r); END IF;
   END LOOP;
 END $$;
 
